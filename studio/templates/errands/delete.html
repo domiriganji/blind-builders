@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% from "_macros.html" import post_button %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p class="lead">Deleting removes this errand, what the AI understood and anything it found or prepared. You cannot undo this.</p>
+<div class="actions">
+  {{ post_button('/do/' ~ errand.id ~ '/delete', 'Delete this errand', 'primary') }}
+  <a href="/do/{{ errand.id }}">Keep it and go back</a>
+</div>
+{% endblock %}

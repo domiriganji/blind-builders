@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_input, error_summary, sources_list, textarea %}
+{% block content %}
+<h1>{{ title }}</h1>
+{{ error_summary(errors) }}
+<p class="lead">The AI found this on the web and wrote this answer. Nobody at the site has checked it. Check important facts, like dates, prices and rules, at the sources before you rely on them.</p>
+<div>
+{{ answer }}
+</div>
+{% if errand.sources %}
+{{ sources_list(errand.sources, 2, 'Sources the AI used') }}
+{% else %}
+<h2>Sources the AI used</h2>
+<p>The AI did not give any sources for this answer. Treat it with care and check it somewhere you trust.</p>
+{% endif %}
+
+<h2>Ask a follow-up question</h2>
+<form method="post" action="/do/{{ errand.id }}/follow-up" novalidate>
+  {{ csrf_input() }}
+  {{ textarea('question', 'Your follow-up question', values.question, hint='The AI will see this answer too. It reads back your question before it searches. Do not include passwords, card numbers or codes.', error=errors.question, rows=4, required=true) }}
+  <button type="submit" class="button button-primary">Ask the follow-up</button>
+</form>
+
+{% include "errands/_request.html" %}
+{% include "errands/_footer.html" %}
+{% endblock %}

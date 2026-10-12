@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_input, error_summary, textarea %}
+{% block content %}
+<h1>{{ title }}</h1>
+{{ error_summary(errors) }}
+<p class="lead">Nothing has been done yet. Check what I understood. Then correct me, answer my questions, or press Go ahead.</p>
+{% set c = errand.contract %}
+<h2>Goal</h2>
+<p>{{ c.goal }}</p>
+<h2>What I will do</h2>
+{% if c.steps %}
+<ol>{% for s in c.steps %}<li>{{ s }}</li>{% endfor %}</ol>
+{% else %}
+<p>I did not list any steps.</p>
+{% endif %}
+<h2>I will not</h2>
+<ul>{% for s in c.will_not_do %}<li>{{ s }}</li>{% endfor %}</ul>
+<h2>Done when</h2>
+<p>{{ c.done_when or 'I did not say. Tell me below what result you want.' }}</p>
+{% if c.questions %}
+<h2>Questions for you</h2>
+<ol>{% for q in c.questions %}<li>{{ q }}</li>{% endfor %}</ol>
+{% endif %}
+{% if c.information_needed_from_you %}
+<h2>Information that would help me prepare your answers</h2>
+<ul>{% for i in c.information_needed_from_you %}<li>{{ i }}</li>{% endfor %}</ul>
+<p>Only give what you are happy to share. Never give passwords, card numbers or codes. Where you leave something out, I will put a gap like [your date of birth] for you to fill in yourself.</p>
+{% endif %}
+<p class="meta">The AI wrote this read-back from your request. The three things under "I will not" are the site's own rules and always apply.</p>
+
+<h2>Correct me or go ahead</h2>
+<form method="post" action="/do/{{ errand.id }}/respond" novalidate>
+  {{ csrf_input() }}
+  {{ textarea('answer', 'Corrections or answers', values.answer, hint='If I got something wrong, say what, then press Update and I will read it back again. If you only answer my questions, you can press Go ahead. Do not include passwords, card numbers or codes.', error=errors.answer, rows=5) }}
+  <div class="actions">
+    <button type="submit" name="action" value="update" class="button button-secondary">Update</button>
+    <button type="submit" name="action" value="go" class="button button-primary">Go ahead</button>
+  </div>
+</form>
+
+{% include "errands/_request.html" %}
+{% include "errands/_footer.html" %}
+{% endblock %}

@@ -1,0 +1,15 @@
+{# The person's own words, shown exactly as they wrote them. #}
+<h2>Your request, in your words</h2>
+<div class="panel">
+{% for line in errand.request.splitlines() if line.strip() %}<p>{{ line }}</p>
+{% endfor %}
+</div>
+{% if errand.notes %}
+<p>What you told me after the read-back:</p>
+<ol>
+{% for n in errand.notes %}<li>{{ n.text }}</li>{% endfor %}
+</ol>
+{% endif %}
+{% if errand.parent_id %}
+<p>This is a follow-up to <a href="/do/{{ errand.parent_id }}">your earlier errand</a>.</p>
+{% endif %}

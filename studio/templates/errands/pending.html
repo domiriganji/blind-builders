@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% from "_macros.html" import post_button %}
+{% block content %}
+<h1>{{ title }}</h1>
+{% if errand.job_active %}
+<p class="lead">{% if errand.status == 'new' %}The AI is reading your request. It will tell you what it understood before it does anything.{% else %}The AI is working on this now. Nothing is sent or submitted anywhere for you.{% endif %}</p>
+<p><a class="button button-primary" href="/jobs/{{ errand.job_id }}">See how it is going</a></p>
+{% else %}
+{% if errand.job_failed %}
+<p class="lead">The last try did not finish. {{ errand.job.error }}</p>
+{% elif errand.status == 'new' %}
+<p class="lead">Your request is saved. The AI has not read it back yet.</p>
+{% else %}
+<p class="lead">You said go ahead, but the work has not finished.</p>
+{% endif %}
+<div class="actions">
+  {{ post_button('/do/' ~ errand.id ~ '/retry', 'Read back my request' if errand.status == 'new' else 'Try again', 'primary') }}
+  <a href="/account">Check how you pay for the AI</a>
+</div>
+{% endif %}
+{% include "errands/_request.html" %}
+{% include "errands/_footer.html" %}
+{% endblock %}
