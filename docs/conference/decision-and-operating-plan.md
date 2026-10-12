@@ -1,6 +1,8 @@
 <!-- Exported 2026-10-12 21:34 UTC. DRAFT. The four panelists are reviewing it; the final version will replace this file. -->
 
-> **Status:** DRAFT. The four panelists are reviewing it; the final version will replace this file.
+> **Superseded.** This is the conference's round 5 plan, kept as a record. The organizers rejected its phone line, its focus on one seller's shop page and its grant funding, and asked for a website that helps blind people build anything with AI, run without staff and paid for by members. All eight ideas from round 3 were kept and became the sections of the website in `studio/`. See the README.
+
+> **Status:** DRAFT. Two of the four panel reviews were completed before the organizers changed direction.
 
 # Decision and Operating Plan: Countersign
 

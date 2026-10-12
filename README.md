@@ -1,23 +1,78 @@
-# Blind Creators Platform
+# Blind Creators Studio
 
-A project to build a website or application that helps blind people turn their ideas into reality with AI: building apps and websites, starting companies, delegating tasks to AI agents, writing and publishing articles and research.
+A website where blind and low-vision people turn their ideas into reality with AI: websites and apps, writing and publishing, research, and tasks done on the web. Every page is built for screen readers, keyboards, voice and braille displays first, works without JavaScript, and is light enough for cheap phones on slow data.
 
-The premise: with AI agents and "vibe coding", the parts of building that used to require sight (reading a screen, writing code by hand, designing a UI) are no longer hard requirements. Blind people, who model the world through hearing, touch, language and structure rather than sight, bring strengths and perspectives that sighted builders do not. What they need is to be free to build.
+There is no phone line and no support staff. The AI does the work, and members help each other. Members pay for the AI themselves, either with their own Claude API key or with credits.
 
-## How the product decision was made
+## What you can do
 
-Rather than guessing, the decision came out of a structured multi-agent conference. Every agent ran on the same frontier model at maximum reasoning effort.
+| Section | What it does |
+|---|---|
+| Build | Describe a website, a phone web app, a small tool or a game in your own words. The AI reads back what it understood, you correct it or approve it, it builds it, and the site checks every page and tells you exactly what changed and what nobody has checked. Preview it, download it, or ask other members to test it. |
+| Do this for me | "Find this and bring me the information", with sources. Or "help me do this task on a website": it finds the official place, explains each step with screen reader tips and prepares your answers. It never logs in, pays or submits for you. |
+| Write and publish | Write articles, papers, letters and stories. AI suggestions are shown as before and after, and you accept or reject each one. Every version is kept. Export to Markdown, text, HTML, Word or LaTeX. Find where to publish and draft a cover letter. |
+| Find before you build | A directory of tools, seeded from research on what was built for blind people in 2026, with reports from members about whether each one worked for them. The AI can also search the web for tools that already exist. |
+| Research | Run your own research: prior work with sources, a study plan that is accessible to blind participants, statistics the site computes from your data, and a draft paper whose citations the site checks. |
+| Peer checks | Ask other blind members to test your website with their screen reader, and check theirs. Each check goes into a public record that shows if anyone changes it later. Optional credit rewards go from the person asking to the person checking. |
+| AI tools report | Which AI coding tools work with screen readers right now, reported by members after each update. |
+| Tool library | Tools blind people made for each other, and a way to report what broke after an update and volunteer to fix it. |
+| Learn and help | Screen-reader-first guides, and a place to ask the community, with an optional AI-suggested answer while you wait. |
 
-1. **Research sweep.** Seven scouts, each with a different search angle (assistive AI apps, AI coding tools and screen readers, academic papers, creation and publishing tools, blind community voices, voice and agent platforms, open source), mapped what was built for or used by blind people between April 12 and October 12, 2026. Every claimed item was then fact-checked by independent verifiers before it entered the brief.
-2. **Conference, rounds 1 to 5.** A chair plus four panelists: a cognitive neuroscientist (what blind people perceive and do that sighted people cannot), a technology scout (what already exists, so the panel does not copy it), a blind software builder and founder (lived experience and veto power), and a product and AI architect (web, mobile, LLM agents, accessibility). Rounds: powers and barriers, the landscape, proposals, cross-examination, convergence. Between rounds 4 and 5, three independent judges scored every surviving concept.
-3. **Conference, rounds 6 to 8.** Design, version-one scope and roadmap, a four-person skeptic panel trying to refute the decision, then responses, closing statements and a communiqué.
-4. **Synthesis.** A rapporteur wrote the final report, a completeness critic checked it against the full transcript, and the report was revised.
+## How the site treats you
 
-## Contents
+- **Read-back first.** Before the AI builds or does anything, it tells you what it understood.
+- **Whole answers, summary first.** Nothing streams or talks over your screen reader. Slow work runs in the background: you get a page that says what is happening and a "Check again" link. With JavaScript on, it checks by itself, plays three short taps (rhythm, not pitch) and moves you to the result.
+- **Honest labels.** What the AI wrote, what the site checked, and what nobody checked are always shown separately.
+- **Your words stay yours.** The AI never silently changes your writing.
+- **No secrets.** The site never asks for passwords, card numbers or codes, and refuses text that looks like them.
 
-- `docs/research/` — the raw scout findings, the verification results and the landscape brief.
-- `docs/conference/` — the full transcript, judge scores, skeptic panel, communiqué and the final decision report.
+## Run it on your computer
 
-## Status
+You need Python 3.11 or newer.
 
-Research and conference in progress. The decision report will be added to `docs/conference/` when the conference closes.
+```
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
+STUDIO_SECRET_KEY=any-long-random-text uvicorn studio.app:get_app --factory --port 8000
+```
+
+Open http://localhost:8000, create an account, and connect your Claude API key on your account page (get one at console.anthropic.com).
+
+## Put it on the internet
+
+Any host that runs Python works (a small virtual server, Render, Railway, Fly.io and similar). You need:
+
+- **A persistent disk** for the database file (`data/studio.db` by default, or set `STUDIO_DB_PATH`). Back it up.
+- **HTTPS** in front of the app.
+- These settings:
+
+| Setting | What it is |
+|---|---|
+| `STUDIO_SECRET_KEY` | Required. Long random text. Keep it the same forever: it signs sign-ins and encrypts members' saved API keys. |
+| `STUDIO_BASE_URL` | Your public address, for example `https://studio.example.org`. |
+| `ANTHROPIC_API_KEY` | Optional. The site's own Claude key, used for members who buy credits. Without it, members use their own keys. |
+| `STUDIO_MODEL` | Optional. Default `claude-opus-5-5`. |
+| `STUDIO_CREDIT_MARKUP` | Optional. Default `1.25`: credits cost the AI price plus 25 percent. |
+| `STUDIO_SIGNUP_CREDITS` | Optional. Free credits for new members, in cents. |
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Optional. Turn on buying credits. Add a Stripe webhook to `<your address>/payments/stripe/webhook` for `checkout.session.completed` and `checkout.session.async_payment_succeeded`. |
+
+Start it with `uvicorn studio.app:get_app --factory --host 0.0.0.0 --port 8000`. Make yourself an admin with `python -m studio.manage make-admin you@example.com`.
+
+## Tests
+
+```
+pip install -r requirements-dev.txt
+python -m pytest -q
+```
+
+The tests include real-browser checks: Playwright drives Chromium, runs axe-core (WCAG 2.2 A and AA) on every page, repeats pages with JavaScript off and at 320 pixels wide, and walks each section the way a screen reader user would.
+
+## How this was decided
+
+The product came out of research and a multi-agent conference, kept in `docs/`:
+
+- `docs/research/`: a verified landscape of tools built for blind people between April and October 2026, what blind people say they need, and the gaps.
+- `docs/conference/`: the full transcript of rounds 1 to 5, the judge scores and the plans the panel wrote. The panel's eight ideas became the sections of this website; the parts the organizers did not want (a phone line, a shop, grant funding) were left out.
+
+Developers: read `docs/DEVELOPING.md` first.
