@@ -1,6 +1,6 @@
 # The Blind Creators Conference: Full Transcript
 
-Exported 2026-10-12 18:25 UTC. Rounds fully closed: 1, 2, 3, 4. Still in progress: r5:scientist.
+Exported 2026-10-12 18:46 UTC. Rounds fully closed: 1, 2, 3, 4. Still in progress: r5:scout.
 
 The working record of a multi-agent conference convened to decide what website or application should be built to help blind people turn their ideas into reality with AI. Every speaker read the verified landscape brief in `docs/research/landscape-brief.md` first. Speeches before 15:00 UTC on October 12, 2026 ran on Claude Fable 5.1; later ones on Claude Opus 5.5; all at maximum reasoning effort. The decision and operating plan are in `decision-and-operating-plan.md`.
 
@@ -1651,5 +1651,106 @@ Finally, audit out loud the arithmetic Yusuf, Priya and Sam give before you.
 - Unserved and undated: voice-note and zoom users over fifty (Yusuf); braille-only users, absent from the November 2 test (science judge); native-Android Errand (a roadmap date per the blind-user judge, an open gap per the venture judge); publishing (an open gap).
 - Unanswered requests to Priya: Lena's seeded wrong price in each November 2 tester's 'What I understood', and template trials counted separately from fills. Also the science judge's fallback letting users type, not only say, the prices and phone numbers they must repeat.
 - Competitors the judges named from their own knowledge (unchecked for 2026) that the panel never weighed: Fable's paid disabled testers, guidepup in CI and JAWS Inspect. guidepup-mcp is on Sam's build-on list.
+
+### Dr. Lena Vasquez
+*Cognitive neuroscientist (cross-modal plasticity, sensory substitution, blind cognition). Model: Opus 5.5.*
+
+Part A.
+
+Chair, the other round-five sections have not reached me.
+
+The product is Countersign: one website, one engine, paid blind witnesses at its centre, and two doors opened in order. Receipts carry the signer's name because "built for blind sellers" outs a builder. The phone door, called Ready, opens to fifty sellers in Lagos and Ibadan in January. The paste-a-URL door is paid: Yusuf's developers, and agencies buying blind witness checks. Count Us is a separately funded study, not a door.
+
+Promise: whatever you publish comes back with who checked it, on which phone, and what nobody checked, in words you can repeat to customers.
+
+Day one: Kemi, late-blind at forty-one from glaucoma, now fifty-two; Tecno Spark, TalkBack; English on screen, Yoruba and Pidgin with customers; no card.
+
+Five non-negotiables. One: verdicts cite only direct or computed lines; everything else reads "never checked". Two: witnesses type what they heard; queues are seeded; masked witnesses place labelled test orders using readers the harness never tests. Three: prices and phone numbers are recalled, spoken or typed as digits, never confirmed with "yes". Four: text first: every sound is also a line, rhythm not pitch, 400 percent reflow, a braille-only path. Five: refusals are computed before publishing, and nothing a customer sees says the builder is blind.
+
+Independence comes from instruments: masked orders, seeds and printed bounds, plus Yusuf's one-way money rule and banner. "The signer never builds" needs a second organisation before Kemi's first page; boards can wait.
+
+Nearest duplicates: the WhatsApp Business catalog and Gemini Canvas for Kemi's evening; for witnesses, Fable's paid disabled testers, raised by the judges, unchecked by me for 2026. None hands the builder a seeded, line-by-line account.
+
+Conceded to the judges: the receipt is what we want for Kemi, so my headline counts what she does; without agency cash, the witness network is a grant.
+
+Dissent: in January Kemi hears "checked", with the count, not "ready". Priya said her harness "never says 'good,' only 'this ran'"; "ready" is "good" in one word. She still gets one word, a true one. "Ready" returns when masked checks earn it: fifty-nine pages without a failure, or ninety-three with one.
+
+Chair, if we have not converged, run an instant runoff. My ballot: the science judge's shape, then the blind-user judge's, then the venture judge's. A developer-only door serves three people in Yusuf's groups and none of my median.
+
+Part B.
+
+Yusuf, Priya, Sam: your round-five numbers have not reached me, so I audit the record's and set one rule for yours: any rate enters the plan with its denominator and ninety-five percent bound, or as a blank with its speaker's name.
+
+Priya, your twenty-nine-dollar surplus assumes thirty receipts a month. At Sousa's pace, 131 pull requests in seven weeks, a developer deploys about eighty times a month: forty dollars of receipts, a surplus near four. Cap receipts in the plan or charge past the cap. Second, tokens are cents and listening is dollars. A hundred template builds cost your fifteen dollars in tokens and about two hundred seventy in listening: a hundred witness checks, a one-in-five masked sample and their seeds, valued at Yusuf's two dollars a check. A cost per build led by the model bill answers the wrong question. Third, Yusuf, your fifteen-percent banner fires in January: against the paid door's 490 dollars, Ready passes fifteen percent of the signer's income once its fifty sellers' checks top a dollar seventy-three each a month, and one check costs two. Print it; never tune prices to dodge it. Fourth, your "witnesses will outnumber builders" collides with the seeds. At one seed in ten, a witness doing three checks a month meets a seed once a quarter, and for over a year we cannot tell a listener from a non-listener. A hundred builds a month produce about a hundred thirty-five checks, seeds included: five or six active witnesses at twenty-five checks each. Everyone else waits on a list, or seeds stop working. Fifth, Sam: three successes in three on October 30 still allow a true rate of twenty-nine percent, and catching your four known failures bounds sensitivity only above forty. Add twenty seeded regressions; twenty of twenty bounds it above eighty-three.
+
+The headline: alone and working. Of builders active in the last thirty days, the share who published at least one change, made without sighted help, that a masked witness then ordered from successfully. "Without sighted help" is her answer to one question at publish, never shown to customers, validated in March by ten interviews. During the pilot, each seller's first page and first change each month get a masked check. Target: half of active sellers by March 31. Reviewed weekly with count and interval, never shown without its guardrail: failed masked orders on pages the record passed, with the upper bound. Witness growth is an input, cash is survival, receipts are means; the premise was "free to build".
+
+The dashboard. Weekly: headline, guardrail, seed catch rates per check class and per reader, hours to rule on held requests. Monthly: active witnesses, checks per witness, witnesses recruited by witnesses, the blind-user judge's measure; recall mismatches caught per hundred builds; the paid door's verification minutes; agency cash against witness pay. Quarterly: answerability, reach, opt-out rate, harms that passed our refusals, and the banner.
+
+Countersign's metric: two judges caught me; Sousa's evening was code review. Redefined: verification minutes per release, the minutes the developer and anyone she pays spend checking a release's rendered pages before shipping, from a start-stop timer and her checkers' invoices, against her own four releases before joining. With ten developers I can defend a sign count: nine of ten down by March 31; eight can be chance. Guardrail: no receipt line "passed" over a seeded defect. Diff review, #100911, goes on the unserved list.
+
+The gates. October 26, Yusuf's bridge: three reruns of a twenty-step script give the same NVDA transcript and nothing reaches his ear, or NVDA lines stay witness lines through March. October 30, Sam's catalog test decides in one direction only: if any TalkBack or Jieshuo tester cannot finish the editor alone, Ready builds templates. If all three finish, Ready offers the catalog first, and on March 31 ties go to the incumbent: unless Ready's headline beats the catalog route's by fifteen points, Ready stops building price lists. November 2 and 16: Priya seeds one wrong delivery day and one invented item into each tester's "What I understood"; one approval of a seeded error extends recall from prices to every line. November 30: each reader's honest hit rate from at least two hundred seeded trials; a reader whose lower bound falls under eighty percent cannot support a verdict. If honest misses run near one in ten, suspension is six misses in the last ten seeds: an honest witness crosses it about twice per thousand witness-years, a non-listener within eight seeds, inside her first twenty-four checks if her first thirty are seeded one in three. December 18, the launch gate: every template catches every seed in the defect battery, the accessibility gates pass, and the reach count is in. A failed gate slips launch a week at a time; nothing launches on a waiver. January 31: all fifty first pages masked; any template defect the harness passed withdraws that template and re-checks its pages within forty-eight hours. March 31, the money gate: if agency cash does not cover March's witness pay, we declare the witness network a grant-funded public good and Sam's grant plan becomes the budget. Same day, the number that kills the product: a masked-order failure rate, on pages the record passed, whose whole ninety-five percent interval sits above one in ten. With about a hundred fifty checks, that is twenty-four failures. Then we stop issuing records and close both doors: a record wrong that often turns a seller's caution into a customer's failed order. April 30: answerability, and my embarrassing number: five or more of forty-eight builders saying "it works" where the record says "never checked" removes the one-word verdict, and the record leads with what nobody checked. Every preregistered trigger names its product decision, executed by its owner within fourteen days; an overruling is published with its reason.
+
+Safety. A computed check refuses, before anything publishes: any field asking for a PIN, password, one-time code, card number, CVV, or Nigeria's BVN or NIN; any page collecting or holding other people's money, donations, savings groups, investments, "returns", so a fundraiser in a blind group's name dies here, as my ledger did; any claim to cure disease, blindness included, because people losing sight are a market: Kuriyan and colleagues, NEJM 2017, report three women blinded by unproven "stem cell" injections; any order link to a number that has not confirmed a code, which also stops one misheard digit sending Kemi's orders to a stranger. Names, logos or colours matching a bank, telco, government agency, charity or disability organisation are held: "MTN recharge sold here" passes; a page dressed as MTN does not. New numbers publish at most three pages in their first thirty days. Ready keeps no order database. Witnesses never solve CAPTCHAs, log in, or act on anyone's account. A borderline request is held, not refused: the reviewer on duty, a rota of three, at least two blind, from Yusuf's desk, rules within twenty-four hours; appeals go to three members of Yusuf's community body, who decide within seven days. A live harmful page runs on Priya's incident clock.
+
+Consent and privacy. Builders hear four headings of at most four items before the first build. Masked orders, at most two a month and marked TEST, can be declined; her record then says "not in the outside check", and we publish the opt-out rate, because above one in five it biases the guardrail. Nothing customer-facing says the builder is blind: the record names readers and phones, and there is no badge unless she adds one. Yusuf's point governs: being known as blind costs some people work. Witnesses are named only by choice, and pseudonyms rotate per record, so nobody can count one witness's checks: Sam's unmasking point. Work agreement and research consent are separate; declining research changes neither work nor pay. Sessions stop at thirty minutes. Count Us participants consent with teach-back, because research must test understanding. Nobody shares a PIN or login with us or presses confirm; they are paid cash, finished or not; we keep typed transcripts, never banking screenshots. Each bank gets its results thirty days before the preprint, a right of reply printed beside them, and no veto.
+
+Our own accessibility: yes, both are launch gates. Priya adds two braille-only testers, one deafblind, by November 16; they finish onboarding, a build and the record on a braille display, no sound. Every recalled value accepts typed digits. Then 400 percent reflow, rhythm-coded alerts, and no default list past four items without a heading.
+
+Reach. December 1 to 16, under an expedited amendment filed October 30, we screen late-blind adults over fifty: at least a hundred fifty at UCH Ibadan's eye clinic, plus Yusuf's groups, which over-count phone users, so we report both. Question: any screen reader, weekly. Threshold: one-half, because that is what median means. If the clinic's upper bound falls below half, Ready misses my median, and every grant and paper says so. Zoom users already have a launch gate and their own headline cell. Voice-note users get a trial, not a promise: from April 5, twenty of them dial a phone number, not WhatsApp, whose terms bar an assistant, per Sam; they dictate, hear the five sentences and key in prices. If ten ship a working change alone by June 30, it becomes a door; if not, they stay on the published unserved list.
+
+Publication: preregistrations on OSF; April 30 results whatever they show; a quarterly public report with every count and its bound; everything as headed HTML, plain text, a braille-ready file and audio, with Yoruba and Pidgin summaries. Participants hear results before the press does.
+
+**Key points**
+
+- One product, Countersign: one engine with paid blind witnesses at its centre and two doors opened in order, Ready on the phone for Kemi in January and a paid paste-a-URL door. Count Us is a separately funded study.
+- Headline metric 'alone and working': the share of active builders who shipped a change without sighted help that a masked stranger then ordered from. Target is half of pilot sellers by March 31, always shown with the false-ready guardrail.
+- Kill number: on March 31, if the 95% interval for masked-order failures on pages the record passed sits wholly above 1 in 10 (24 of about 150 checks), we stop issuing records and close both doors.
+- Dissent: Kemi hears 'checked', not 'ready', until masked checks earn the word (59 clean pages, or 93 with one failure).
+- Safety is computed refusals before publishing: credential and payment fields, other people's money, cure claims, unverified order numbers. Brand impersonation is held for a 24-hour ruling by a mostly blind rota, and nothing a customer sees says the builder is blind.
+- Audit: listening, not tokens, is the cost (about $270 against $15 per 100 template builds). Priya's surplus falls to about $4 at Sousa's pace, Yusuf's 15% banner fires in January, and the seed scheme limits active witnesses to 5 or 6 per 100 monthly builds.
+
+**Agreed with**
+
+- Science judge: one product on one website with two doors, independence from instruments rather than boards, and Count Us as a separately funded study. This is my first-ranked shape.
+- Blind-user judge: I accept Yusuf's concession that the receipt is what we want for Kemi, so my headline counts what she does. 'Witnesses recruiting witnesses' stays as a monthly metric, and 'editing without a sighted relative' is built into the headline.
+- Venture judge: without agency cash the witness network is a grant. That becomes the March 31 money gate.
+- Yusuf: I keep the one-way money rule and the 15% dependence banner. His point that being known as blind costs some people work drives the no-disclosure rule and naming witnesses only by their choice. I agree voice-note users are unserved today.
+- Priya: her harness 'never says good, only this ran' is the basis for 'checked'. I agree with recall rather than 'yes' for irreversible values and with string and hash matching against unapproved content.
+- Sam: I adopt the masked phone arm with pages picked by the signer, seeding release checks with the four documented failures, rotating witness pseudonyms per his unmasking point, and his reading of Meta's terms, so the voice trial uses a phone number, not WhatsApp.
+
+**Disagreed with**
+
+- Venture judge: a developer-only Countersign door serves three people in Yusuf's groups and none of the late-blind median, so I rank it last. 'The signer never builds' needs a second organisation before Kemi's first page.
+- Yusuf, Priya and the judges on 'ready' as Kemi's word: in January it is 'checked', with the count, until masked checks earn 'ready'.
+- Priya: her $29 surplus assumes 30 receipts. At Sousa's pace of about 80 deploys a month it falls to about $4, so cap receipts or charge past the cap. Two boards are two governments, not independence.
+- Yusuf: 'witnesses will outnumber builders' breaks the seed scheme if it means the active roster. At 3 checks a month a witness meets a seed once a quarter, so the roster must match the queue and everyone else waits on a list.
+- Sam, Yusuf and the judges: the October 30 run of three testers cannot be a two-way decision, because 3 of 3 still allows 29%. It decides in one direction only, and on March 31 ties go to the incumbent.
+- Myself: I dropped my own 'listening minutes per accepted change' for Countersign because it measured Sousa's code-review evening, not rendered pages.
+
+**Proposals made**
+
+- Countersign is the one product: the Ready phone door opens to 50 sellers in Lagos and Ibadan in January, plus a paid paste-a-URL door for developers and agencies. Count Us is funded separately.
+- Headline metric 'alone and working': the 30-day share of active builders who shipped a change without sighted help that a masked witness ordered from. Reviewed weekly with count and interval, target half of sellers by March 31, self-report checked by 10 interviews in March.
+- Verdict word 'checked' until 59 clean masked pages, or 93 with one failure, earn 'ready'.
+- Countersign metric becomes verification minutes per release against each developer's own four-release baseline. Success is 9 of 10 developers down by March 31, with no receipt line 'passed' over a seeded defect.
+- Kill rule on March 31: if the 95% interval for masked-order failures on pages the record passed sits wholly above 1 in 10 (24 of about 150), stop issuing records and close both doors.
+- Money gate on March 31: if agency cash does not cover March witness pay, declare the witness network a grant-funded public good.
+- October 30 decides one way only: any tester failing the catalog editor alone means Ready builds templates. If all finish, offer the catalog first, and Ready stops building price lists unless its headline beats the catalog route by 15 points on March 31.
+- November 2 and 16: seed a wrong delivery day and an invented item into each tester's 'What I understood'. Any approval of a seeded error extends recall to every line.
+- November 30 witness calibration: at least 200 seeded trials per reader and an 80% lower-bound floor. Suspension at 6 misses in the last 10 seeds, with each witness's first 30 checks seeded 1 in 3.
+- Size the active witness roster to the queue: about 25 checks per witness a month, 5 or 6 active witnesses per 100 monthly builds, everyone else on a waiting list.
+- Add 20 seeded regressions to release checks before any clean row is published.
+- December 18 launch gate: every template catches the seeded defect battery, the accessibility gates pass and the reach count is in. Launch slips week by week, with no waivers.
+- January 31: mask all 50 first pages. Any template defect the harness passed withdraws the template and re-checks its pages within 48 hours.
+- Every preregistered trigger names its product decision, and its owner carries it out within 14 days. Any overruling is published with its reason.
+- Computed refusals: PIN, password, OTP, card, CVV, BVN and NIN fields; pages holding other people's money; cure claims; order links to unverified numbers. Brand matches are held, a new number publishes at most 3 pages in its first 30 days, there is no order database, and witnesses never touch CAPTCHAs or accounts.
+- Borderline requests are held, not refused, and ruled on within 24 hours by a rota of three, at least two of them blind. Appeals go to three community members, who decide within 7 days.
+- Consent: at most 2 masked TEST orders a month, opt-out allowed with the opt-out rate published, nothing customer-facing says the builder is blind, witness pseudonyms rotate per record, and research consent is separate from the work agreement.
+- Count Us ethics: teach-back consent; no PIN, login or confirm press; cash paid whether or not participants finish; typed transcripts only; each bank gets 30 days' notice and a right of reply but no veto.
+- Launch gates for our own accessibility: two braille-only testers, one deafblind, by November 16; typed digits for every recalled value; 400% reflow; rhythm-coded alerts; no default list over four items without a heading.
+- Reach screening December 1 to 16: at least 150 late-blind adults over 50 at UCH Ibadan's eye clinic plus Yusuf's groups. If the clinic's upper bound is below one-half, we concede Ready misses the median.
+- Voice-note trial: 20 users dial a phone number from April 5, and it becomes a door if 10 ship a working change alone by June 30. Zoom users get their own headline cell.
+- Publication: preregistration on OSF, April 30 results whatever they show, and a quarterly report with every count and its bound. Formats are headed HTML, plain text, braille-ready file and audio with Yoruba and Pidgin summaries, and participants hear results first.
 
 ---
