@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Peer checks</h1>
+<p class="lead">Ask other blind members to try your website or app with their own screen reader, and check their work in return. Every check goes into a public record that says who checked, with which screen reader, browser and device, what they heard and whether they could do the task.</p>
+{% if user %}
+<p class="actions"><a class="button button-primary" href="/checks/new">Ask for a check</a></p>
+{% else %}
+<p><a href="/login?next=/checks">Sign in to ask for a check or check someone's work</a>, or <a href="/register?next=/checks">create a free account</a>.</p>
+{% endif %}
+
+{% if user %}
+<h2>Check someone's work</h2>
+{% if queue %}
+<p>{{ queue|length }} {{ 'request is' if queue|length == 1 else 'requests are' }} waiting for a check.</p>
+<ul class="item-list">
+{% for r in queue %}
+  <li><a href="/checks/{{ r.id }}">{{ r.title }}</a>.
+    {% if r.reward_cents %}Reward: {{ money(r.reward_cents) }} in credits.{% else %}No reward.{% endif %}
+    <span class="meta">{{ r.done }} of {{ r.max_checks }} checks done.</span></li>
+{% endfor %}
+</ul>
+{% else %}
+<p>No requests are waiting for you right now.</p>
+{% endif %}
+
+<h2>Your requests</h2>
+{% if mine %}
+<ul class="item-list">
+{% for r in mine %}
+  <li><a href="/checks/{{ r.id }}">{{ r.title }}</a>: {{ r.done }} of {{ r.max_checks }} checks done, {{ 'open' if r.status == 'open' else 'closed' }}.
+    <a href="/checks/{{ r.id }}/record">Check record for {{ r.title }}</a></li>
+{% endfor %}
+</ul>
+{% else %}
+<p>You have not asked for a check yet.</p>
+{% endif %}
+
+<h2>Checks you did</h2>
+{% if done_by_me %}
+<ul class="item-list">
+{% for r in done_by_me %}
+  <li><a href="/checks/{{ r.id }}/record">Check record: {{ r.title }}</a> <span class="meta">(checked {{ r.checked_at[:10] }})</span></li>
+{% endfor %}
+</ul>
+{% else %}
+<p>You have not checked anyone's work yet.</p>
+{% endif %}
+{% endif %}
+
+<h2>How peer checks work</h2>
+<ol>
+  <li>You give the web address and the task to try, for example: find the opening hours and book a table.</li>
+  <li>Up to 5 members try it with their screen reader and write what they heard first, whether they could do the task, and the problems they found.</li>
+  <li>Each check is saved in a public record with a fingerprint. If anyone changes an entry later, the record page says so.</li>
+</ol>
+<h3>Rewards</h3>
+<p>You can offer a reward in credits for each check. The whole amount is held from your credits when you ask. Each checker gets their reward the moment they send their check. If you close the request early, the rest comes back to you. <a href="/pricing">Read how paying works</a>.</p>
+<h3>What a peer check does not cover</h3>
+<p>A check is one member's honest report of one try. It is not a full accessibility audit, and it does not say how the page looks to sighted people unless a checker says so.</p>
+
+{% if recent %}
+<h2>Recent check records</h2>
+<ul class="item-list">
+{% for r in recent %}
+  <li><a href="/checks/{{ r.id }}/record">Check record: {{ r.title }}</a> <span class="meta">({{ r.done }} {{ 'check' if r.done == 1 else 'checks' }})</span></li>
+{% endfor %}
+</ul>
+{% endif %}
+{% endblock %}

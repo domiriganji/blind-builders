@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_input, error_summary, field, textarea, select %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p>Other blind members will open your page with their own screen reader, try the task you describe, and write down what happened. Their checks go into a public record, so do not put passwords or private details here.</p>
+{{ error_summary(errors) }}
+<form method="post" action="/checks/new" novalidate>
+  {{ csrf_input() }}
+  {{ field('title', 'Name of what you want checked', values.title, required=true, hint='For example: Cake shop order page.', error=errors.title) }}
+  {{ field('url', 'Web address', values.url, type='url', required=true, autocomplete='url', hint='The full address, starting with https:// or http://. For an app, give the page where people can download it.', error=errors.url) }}
+  {{ textarea('what_to_try', 'What should checkers try?', values.what_to_try, required=true, rows=5, hint='Describe one task, for example: find the price of a chocolate cake and add it to the basket. If it needs an account, ask checkers to make their own test account.', error=errors.what_to_try) }}
+  {{ select('max_checks', 'How many checks do you want?', count_options, values.max_checks, required=true, hint='Each check comes from a different member. More checks usually means more screen readers and devices.', error=errors.max_checks) }}
+  {{ select('reward_cents', 'Reward for each check', reward_options, values.reward_cents, required=true, hint="Credits are the site's money, counted in US dollars and cents. The reward times the number of checks is held from your credits now. Each checker is paid when they send their check, and anything not paid comes back if you close the request early. Your credits now: " ~ balance ~ ".", error=errors.reward_cents) }}
+  <button type="submit" class="button button-primary">Ask for the check</button>
+</form>
+<p><a href="/checks">Back to Peer checks</a></p>
+{% endblock %}
