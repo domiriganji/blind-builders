@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% from "_macros.html" import sources_list %}
+{% block content %}
+<h1>{{ title }}</h1>
+{% set p = errand.prepared %}
+<p class="lead">Here is where to go, what to have ready, the steps and the answers I prepared. This site does not log in, pay or send anything for you. You do the task yourself, when you are ready.</p>
+
+<h2>Where to go</h2>
+{% if p.where_to_go.url %}
+<p><a href="{{ p.where_to_go.url }}" rel="noopener noreferrer">{{ p.where_to_go.title or p.where_to_go.url }}</a></p>
+<p class="meta">Web address: {{ p.where_to_go.url }}</p>
+{% else %}
+<p>The AI did not find an official web address{% if p.where_to_go.title %} for {{ p.where_to_go.title }}{% endif %}. Look at the sources below, and be careful with websites that charge a fee for something the official site does for free.</p>
+{% endif %}
+
+<h2>Before you start</h2>
+{% if p.before_you_start %}
+<ul>{% for b in p.before_you_start %}<li>{{ b }}</li>{% endfor %}</ul>
+{% else %}
+<p>The AI did not list anything to have ready.</p>
+{% endif %}
+
+<h2>Steps</h2>
+{% if p.steps %}
+<ol>
+{% for s in p.steps %}
+  <li>{{ s.instruction }}{% if s.screen_reader_tip %}<br>Screen reader tip: {{ s.screen_reader_tip }}{% endif %}</li>
+{% endfor %}
+</ol>
+{% else %}
+<p>The AI could not work out the steps. Use the sources below.</p>
+{% endif %}
+
+<h2>Prepared answers</h2>
+{% if p.prepared_answers %}
+<p>Each answer is in its own block, so you can select it and copy it. Text in square brackets, like [your passport number], is a gap for you to fill in yourself. Read each answer before you use it.</p>
+{% for a in p.prepared_answers %}
+<h3>{{ a.field_label }}</h3>
+<pre>{{ a.suggested_answer }}</pre>
+{% if a.note %}<p>Note: {{ a.note }}</p>{% endif %}
+{% endfor %}
+{% else %}
+<p>There are no prepared answers. You did not give details the form asks for, or the AI could not tell which fields the form has.</p>
+{% endif %}
+
+<h2>Known accessibility problems</h2>
+{% if p.known_accessibility_problems %}
+<ul>{% for k in p.known_accessibility_problems %}<li>{{ k }}</li>{% endfor %}</ul>
+{% else %}
+<p>The AI did not find reports of problems. That does not mean there are none.</p>
+{% endif %}
+<p>If you get stuck, you can <a href="/help/ask?title={{ ('Stuck on: ' ~ errand.label)|urlencode }}">ask the community for help</a>.</p>
+
+<h2>What happens after</h2>
+<p>{{ p.what_happens_after or 'The AI did not find what happens after you send it. Look for a confirmation message or email when you finish.' }}</p>
+
+<h2>What was checked</h2>
+<p>The AI wrote these steps and tips from the web pages listed under sources. Nobody at the site has tried them, and the website may have changed. If a step does not match what you hear, trust the website itself over this page.</p>
+{% if errand.sources %}
+{{ sources_list(errand.sources, 2, 'Sources the AI used') }}
+{% else %}
+<p>The AI did not give any sources for these steps. Treat them with care.</p>
+{% endif %}
+
+{% include "errands/_request.html" %}
+{% include "errands/_footer.html" %}
+{% endblock %}
