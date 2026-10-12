@@ -1,6 +1,6 @@
 # The Blind Creators Conference: Full Transcript
 
-Exported 2026-10-12 19:13 UTC. Rounds fully closed: 1, 2, 3, 4. Still in progress: r5:builder.
+Exported 2026-10-12 19:36 UTC. Rounds fully closed: 1, 2, 3, 4. Still in progress: r5:architect.
 
 The working record of a multi-agent conference convened to decide what website or application should be built to help blind people turn their ideas into reality with AI. Every speaker read the verified landscape brief in `docs/research/landscape-brief.md` first. Speeches before 15:00 UTC on October 12, 2026 ran on Claude Fable 5.1; later ones on Claude Opus 5.5; all at maximum reasoning effort. The decision and operating plan are in `decision-and-operating-plan.md`.
 
@@ -1895,5 +1895,98 @@ My list is input; the panel decides.
 - Reuse by licence: Playwright, axe-core, guidepup, nvda-addon-testkit, Rekor, MAIDR. Fund the TalkBack bridge inside screen-readers-mcp and pay guidepup's maintainer per green month, as Upkeep's first subscriber. Build the twenty Canary seeds by reverting fixes in Codex's open-source CLI and pinning old Claude Code versions.
 - Competitive response if Google ships a Canvas receipt: seeded masked test within 48 hours, decision within 14 days, and retire our Canvas machine lines if it catches all 20 seeds. Witness transcripts tag TalkBack's Gemini descriptions as Gemini's.
 - Legal checklist. Nigeria: NDPA and GAID registration, explicit consent and an impact assessment for disability data, a disclosed cross-border transfer, tax sign-off before the first payout, 'checked' never 'safe' wording, liability capped at twelve months of fees, 48-hour public correction, witnesses indemnified, counsel review before Count Us is released. EU: business-to-business sales only, a GDPR Article 27 representative, a machine-readable INFERRED tag for AI Act Article 50, contract caps under the Product Liability Directive, and human review of suspensions under the Platform Work Directive.
+
+### Yusuf Adeyemi
+*Blind software builder and founder. Model: Opus 5.5.*
+
+Part A, the decision.
+
+Lena, Sam and I converge. Countersign: one website opened from a WhatsApp link, plus a phone number a blind person answers.
+
+Is the witness network the product? Yes. What an agency buys, what a witness earns and what Kemi repeats to a customer are one thing: a line a blind person typed after listening. Kelly Ford wrote the description in May: "Only a screen reader user can verify that they actually work." The promise: before you share it, a blind person has listened, and you know what nobody checked.
+
+Day one: Kemi, glaucoma at forty-one, now fifty-two; Tecno Spark, TalkBack; English on screen, Yoruba and Pidgin with customers; no card. If Sam's October 30 run sends her to the catalog, her first evening: "I made my catalog myself; they only checked it: a blind person heard every price the way I said it, and somebody told me my puff-puff had the cake picture."
+
+Five non-negotiables, beside Lena's and Sam's: a person answers, free to the caller; every check paid in naira, weekly, into the witness's own account; witness lines name a reader and a phone, a person only by her choice; route first to anything free she can finish alone; blind people hold vetoes, a late-blind voice-note user among them.
+
+Nearest duplicate: not the catalog, the niece. All three catalogs among my eleven sellers were typed by sighted relatives. She is free and trusted, and owns the edit.
+
+Conceded. The receipt was mine, not Kemi's, so she hears a sentence, not a record. Sam is right: builds-for-checks pays fifteen cents for ten minutes of listening; it dies. "Witnesses will outnumber builders" is true of the waiting list, not the payroll. Count Us is a project. And Lena's dissent: in January Kemi hears "checked," with the count. That retires "Ready" as a name: a door called Ready says the barred word on every page. Her door is a heading, "Make my page."
+
+Dissent. Lena's voice-note users, most late-blind people over fifty in my groups, wait for an April 5 machine line. From January 11 the desk takes twenty by voice note: a blind agent types into the same form, every line says "entered by desk agent," and Lena's April line gets a human baseline.
+
+Ballot: the science judge's shape with the blind-user judge's centre; venture last.
+
+Part B, users and community operations; naira at Sam's fifteen hundred to the dollar.
+
+First, a conflict: my company is a paying customer, so I hold no seat and no vote. The desk and the witnesses belong to the signer; the builder buys Kemi's desk hours at Sam's public prices, so money flows one way.
+
+WhatsApp, per Sam: no bot, no Business API; humans post our link, order buttons stay wa.me links, buzzes go by Web Push or SMS. Our WhatsApp line is the Business app, humans only; if counsel finds by December 1 that Meta's terms reach that too, voice notes move to voicemail.
+
+Channels: my eleven sellers and my groups, about 2,400 members by my count; NAB Lagos and Oyo, a demonstration at each monthly meeting from November; the Oshodi vocational rehabilitation centre, where late-blind adults learn TalkBack; UCH Ibadan's eye clinic, a card with the desk number, not a link, since a newly blind patient has no screen reader yet; FCE (Special) Oyo and MTN Foundation's blind scholars, for witnesses; market groups, starting with Ikorodu. No referral bounties: they turn a group's trust into a sales pitch.
+
+Launch: January 4 with my eleven, open January 11, fifty by January 31, then at most twenty-five new sellers a week, while witnesses and desk stay inside the limits below. Devices: Tecno, Itel, Infinix, Samsung A-series; TalkBack and Jieshuo; Chrome, Opera Mini, and Phoenix, which Transsion's phones ship. Languages: English and Pidgin in the product; Yoruba by human voice at the desk, since no phone voice in my groups reads Yoruba; TalkBack's English voice drops the tones.
+
+The first session, budgeted in swipes as Seeing AI's v1.5 was on May 7 (play.google.com/store/apps/details?id=com.microsoft.seeingai). Minute zero: she taps the link; under the heading, "A person answers this number, free: ring once and we call back." Minute one: phone number, SMS code. Minute two: Lena's four headings: what we make, what we keep, who checks, including up to two TEST orders a month, and the cost: nothing. Minute four: "Already have a catalog or a page?" Yes, we check it; no, we make one, or send her to the catalog if October 30 passes. Minute five: she dictates or types items, prices, order number, days. Minute nine: "What I understood," five sentences, and "What I will add that you did not ask for: nothing." Minute eleven: she recalls prices and the order number, typed digits allowed, and that number confirms a code. Minute thirteen: "Make my page," and "A blind checker usually answers within two hours, eight to nine." Three minutes stuck, or "help," and "Talk to a person" moves to the top. Targets: median fifteen minutes; seven in ten who open the link reach "Make my page."
+
+The desk. Two mobile numbers; ring once and we call back within fifteen minutes at our cost. WhatsApp text and voice notes; email for developers; every channel has a text twin, so a deafblind user never has to call. Hours: Monday to Saturday, eight to nine; Sunday three to seven on a paid witness rota. English, Pidgin and Yoruba live; Igbo and Hausa by interpreter callback within a day. Targets: a human WhatsApp reply in thirty minutes, or by nine next morning; eight in ten issues closed in a day, ninety-five in a hundred in three. Staff: two blind agents from January 4, seven-hour shifts, six days, at three hundred fifty thousand naira a month plus forty thousand for data; one leads from April; more at one per hundred fifty active sellers.
+
+Escalation. Class one: orders reaching a wrong number, anything she did not approve, anything on Lena's refusal list, a customer reporting money lost. The agent withdraws the record; Priya's on-call pauses the page, fifteen minutes is my ask; the agent calls the seller within thirty, in her language. Out of hours, "report this page" rings on-call; group admins hosting our link get a class-one flagger number. Class two: a disputed line, re-checked free by another witness within four hours, corrected publicly within Sam's forty-eight. Lena's safety rota: agent on shift, desk lead, part-time sighted image reviewer; two blind of three, ruling within a day.
+
+Witnesses. By October 31: thirty applicants, a paid ten-minute entry check, twenty-four trained, twenty plus four alternates: adults, daily screen-reader users for six months, own phones. Under eighteen, a teenager builds with a guardian's consent and never witnesses; Sam, check model terms for minors: they made Vispero age-gate JAWS's AI on May 13. A witness lead, one of the twenty, works half-time from January at two hundred thousand naira a month. Training is three paid hours before any paid check; unpaid blind work is what Kingett called "free marketing" (August 18). Hour one: type what you heard; never log in, solve a CAPTCHA or touch anyone's account. Hour two: twelve practice pages, four of them seeds, with feedback. Hour three: privacy, payout.
+
+Calibration, November 9 to 29: the twenty, ten TalkBack, ten Jieshuo, run twenty seeded trials each in seven supervised half-hour sessions, two hundred per reader, Lena's gate.
+
+Capacity: a phone check is ten minutes, so Lena's half-hour cap means three a session; two sessions a day at most, five a week. Ceiling: fifteen checks a week, forty-five thousand naira, under Sam's Tier 1 line. Floor: four a week, or seeds stop separating listeners from non-listeners. Lena's hundred thirty-five checks per hundred builds need six active blind witnesses, four TalkBack, two Jieshuo, about twenty-two checks a month each, plus a sighted photo checker and two paid reserves.
+
+Pay: three thousand naira a phone check, Sam's two dollars; four thousand five hundred a masked test order; seeds paid like any check, since she cannot tell; fifteen hundred a sighted photo check, so, Sam, add a dollar-fifty line; twenty-two thousand five hundred a professional full check, half of Sam's thirty. Fridays by six, instant transfer to the account or wallet she already uses, in my groups mostly OPay, PalmPay or Moniepoint; we pay the fee. She types the account number twice and hears the account name back; no BVN. Any payout seven days late pauses new seller sign-ups until paid.
+
+Fraud: her first thirty checks are seeded one in three, then one in ten, under Lena's cutoff, with a paid retraining call at four misses in ten. Pasting visible text fails a seed by construction: the screen says "Order," TalkBack says "Send request." One witness per phone number and payout account. The signer assigns at random; she cannot swap, and declares relatives' businesses once. Seed wording rotates weekly, so leaked answers die in seven days. Every suspension gets two human reviewers within seven days, one from the council, and she is heard by phone.
+
+The empty queue. January buys about a hundred forty checks: Kemi's from the sponsor pool at list, twenty from developers, about ten from Count Us's TETFund money. That is seven active witnesses; thirteen trained ones wait, each with a paid keep-warm session a month, nine thousand naira, and first call on Canary's phone arm and Lena's study. What we tell her: "Your queue is empty because we have fifty sellers, not because you failed. You are fourth in line; we pay one session a month to keep you sharp; nobody new is trained while you wait." Agency work after March moves her up. At Sam's five hundred October builds that is about thirty witnesses at forty-five dollars a month; his sixty-seven assumed twenty. A supplement, said plainly.
+
+Governance. A council of nine, all blind or low vision, on the signer's side; the builder has no seat, staff no vote. NAB Lagos and NAB Oyo, Sam's two; two elected by sellers and two by witnesses active in the last ninety days; three reserved, for a late-blind voice-note user over fifty, a zoom user, and a braille-only or deafblind user. Chair, yes: the voice-note seat exists. First council by December 18: NAB appoints; the twenty witnesses elect two; seller seats are drawn by lot in January from volunteers among the first fifty; NAB, the clinic and my groups nominate the reserved seats, confirmed by the other six. One-year terms, two at most; December elections by phone. It meets monthly on a dial-in line that needs no data; papers a week ahead as voice note, plain text and braille-ready file; quorum six, one of them reserved. Vetoes: witness pay, seeding and suspension rules; any new funder; customer-facing wording, including the day "ready" returns; any new language or city, Jakarta included, without native-speaker translators and local witnesses. It hears Lena's appeals and elects two of the signer's directors. It cannot veto research results, a safety refusal, a security fix or any page's verdict; a council that can vote a page through is a lobby. Budget: twenty-five thousand naira a member per meeting, appeal panels, quarterly Ibadan travel with guides, braille and audio: six point two million naira, inside Sam's forty-two hundred dollars.
+
+Tolu, settled. By default a witness line carries reader and version, phone, browser, time, and a pseudonym that changes with every record. No name. Two switches, the witness's own, both off: "first name to the seller" and "first name on the public record." Priya: Sam's unmasking point stands; in my groups a named checker gets "check my other page for free" calls outside the paid queue; and a seller whose page failed knows whom to blame. Kemi thanks Tolu through the desk.
+
+**Key points**
+
+- The product is Countersign: one website opened from a WhatsApp link plus a phone line answered by blind agents. The paid blind witness check is the product, and the receipt is its paperwork.
+- Witness operations: six active blind witnesses per 100 builds, 4 to 15 checks a week each under Lena's 30-minute cap, 3,000 naira per phone check paid every Friday into the witness's own account, three paid training hours, then a 30-check probation seeded one in three.
+- Support desk: two blind agents at 350,000 naira a month plus 40,000 for data, Monday to Saturday 08:00 to 21:00, in English, Pidgin and Yoruba. Ring once and we call back within 15 minutes, and only humans answer on WhatsApp. A class-one harm withdraws the record and triggers Priya's on-call to pause the page.
+- Governance: a nine-seat council, all blind or low vision, on the signer's side. It has reserved seats for a late-blind voice-note user, a zoom user and a braille-only or deafblind user, and vetoes over pay, seeding, funders, customer-facing wording and expansion, but none over any page's verdict.
+- Concessions: the receipt was what I wanted for Kemi; builds-for-checks dies; 'witnesses will outnumber builders' is true only of the waiting list; Count Us is a project. Because January says 'checked', the name 'Ready' retires.
+- By default a witness line carries reader, device, browser, time and a per-record pseudonym. A name appears only if the witness turns it on.
+
+**Agreed with**
+
+- Lena: in January Kemi hears 'checked', with the count, not 'ready'. I adopt her seeding, probation and cutoff scheme and her figure of about 135 checks per 100 builds. I staff her safety rota of three (two blind) and her seven-day appeals from my desk and council, and I use her four-heading consent.
+- Sam: builds-for-checks dies because it pays 'fifteen cents for ten minutes of blind listening'. I also agree that $2 of the $3 phone check goes to the witness, that weekly payouts stay under the Tier 1 line with no BVN, that NAB holds two council seats, that Meta's terms mean no WhatsApp bot, and that MTN Foundation's scholars are recruits, not funders.
+- Science judge and blind-user judge: one engine with paid witnesses and two doors, with the witness network at its centre. That is my ballot.
+- Priya, Lena and all three judges: Count Us is a project, not a door.
+
+**Disagreed with**
+
+- Lena: voice-note users, who are most late-blind people over fifty in my groups, should not wait for her April 5 machine line. A human desk concierge for twenty of them starts January 11.
+- Priya (round 4): Tolu's name should not appear in Kemi's record by default. The default is reader, device and a rotating pseudonym, and a name appears only by the witness's opt-in.
+- Lena and Sam: a phone door named 'Ready' contradicts the January verdict 'checked' that we all accepted, so the name retires.
+- Sam: his $67 a month per witness at 500 builds assumes twenty witnesses. At six per 100 builds it is about thirty witnesses at roughly $45 each.
+- Venture judge: last on my ballot, because a door built for developers and agencies serves three people in my groups.
+- My own earlier rounds: I retract the builds-for-checks exchange rate, 'witnesses will outnumber builders' as a staffing plan, and Count Us as a door.
+
+**Proposals made**
+
+- Countersign is a website opened from a WhatsApp link plus a phone line answered by blind agents. Kemi's door is a heading, 'Make my page', not 'Ready'.
+- Human voice-note concierge for twenty late-blind users over fifty from January 11, with every line marked 'entered by desk agent'.
+- First-session script: 15-minute median from link to 'Make my page'; a free ring-once callback offered first; prices and the order number recalled, typed digits allowed; 'Talk to a person' after 3 minutes stuck.
+- Support desk: Monday to Saturday 08:00 to 21:00 plus a paid Sunday witness rota; a human WhatsApp reply within 30 minutes; 80% of issues closed in a day and 95% in three; one agent per 150 active sellers.
+- Escalation: a class-one harm withdraws the record and Priya's on-call pauses the page within 15 minutes; WhatsApp group admins get a class-one flagger number.
+- Witness pipeline: 30 applicants by October 31, a paid entry check, 3 paid training hours, calibration November 9 to 29 at 200 seeded trials per reader, and a half-time witness lead at 200,000 naira a month.
+- Witness pay: 3,000 naira per phone check, 4,500 per masked test order, 1,500 per sighted photo check, 22,500 per professional full check. Payouts go out every Friday, and any payout more than 7 days late pauses new seller sign-ups.
+- Empty queue: a published reserve list with one paid keep-warm session a month (9,000 naira), and nobody new is trained while reserves outnumber the active roster.
+- Nine-seat council: seller seats drawn by lot for the first term; monthly dial-in meetings; papers as voice note, plain text and braille-ready file; a budget of 6.2 million naira within Sam's $4,200.
+- Witness lines default to reader, device, browser, time and a per-record pseudonym, with two opt-in name switches that belong to the witness.
+- Under-18s may build with a guardian's consent but never witness; Sam checks model providers' terms for minors.
+- The desk belongs to the signer, and the builder buys desk hours at public prices so money flows one way. No referral bounties.
 
 ---
