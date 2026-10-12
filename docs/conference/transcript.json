@@ -1,5 +1,5 @@
 {
- "exported_at": "2026-10-12 21:33 UTC",
+ "exported_at": "2026-10-12 21:34 UTC",
  "rounds_closed": [
   1,
   2,
@@ -8,8 +8,8 @@
   5
  ],
  "in_progress": [
-  "plan-review:scout",
-  "plan-review:builder"
+  "plan-review:builder",
+  "plan-review:architect"
  ],
  "entries": [
   {

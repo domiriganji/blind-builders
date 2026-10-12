@@ -1,6 +1,6 @@
 # Panel reviews of the draft operating plan
 
-Exported 2026-10-12 21:33 UTC. Each panelist reviewed the draft plan for the area they own; the chair revised the plan using these reviews.
+Exported 2026-10-12 21:34 UTC. Each panelist reviewed the draft plan for the area they own; the chair revised the plan using these reviews.
 
 ## Dr. Lena Vasquez
 *Cognitive neuroscientist (cross-modal plasticity, sensory substitution, blind cognition). Model: Opus 5.5.*
@@ -521,3 +521,347 @@ Every trigger names its decision, and its executor carries it out within 14 days
 - The dashboard publishes Mondays at 09:00 WAT. It is reviewed at 10:00 on a dial-in that needs no data.
 - Attendees: Lena, the witness lead, a desk agent, the blind release lead and the signer engineer.
 - The signer engineer runs Canary, and Lena certifies its seed battery.
+
+## Sam Reyes
+*Technology scout (tools built for blind people in the last six months). Model: Opus 5.5.*
+
+**Missing**
+
+- Payment to guidepup's maintainer. In round 5 I said: 'We pay its maintainer per green month: Upkeep's first subscriber.' The draft leaves this out, so $800 of the $4,800 upstream line has no stated use.
+- The funding rule applied to buyers. Yusuf's rule is 'nobody funds the checking of their own product', and I added that 'reselling a model counts as selling one'. So a paid-door buyer that sells, ships or resells a model cannot buy checks, and neither can a reseller's end client that does. The draft has no sign-up screen for this. Lovable, the client Funka evaluated, is the first live case.
+- Which readers and languages we actually sell. All our witnesses use Android with TalkBack or Jieshuo, in English, Yoruba or Pidgin. I said 'agencies needing JAWS get a human witness', but nobody has recruited a JAWS, iPhone VoiceOver, German or French witness. 'Any staffed reader' on the price list needs the actual list of staffed readers. The developer plan's two phone checks only work on English pages.
+- Distribution for the paid door. The draft names no channel through which developers and agencies reach the January 11 door.
+- Competitive watch as a procedure: an owner, a cadence and triggers. The draft drops several items I committed to: my round-3 counter of 'rows retired because a vendor published its own speech log' (Priya's falsifier); 'we won't chase [Fable's] enterprise customers'; 'we build no JAWS log'; 'Canary publishes' as part of the Canvas response; and the rule that transcripts tag Gemini-spoken descriptions as Gemini's, 'or a Google model vouches for a Google page'.
+- Where Canary's seeds come from: 'reverting fixes in Codex's open-source CLI and pinning old Claude Code versions, which npm keeps'. This also shows Claude Desktop has no seed source at all.
+- Someone to pay and to act as data controller between October 12 and December 18. Witness entry checks, training and calibration are paid from October. Five hires start between November 2 and December 7. Recruitment collects data tied to disability. All of this happens before either company exists.
+- A sources-and-uses table. Even if Ford pays year one in full, $42,000 of the gap remains. NLnet has no amount. Nothing says when a pledge counts as cash.
+- Budget lines for the $1,200 device lab, the release testers (about $100 a month), keep-warm sessions at ₦9,000, the Sunday witness rota and the witness training hours. Also no payer for the seven extra catalog testers due November 20. I pay the $150 October 30 test myself and disclose it; the draft drops 'disclosed'.
+- MTN Foundation's sixty scholars are 'recruits, never funding'. SIMs and data are bought at retail and never accepted as in-kind gifts from MTN or Airtel.
+- A price and a date for Upkeep.
+- Payment rails for the paid door (processor, currency, VAT invoicing): Not decided (Sam).
+- Who applies to NLnet. No company exists before December 18, so a named individual has to apply by November 3.
+- Employer matching. Gifts from individuals are fine, but a match from a company that fails the rule is model-vendor money.
+- Count Us ($12,000 from TETFund) and Lena's study ('foundation money') both sit outside the $202,000. The study's funder must pass the same rule.
+
+**Wrong**
+
+- Section 1's duplicates table lists guidepup as a competitor. What I said was: 'guidepup is our component, not a competitor; it makes a bare machine log worthless, so we sell the spec, seeds, witnesses and record.'
+- Section 8, week 10, puts 'companies registered' inside the December 18 launch gate. Priya's independence rule killed 'the nonprofit as a launch condition', and section 10 records it as dropped. Lena's December 18 gate covers seeds, accessibility and reach only. Registration is my deadline, not a gate.
+- Section 12 lists TETFund as a way to close the $192,000 gap. TETFund's $12,000 belongs to Count Us, which is funded separately and sits outside the $202,000. The draft also hides that Ford's $150,000 a year leaves $42,000 open even if granted in full.
+- Sections 11 and 4.2 say weekly payouts stay under the ₦50,000 Tier 1 limit, and that 15 checks come to '₦45,000 at most'. That only holds for phone checks. At Yusuf's own rates, fifteen masked orders come to ₦67,500, one professional full check is ₦22,500, and keep-warm adds ₦9,000.
+- Sections 1, 7 and 12 present snippet-only or secondary readings as fact: Gemini's Android g.co sharing; Canvas's 'public database'; the catalog's photo requirement; every funder fact (Ford's DRAC precedent, the NLnet call, the DRF round, LASODA's payments, G6, N-ATLAS); and Meta's terms and the EU interim measures. I said 'read today in search snippets unless noted'. Those qualifiers have to stay with the claims.
+- The funder list strips my qualifiers: NLnet 'funds unconfirmed', OSIWA 'unchecked', Holman 'cycle unchecked'. It also drops why LASODA money comes only through NAB: June's kickback allegations, which LASODA says nobody formally filed.
+- Section 1 and question 1 say 'Sam counts [two companies] as independence'. My non-negotiable was a bundle: 'two registered organisations, money flowing one way, one public price list for every buyer, Ready included.' I never claimed registration alone.
+- Question 4 asks who pays the hires 'if no funder commits by December 18'. Hires start November 2, and no grant can pay out by then: NLnet closes November 3 and the Ford inquiry is November 15. The real question is who pays from November 2.
+
+**Too vague to execute**
+
+- Phase zero, '$9,500, unpledged'. My figure came before Priya's calendar. Replace it with about $13,200 (computed in review), plus training hours (rate set by Yusuf) and counsel (quote by Oct 23). Breakdown: Priya's five seats to Dec 18 at her rates plus 12% employer costs, about $10,650; the device lab, $1,200; November infrastructure, about $450; entry checks, about $60, and calibration, about $800, both paid as checks. Rule: no offer is countersigned until the fiscal host holds that seat's cost to Dec 31, and every offer letter says the seat is funded only to Dec 31.
+- 'Launch at the floor' names no seats. Replace with: $14,000 to Mar 31 covers about $4,700 (computed) for the desk, witness lead, witness pay for twenty sellers, keep-warm, council and fixed infrastructure. The remaining $9,100 or so pays one engineering seat; Priya names which by Nov 15. The fifty-seller target moves out. The paid door opens only once pre-sales or a gift cover the $4,000 penetration test. Canary goes monthly.
+- Sponsor pool, 'Not decided (Sam)'. Replace with a restricted account in the builder company, spent only on checks at list price. Funding: LASODA via NAB (₦2m), an earmarked share of Ford, and earmarked gifts. Size: about $9,500 for the year (computed: about 3,000 builds at $3.17, ramping from 100 to 500 a month). New-seller sign-up closes automatically when the pool covers less than four weeks of checks.
+- 'Agency letters of intent counted' on Jan 15 has no threshold. Replace with: five signed letters at the $300 minimum, invoiced quarterly in advance by Feb 1. Computed: March's witness pay on pool work is about $570, and agency cash nets about half, so four agencies just cover it. If there are fewer than five, plan from Feb 1 for the grant-funded outcome on Mar 31.
+- Sighted photo check, 'Not decided (Sam)'. Replace with $1.50, of which the witness gets ₦1,500 ($1), as Yusuf asked. Masked TEST orders are not sold: the signer pays the ₦4,500 from its wage line, so no buyer can buy one or avoid one.
+- Fiscal host, 'Not decided'. Choose it by Oct 23, before the first Friday payout. It must pay naira to Nigerian accounts and wallets, publish gifts over $1,000, and act as payer and data controller until the companies are registered.
+- 'An accountant clears witness pay before the first payout' names no accountant and no date. Engage one by Oct 16. Get written clearance by Oct 22 on contractor status, withholding under the 2025 Tax Act, and weeks above ₦50,000. No clearance means no payout.
+- The companies are due by Dec 18 with directors 'Not decided', but the council that elects two directors is only seated on Dec 18. Counsel checks by Oct 30 whether a company limited by guarantee needs a public-notice period (unverified). Both filings go in by Nov 2 with interim directors, who resign in favour of the council's two at its first meeting. Nobody sits on both boards, and no director is paid by a model vendor.
+- 'Indemnity quote pending' has no date. Get the quote by Nov 30 and bind cover before Jan 11. The cap of twelve months of fees is zero for Kemi, who pays nothing, so counsel rules by Dec 1. Until then her remedy is a correction within 48 hours plus a free re-check.
+- Canary, question 7. Run the battery per row: Claude Code CLI must catch #100253, Codex CLI #44728, and Claude Desktop #100911. Drop #1642. A row prints clean only after catching its known failure and 20 of 20 seeds on that row. Desktop has no seeds, so it prints failures only. November 9 stands as a method bulletin. If the Oct 26 bridge fails, Canary goes monthly, run by hand by a paid NVDA user.
+- Chair's flags, question 11. Disclose both transfers: 'your words go to US model servers and are stored in London, UK'. Counsel confirms the basis by Dec 1. The paid door sells only in Nigeria, the EU/EEA and the UK until counsel clears another country. Repricing is reviewed on the first Friday of each quarter: if the naira is more than 15% weaker than ₦1,500, wages rise with council approval; if more than 15% stronger, dollar prices rise with 30 days' notice. Naira wages never fall.
+- 'Legal, compliance, insurance $14,600' has no breakdown. Get itemised quotes by Nov 15 for: CAC registration for both companies, counsel, NDPC registration and impact assessment, the accountant, an Article 27 representative, and indemnity.
+- Question 9's checks have no dates. Glo and 9mobile by Nov 15. Model terms for minors by Nov 30, with no under-18 builds until then. Fiscal host by Oct 23.
+- Data protection has no dates. Impact assessment for witness data before entry checks start Oct 19, and for seller data before Jan 4. NDPC registration filed by Dec 1.
+- Question 6, route or build. Close it. No seller is routed to a tool or built for before Jan 4, and the templates get built either way, so my narrow dissent changes nothing. I withdraw it.
+
+**Replacement text proposed**
+
+# Sam's sections: replacement text (review of October 12)
+
+*Labels: "proposed in review" means new operational detail; "computed in review" means arithmetic on the panel's own figures; "unverified" means read in search snippets or secondary sources, not tested. Naira are converted at ₦1,500 to $1.*
+
+## 6. Reuse or build (Sam), replacing the block
+
+- **Reuse** (licences read on GitHub, October 12):
+  - Playwright (Apache 2.0).
+  - axe-core (MPL 2.0). Any change we make to its files is published.
+  - guidepup (MIT), our NVDA and VoiceOver driver.
+  - nvda-addon-testkit (GPL 2.0), inside CI only and never distributed.
+  - Rekor (Apache 2.0). It logs record hashes under the signer's key, never witness identities.
+  - MAIDR (GPL 3.0), for Count Us charts.
+- **guidepup is our component, not a competitor.** It makes a bare machine log worthless, so we sell the spec, seeds, witnesses and record. We pay its maintainer per green month, as Upkeep's first subscriber. The money is the $800 left in the upstream line after Marlon's $4,000: about $67 a month (computed in review).
+- **TalkBack.** The source is Apache 2.0, but the public repository was last pushed April 1, so an emulator built from it may not match Kemi's TalkBack. Real phones run the Play Store build (Priya).
+- **Ask first: screen-readers-mcp.** GitHub cannot classify its licence, and its description says "JAWS/TalkBack bridges planned."
+  - We run none of its code, including in the October 26 test, until Marlon Sousa licenses it in writing (proposed in review).
+  - The $4,000 offer is paid in two milestones and requires an open licence. I propose Apache 2.0, to match TalkBack.
+  - The offer goes out by October 19, so his bridge can be part of the NLnet bid (proposed in review).
+- **No licence, so no reuse:**
+  - ariawalk-action;
+  - guidepup-mcp, untouched since May 19 (my round-2 offer is withdrawn);
+  - Mazrui's directory, which we link and never copy;
+  - buyable, built on Amazon Bedrock and tagged for the European Accessibility Act; it competes with our agency line.
+- **Build:** the read-back-to-test compiler, templates, the record and its open verifier, seeds, the wage ledger, the masked arm and the refusal checks. Released under Apache 2.0, so anyone can rerun a record (proposed in review).
+- **Canary's seeds.** Seeded regressions come from reverting fixes in Codex's open-source CLI and from pinning old Claude Code versions, which npm keeps. Claude Desktop has no seed source, so its row prints failures only (proposed in review).
+
+## 7. Money (Sam), replacing the section
+
+**Rule.**
+- **Who is barred.** We take no money, credits or in-kind gifts from anyone selling, shipping or reselling a model.
+  - Reselling counts as selling.
+  - In-kind gifts count.
+  - A funder's endowment holdings do not count.
+- **Buyers are bound too** ("nobody funds the checking of their own product"). This is proposed in review:
+  - At sign-up, the paid door asks every business whether it sells, ships or resells a model.
+  - Resellers answer the same question for each end client.
+  - A yes is refused.
+  - Edge cases go to the council, which already vetoes funders.
+  - This shuts out agencies that resell AI services. Lovable, the client Funka evaluated, is the first case.
+- **Individuals may give.** A match from an employer that fails the rule is refused (proposed in review).
+- **Banks.** No bank money anywhere while Count Us runs.
+- **MTN Foundation.** Its sixty blind scholars are recruits, never funding. We buy SIMs and data at retail and accept none as gifts.
+- **Money flows one way.** It never flows from the signer to the builder.
+- **The banner.** Every record names who paid and the builder's share of the signer's income. Above 15 percent, the record opens with "signer financially dependent on builder." It prints from January, every month. "Print it; never tune prices to dodge it" (Lena).
+
+**Prices** (one public list for everyone, Ready included).
+
+Staffed at launch: TalkBack and Jieshuo on Android phones, for English-language pages. JAWS, iPhone VoiceOver, German and French are not sold until a paid witness on that reader and in that language has passed calibration. This is proposed in review and follows from my round-5 caution.
+
+| Item | Price | Witness |
+|---|---|---|
+| Sellers' pages, checks, record | Free; the sponsor pool pays list | — |
+| Phone check, 10 minutes | $3 | ₦3,000 ($2) |
+| Full check, 20 minutes, on a staffed reader, or sighted taste check | $30 | ₦22,500 ($15); never under half |
+| Sighted photo check | $1.50 (Yusuf's ask, accepted in review) | ₦1,500 ($1) |
+| Masked TEST order | Not sold. The signer pays it from its wage line, so no buyer can buy or dodge one (proposed in review) | ₦4,500 ($3) |
+| Developer plan | $49 for 40 receipts and two phone checks on English pages; extra receipts $0.75 | — |
+| Agencies | Metered at list, $300 monthly minimum, invoiced quarterly (in advance: proposed in review); resellers 20% off, published | — |
+| Upkeep | Per green month. The price comes from the December 15 survey and is published by January 11, or the plan is dropped (proposed in review) | — |
+| Canary | Free to read | — |
+
+Builds-for-checks died: it paid 15 cents for ten minutes of blind listening.
+
+**Unit economics.**
+- A phone check clears $1 over wages. A full check contributes $13.50.
+- A developer deploying about 80 times a month pays $79 and costs $45.
+- A seller's build costs $3.17 on my sample and $3.74 on Priya's pilot sample.
+- Break-even is $16,800 a month: about 1,250 full checks, or roughly eighty agencies. No month breaks even this year.
+- Agencies "can pay wages; cannot carry the product."
+- I withdraw my claim that witness pay is "above the ₦70,000 minimum wage." At Yusuf's thirty witnesses, $45 a month is ₦67,500. The honest comparison is hourly: ₦3,000 for ten minutes.
+
+**Twelve months, November 1, 2026 to October 31, 2027.** The $202,000 table stays. Proposed in review: by November 15, Priya and Yusuf place these items inside the infrastructure or witness-wage lines, or contingency carries them:
+- the device lab ($1,200);
+- release testers (about $100 a month);
+- keep-warm sessions;
+- the Sunday rota;
+- training hours.
+
+**Sources** (nothing here is pledged; proposed in review):
+
+| Source | Year one | Status and owner |
+|---|---|---|
+| Ford Foundation West Africa | $150,000 (the ask covers two years) | Inquiry by Nov 15 (Sam) |
+| NLnet: verifier and TalkBack bridge | Blank (Sam) | Closes Nov 3, noon CET; funds unconfirmed |
+| Earned revenue, net | $10,000 | $21,000 gross |
+| Individuals, through the fiscal host | Phase zero and the floor | From Oct 23 |
+| LASODA, through NAB | ₦2 million (about $1,333), sponsor pool only | NAB asks by Nov 30 |
+| **Still open if Ford pays year one in full** | **$42,000** (computed) | Sources named by Mar 31 (Sam) |
+
+TETFund's $12,000 belongs to Count Us, and Lena's study has its own funder. Both sit outside the $202,000 and close none of the gap. A pledge counts only as a signed award letter with a payment date. Until the money arrives, we spend at the floor (proposed in review).
+
+**Phase zero, October 12 to December 18.** My $9,500 came before Priya's hiring calendar. Computed in review:
+
+| Item | Cost |
+|---|---|
+| Priya's five seats to Dec 18, at her rates plus 12% employer costs | about $10,650 |
+| Device lab | $1,200 |
+| Fixed infrastructure from November | about $450 |
+| Entry checks, paid as checks | about $60 |
+| Calibration, paid as checks | about $800 |
+| **Total** | **about $13,200** |
+
+Still blank: training hours (rate set by Yusuf) and counsel (quote by Oct 23).
+
+Proposed in review:
+- No offer is countersigned until the fiscal host holds that seat's cost to Dec 31.
+- A seat that misses its date slips a week at a time, in Priya's hiring order.
+- Every offer letter says the seat is funded to Dec 31 and continues only with an award letter or at the floor.
+
+**The floor** (no award letter by Dec 18). $14,000 raised from individuals covers the run to March 31:
+- The desk, witness lead, witness pay for twenty sellers, keep-warm sessions, the council and fixed infrastructure: about $4,700 (computed in review).
+- One engineering seat: about $9,100. Priya names the seat by Nov 15.
+- Make my page serves twenty sellers. The fifty-seller target moves to the month after an award.
+- The paid door opens once pre-sales or a gift cover the $4,000 penetration test.
+- Canary runs monthly.
+- Gifts over $1,000 are published by name.
+
+**Sponsor pool** (proposed in review).
+- **Form:** a restricted account in the builder company, spent only on checks at list price.
+- **Funding:** LASODA through NAB (about 420 builds), an earmarked share of Ford, and earmarked gifts.
+- **Size:** about $9,500 for the year (computed: about 3,000 builds at $3.17, ramping from 100 a month in January to 500 in October).
+- **Disclosure:** every record names the pool's funders.
+- **Safeguard:** when the pool covers less than four weeks of projected checks, new-seller sign-up closes automatically. We never cut the checks on a page.
+
+**Agency test, January 15** (proposed in review). The threshold is five signed letters of intent at the $300 minimum, invoiced quarterly in advance by February 1.
+- Computed: on Priya's bill, at about 190 builds, March's witness pay on pool work is about $570.
+- Agency cash nets about half after paying witnesses for agency work, so about $1,140 is needed. That is four agencies; the fifth is margin.
+- With fewer than five, we plan from February 1 for the March 31 grant-funded outcome.
+
+**Repricing** (proposed in review). Wages are set in naira and prices in dollars.
+- On the first Friday of each quarter, I compare the exchange rate with ₦1,500.
+- Naira wages never fall.
+- If the naira is more than 15 percent weaker, wages rise to restore their dollar value, with council approval under its veto on pay.
+- If the naira is more than 15 percent stronger, dollar prices rise at the next quarter, with 30 days' notice.
+- The half rule always holds.
+
+**Funders** (read in search snippets unless noted; unverified).
+- **Pass:**
+  - **Ford Foundation, West Africa office (Lagos).** $150,000 a year for two years. Precedent: $300,000 to the Disability Rights Advocacy Center, 2020 to 2023. Fallback: OSIWA, unchecked.
+  - **NLnet.** A named individual applies, because no company exists before December 18. Marlon is invited to apply for the bridge himself (proposed in review). Fallback: Sovereign Tech Agency.
+  - **TETFund,** through the investigator's university: $12,000 for Count Us. Fallback: the Holman Prize, up to $25,000, cycle unchecked.
+  - **Disability Rights Fund:** under $50,000, for disabled people's organisations. Its 2026 round opens January 1, so NAB applies next round.
+  - **LASODA:** only through NAB, with every naira published, because of June's kickback allegations, which LASODA says nobody formally filed.
+- **Fail:**
+  - MTN and Airtel (the G6 consortium; MTN brings Microsoft 365 Copilot to customers);
+  - the communications ministry (N-ATLAS, built on Llama 3);
+  - Microsoft, Google.org, Amazon, Meta, IBM, NVIDIA and Apple.
+- **Waits:** the Tony Elumelu Foundation, whose founder chairs UBA, until the preprint.
+- **Unchecked:** Glo and 9mobile (Sam, by Nov 15).
+
+## 8. Partners and paid-door distribution (Sam), replacing "Sam's ten partners"
+
+Owners and contact dates are proposed in review.
+
+| Partner | What it gets | What we ask | Owner | First contact by |
+|---|---|---|---|---|
+| NAB Lagos and Oyo | Paid work, two council seats, free checks for members | Monthly demonstrations, council appointments, the route to LASODA | Yusuf (LASODA: Sam) | Oct 23 |
+| MTN Foundation's blind scholars | Paid work. They are recruits, never funding | Witness applicants | Yusuf | Oct 19 |
+| FCE (Special) Oyo | Paid student work; the seed battery as coursework | Witness applicants | Yusuf | Oct 19 |
+| UCH Ibadan eye clinic | Referrals, co-authorship | The reach screen, Dec 1–16; desk-number cards | Lena; Yusuf | Oct 30 |
+| Disability Rights Advocacy Center | Count Us data on publication day | — | Sam | Jan 31 |
+| LASODA, through NAB | A quarterly reach report | ₦2 million for the sponsor pool | Sam with NAB | Nov 30 |
+| Accessible Android | Phone-arm results 48 hours early | Publishing the October 30 results | Sam | Oct 30 |
+| Mazrui's directory | Signed records as Evidence links, with onset tags | The Dec 15 survey of forty developers | Sam | Nov 1 |
+| Community Access | The seed battery as an open skill | Reach to developers | Sam | Dec 1 |
+| Funka | A reseller price for Android checks (20% off) | Resale to agencies, never to anyone who sells or resells a model | Sam | Dec 1 |
+
+**Paid-door distribution** (proposed in review).
+- **Channels:**
+  - Canary's readers;
+  - Mazrui's forty developers, whose survey ends with a pre-order at list price;
+  - Funka's agency clients;
+  - Community Access's skill users.
+- **Never:** advertising, referral bounties, or any listing a model vendor pays for.
+- I send the price list to Funka and its agencies by December 1.
+
+## 11. Legal, safety and compliance (Sam; consent and refusals: Lena), replacing Sam's parts
+
+This is my reading, not counsel's. Dates are proposed in review unless the transcript set them.
+
+**Before the companies exist.**
+- **Fiscal host,** chosen by October 23. It is the payer and the data controller until the companies are registered.
+- **Accountant,** engaged by October 16. Written clearance is due October 22, before the first Friday payout on October 23. It covers witness contractor status, withholding under the 2025 Tax Act, and weeks above ₦50,000. No clearance, no payout.
+- **Counsel,** retained by October 26. Itemised quotes against the $14,600 line are due November 15.
+
+**Nigeria.**
+- **Companies.**
+  - Two not-for-profit companies.
+  - By October 30, counsel checks whether a company limited by guarantee needs a public-notice period (unverified).
+  - Both filings go in by November 2, with interim directors. They resign in favour of the council's two at the council's first meeting.
+  - Nobody sits on both boards, and no director is paid by a model vendor.
+  - December 18 is my deadline for registration, not a launch gate. Priya killed "the nonprofit as a launch condition."
+- **Data protection.**
+  - Impact assessments: for witness data before entry checks start (October 19), and for seller data before January 4.
+  - Registration with the NDPC, filed by December 1, under the 2023 Act and the 2025 directive.
+  - Disability status is sensitive data, so consent must be explicit.
+  - We disclose two cross-border transfers: "your words go to US model servers and are stored in London, UK." Counsel confirms the legal basis by December 1.
+  - Breaches are reported within 72 hours.
+- **Payouts.**
+  - We never collect a BVN. We confirm the account name before paying.
+  - The ₦50,000 Tier 1 figure is unverified ("a 2017 figure still repeated in 2026 guides"). It fits phone checks only: 15 checks at ₦3,000 come to ₦45,000.
+  - Masked orders, full checks or keep-warm pay can push a witness over it; fifteen masked orders come to ₦67,500. A witness who takes that work gives us an account that accepts the amount.
+  - We never split a payment to fit under a limit.
+- **Consumer protection.** We say "checked," never "safe." The paid door never says "EAA compliant" or "WCAG conformant" (proposed in review).
+- **Signed records.**
+  - A signed line states an observation and a time, never a warranty.
+  - Liability is capped at twelve months of fees.
+  - A wrong line gets a public correction within 48 hours.
+  - Witnesses are never personally liable.
+  - The cap is zero for Kemi, who pays nothing. Counsel rules by December 1 on whether that survives the consumer protection act. Until then her remedy is the 48-hour correction plus a free re-check.
+  - Indemnity insurance: quote by November 30, cover bound before the paid door opens on January 11.
+- **WhatsApp.** No bot and no Business API. Counsel rules on the human line by December 1; if Meta's terms reach it, voice notes move to voicemail.
+- **Count Us.**
+  - The university runs it.
+  - Counsel reviews the results by May 15, 2027, before the banks' 30-day reply window opens on May 31.
+  - Section 24 of the Cybercrimes Act, narrowed in 2024, still reaches critics.
+- **Minors.** No builds by under-18s until I have read the current model terms on minors (by November 30).
+
+**European Union (the paid door).**
+- Business-to-business sales only, with VAT numbers checked.
+- A GDPR Article 27 representative, appointed before January 11.
+- By my reading, AI Act Article 50 already applies, so the INFERRED tag is machine-readable.
+- The Product Liability Directive covers software from December 9 but excludes a business's economic loss, so contract caps govern.
+- The Platform Work Directive, due December 2, requires human review of every witness suspension. We apply this everywhere.
+
+**Elsewhere** (proposed in review).
+- The paid door sells only to businesses in Nigeria, the EU/EEA and the UK, where our servers are. Other countries wait until counsel clears each one.
+- The payment processor must not be a model vendor, and is chosen by December 18.
+
+## 12. Risks: Sam's rows, replacing his three
+
+| Risk | Mitigation | Owner |
+|---|---|---|
+| The $192,000 gap; phase zero and November payroll | Ford (still leaves $42,000 open), NLnet, earned revenue and individuals. Offers only against cash in hand; the floor; the March 31 money gate. TETFund is Count Us's money, not the gap's | Sam |
+| Meta's terms reach the human line | No bot; counsel by December 1; voicemail | Sam, Yusuf |
+| A big lab ships a receipt, for example in Canvas | Within 48 hours, Canvas pages go through the seeded battery with masked witnesses, and Canary publishes. Within 14 days: if Google flags all twenty seeds, we retire our Canvas machine lines, keep the witness lines and tell sellers to build there; if it misses one, we publish which. Transcripts tag Gemini-spoken descriptions as Gemini's, "or a Google model vouches for a Google page" | Sam |
+| A vendor publishes its own speech log | Priya's falsifier: that Canary row retires, and we publish the count of retired rows | Sam |
+| Fable, JAWS Inspect, buyable | We don't chase Fable's enterprise customers. We build no JAWS log. JAWS work is sold only once a JAWS witness is staffed | Sam |
+| Someone who sells a model buys checks through a reseller | Declarations at sign-up and for each end client; refusal | Sam |
+| The naira moves | The quarterly repricing rule | Sam |
+
+**Competitive watch** (proposed in review). On the first Monday of each month, I update the landscape brief and run a duplicate check on anything the panel proposes to build. Findings go on the weekly dashboard.
+
+## 13. Sam's commitments, replacing his rows
+
+| Who | What | When |
+|---|---|---|
+| Sam | Read AppleVis and Preece in full | Oct 16 |
+| Sam | Engage the accountant; written clearance by Oct 22 | Oct 16 (proposed) |
+| Sam | Send the $4,000 offer to Marlon Sousa, conditional on an open licence | Oct 19 (proposed) |
+| Sam | Choose the fiscal host | Oct 23 (proposed) |
+| Sam | Retain counsel | Oct 26 (proposed) |
+| Sam | Catalog and Gemini test with three testers; $150 paid by me, disclosed | Oct 30 |
+| Sam | File both companies with the CAC, with interim directors | Nov 2 (proposed) |
+| Sam | NLnet bid, with a named applicant | Nov 3, noon CET |
+| Sam | Canary method bulletin | Nov 9 |
+| Sam | Ford inquiry; check Glo and 9mobile; itemised legal quotes | Nov 15 |
+| Sam | Seven more catalog testers if all three pass; paid by me, disclosed (payer proposed in review) | Nov 20 |
+| Sam | Model terms for minors; indemnity quote | Nov 30 |
+| Sam | Counsel's findings (Meta's terms, the zero cap, the transfers); NDPC filing; price list to Funka | Dec 1 |
+| Sam | Upkeep survey | Dec 15 |
+| Sam | Companies registered; sponsor pool funded; phase-zero money or the floor; payment processor chosen | Dec 18 |
+| Sam | Article 27 representative appointed; indemnity bound; Upkeep price published or the plan dropped | Jan 11 |
+| Sam | Five agency letters of intent, or plan for the grant-funded outcome | Jan 15 |
+| Sam | Sources for the remaining $42,000 | Mar 31 |
+
+## 14. Answers to the open questions Sam owns (proposed in review)
+
+1. **Independence.**
+   - I keep the bundle: two organisations, money flowing one way, and one public price list. Each part can be audited.
+   - I accept Priya's point: no record ever prints registration as independence.
+   - Records claim independence only from the instruments, plus the banner.
+   - Directors: as set out in section 11.
+4. **November hires.** The fiscal host pays from November 2, and offers are made only against cash in hand (section 7).
+5. **Sponsor pool.** See section 7.
+6. **Route or build before October 30.** Closed. No seller is routed or built for before January 4, and the templates proceed either way. I withdraw my dissent.
+7. **Canary's rows.**
+   - Each row has its own battery: Claude Code CLI must catch #100253, Codex CLI #44728, and Claude Desktop #100911.
+   - #1642 leaves the battery, because Copilot CLI has no row.
+   - A row prints clean only after catching its known failure plus 20 of 20 seeds on that row. Claude Desktop prints failures only.
+   - November 9 stands, as a method bulletin.
+   - The signer engineer runs the machine arm, and I write the bulletin through March 31.
+   - If the October 26 bridge fails, Canary goes monthly, run by hand by a paid NVDA user.
+9. **Checks still owed.**
+   - Fiscal host: October 23.
+   - Glo and 9mobile: November 15.
+   - Model terms for minors: November 30.
+11. **Chair's flags.** UK storage disclosure and the list of countries: section 11. Repricing: section 7.
+
+My list is input. The panel decides.
