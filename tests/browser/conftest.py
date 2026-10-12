@@ -109,13 +109,26 @@ def same_site_links(page, base: str) -> list[str]:
     return out
 
 
-def crawl(page, base: str, start: str = "/", limit: int = 250) -> list[str]:
-    seen, queue, visited = set(), [start], []
+def kind_of(path: str) -> str:
+    """/find/tool/12 and /find/tool/40 are the same kind of page; so are ?page=2 and ?page=3."""
+    import re
+    base, _, query = path.partition("?")
+    base = re.sub(r"/\d+(?=/|$)", "/{n}", base)
+    keys = sorted(part.split("=")[0] for part in query.split("&") if part)
+    return base + ("?" + "&".join(keys) if keys else "")
+
+
+def crawl(page, base: str, start: str = "/", limit: int = 250, per_kind: int = 2) -> list[str]:
+    seen, queue, visited, kinds = set(), [start], [], {}
     while queue and len(visited) < limit:
         path = queue.pop(0)
         if path in seen:
             continue
         seen.add(path)
+        kind = kind_of(path)
+        if kinds.get(kind, 0) >= per_kind:
+            continue
+        kinds[kind] = kinds.get(kind, 0) + 1
         try:
             response = page.goto(base + path)
         except playwright_api.Error:

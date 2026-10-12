@@ -923,3 +923,10 @@ async def delete(request: Request, project_id: int, user: dict = Depends(require
         conn.execute("DELETE FROM research_projects WHERE id = ? AND user_id = ?", (project_id, user["id"]))
     flash(request, f"Deleted the research project {project['title']}.", "success")
     return redirect("/research")
+
+
+
+def forget_user(user_id: int) -> None:
+    """Called when a member deletes their account: remove their private research projects."""
+    with db.session() as conn:
+        conn.execute("DELETE FROM research_projects WHERE user_id = ?", (user_id,))

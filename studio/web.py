@@ -19,6 +19,22 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 _md = MarkdownIt("commonmark", {"html": False, "linkify": False, "typographer": False}).enable("table")
 
 
+def _link_open(self, tokens, idx, options, env):
+    href = tokens[idx].attrGet("href") or ""
+    if href.startswith(("http://", "https://")):
+        tokens[idx].attrSet("rel", "noopener noreferrer")
+    return self.renderToken(tokens, idx, options, env)
+
+
+def _th_open(self, tokens, idx, options, env):
+    tokens[idx].attrSet("scope", "col")
+    return self.renderToken(tokens, idx, options, env)
+
+
+_md.add_render_rule("link_open", _link_open)
+_md.add_render_rule("th_open", _th_open)
+
+
 def markdown(text: str | None) -> Markup:
     """Render Markdown to safe HTML. Raw HTML in the text is escaped, never passed through."""
     return Markup(_md.render(text or ""))

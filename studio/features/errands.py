@@ -688,3 +688,10 @@ async def delete(request: Request, errand_id: int, user: dict = Depends(require_
         conn.execute("DELETE FROM errands WHERE id = ? AND user_id = ?", (errand["id"], user["id"]))
     flash(request, "The errand is deleted.", "success")
     return redirect("/do")
+
+
+
+def forget_user(user_id: int) -> None:
+    """Called when a member deletes their account: remove their private errands."""
+    with db.session() as conn:
+        conn.execute("DELETE FROM errands WHERE user_id = ?", (user_id,))

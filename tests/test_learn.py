@@ -274,7 +274,7 @@ def test_member_text_is_escaped(client):
 
 def test_rendered_member_text_is_safe_and_structured():
     html = str(learn.render_text('[t](https://x.example "Title") [j](javascript:alert(1))\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n# Top', shift=2))
-    assert '<a href="https://x.example" rel="noopener noreferrer" title="Title">' in html
+    assert '<a href="https://x.example" title="Title" rel="noopener noreferrer">' in html
     assert "javascript:" not in html.split("[j]")[0] and 'href="javascript' not in html
     assert '<th scope="col">A</th>' in html and "<th>" not in html
     assert "<h3>Top</h3>" in html and "<h1>" not in html

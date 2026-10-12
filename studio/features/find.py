@@ -572,3 +572,10 @@ async def add_candidate(request: Request, search_id: int, user: dict = Depends(r
     tool_id = insert_member_tool(values, user["id"])
     flash(request, f"{candidate['name']} is now in the directory. Tell others whether it works for you.", "success")
     return redirect(f"/find/tool/{tool_id}")
+
+
+
+def forget_user(user_id: int) -> None:
+    """Called when a member deletes their account: remove their private find searches."""
+    with db.session() as conn:
+        conn.execute("DELETE FROM find_searches WHERE user_id = ?", (user_id,))

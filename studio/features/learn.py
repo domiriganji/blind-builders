@@ -154,15 +154,12 @@ def get_guide(slug: str) -> Guide | None:
 
 # ----- rendering member and AI text --------------------------------------------------------------
 
-_EXTERNAL_LINK_RE = re.compile(r'<a href="(https?://[^"]*)"')
 
 
 def render_text(text: str, shift: int = 0) -> Markup:
     """Markdown to safe HTML (raw HTML escaped by the shared filter), with external links marked
     rel="noopener noreferrer", table headers scoped, and headings pushed under the page's own."""
-    html = str(markdown(text))
-    html = _EXTERNAL_LINK_RE.sub(r'<a href="\1" rel="noopener noreferrer"', html)
-    html = html.replace("<th>", '<th scope="col">')
+    html = str(markdown(text))  # the shared filter adds rel to external links and scope to headers
     if shift:
         html = str(shift_headings(html, shift))
     return Markup(html)
