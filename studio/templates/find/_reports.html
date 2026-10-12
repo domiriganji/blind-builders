@@ -1,7 +1,7 @@
 {# Member reports and the "Did it work for you?" form. Needs: tool, reports, summary, values, errors, outcomes, sight_onsets, report_action, back. #}
-{% from "_macros.html" import csrf_input, field, textarea, select, radios %}
+{% from "_macros.html" import csrf_input, field, textarea, select %}
 <h2 id="reports-title">What members say ({{ reports|length }} {{ 'report' if reports|length == 1 else 'reports' }})</h2>
-<p>{{ summary }}.</p>
+<p>{{ summary }}.{% if reports %} When a member reports more than once, only their latest report counts here; all reports are listed below, newest first.{% endif %}</p>
 {% if reports %}
 <ul class="item-list">
 {% for r in reports %}
@@ -25,7 +25,16 @@
 <form method="post" action="{{ report_action }}" novalidate>
   {{ csrf_input() }}
   <input type="hidden" name="back" value="{{ back }}">
-  {{ radios('outcome', 'How did it go?', outcomes, values.outcome, error=errors.outcome) }}
+  {#- Written out instead of the radios macro so the error summary link (#field-outcome) lands on the first
+      choice, which can take focus; a fieldset cannot. -#}
+  <fieldset class="field{% if errors.outcome %} has-error{% endif %}"{% if errors.outcome %} aria-describedby="error-outcome"{% endif %}>
+    <legend>How did it go?</legend>
+    {% if errors.outcome %}<p class="field-error" id="error-outcome"><span class="visually-hidden">Error: </span>{{ errors.outcome }}</p>{% endif %}
+    {% for value, text in outcomes %}
+    {% set rid = 'field-outcome' if loop.first else 'field-outcome-' ~ loop.index %}
+    <div class="choice"><input type="radio" id="{{ rid }}" name="outcome" value="{{ value }}"{% if value == values.outcome %} checked{% endif %}{% if errors.outcome %} aria-invalid="true"{% endif %}><label for="{{ rid }}">{{ text }}</label></div>
+    {% endfor %}
+  </fieldset>
   {{ field('screen_reader', 'Screen reader you used', values.screen_reader, hint='For example NVDA, JAWS, VoiceOver, TalkBack or none.', error=errors.screen_reader) }}
   {{ field('device', 'Device you used', values.device, hint='For example a cheap Android phone, an iPhone or a Windows laptop.', error=errors.device) }}
   {{ select('sight_onset', 'When did you become blind or low vision?', sight_onsets, values.sight_onset or 'prefer_not', hint='This helps people whose experience is like yours. You do not have to say.', error=errors.sight_onset) }}

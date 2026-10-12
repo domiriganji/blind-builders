@@ -1,5 +1,6 @@
 """Tool library: tools blind people made, problem reports after updates, volunteers."""
 import json
+import re
 
 from fastapi.testclient import TestClient
 
@@ -62,7 +63,7 @@ def test_upkeep_request_filter_and_resolve(client):
     r = report_problem(client, tid)
     assert r.status_code == 200 and "Your problem report is saved" in r.text
     assert needs_upkeep(tid) == 1
-    assert "Open problems (1)" in r.text and "Problem 1: after NVDA 2026.1" in r.text
+    assert "Open problems (1)" in r.text and "Problem 1. Broke after: NVDA 2026.1" in r.text
     assert "Buttons are silent" in r.text
     assert "Mark problem 1 as fixed" in r.text
     report_problem(client, tid, "Search box not announced", "Windows 11 update")
@@ -219,6 +220,72 @@ def test_report_from_library_returns_to_library(user_client):
     assert "1 member: 1 worked. Screen readers: JAWS" in user_client.get("/library").text
     r = post(user_client, f"/find/tool/{tid}/report", {"back": "library"})
     assert r.status_code == 400 and "Open problems" in r.text and 'href="#field-outcome"' in r.text
+
+
+def test_error_pages_h1_says_please_fix(user_client):
+    tid = tool_id("QuickMail")
+    for url, data in [("/library/add", {"name": ""}), (f"/library/tool/{tid}/problem", {}),
+                      (f"/library/tool/{tid}/volunteer", {}), (f"/find/tool/{tid}/report", {"back": "library"})]:
+        r = post(user_client, url, data)
+        assert r.status_code == 400, url
+        h1 = re.search(r"<h1>(.*?)</h1>", r.text).group(1)
+        assert h1.endswith(": please fix the problems") and f"<title>{h1} – " in r.text, url
+
+
+def test_the_confirm_box_is_described_by_its_error(user_client):
+    r = post(user_client, "/library/add", {"name": "X", "url": "https://x.example.org", "description": "d",
+                                           "category": "Other"})
+    box = re.search(r'<input type="checkbox" id="field-made_by_blind"[^>]*>', r.text).group(0)
+    assert 'aria-describedby="error-made_by_blind hint-made_by_blind"' in box and 'aria-invalid="true"' in box
+    box = re.search(r'<input type="checkbox" id="field-made_by_blind"[^>]*>', user_client.get("/library/add").text).group(0)
+    assert 'aria-describedby="hint-made_by_blind"' in box and "aria-invalid" not in box
+
+
+def test_a_problem_sent_twice_is_listed_once(user_client):
+    tid = tool_id("QuickMail")
+    report_problem(user_client, tid)
+    r = report_problem(user_client, tid)
+    assert "You already reported this problem" in r.text
+    assert len(_problems(tid)) == 1 and "Open problems (1)" in r.text
+
+
+def test_long_problem_fields_are_refused_not_cut(user_client):
+    tid = tool_id("QuickMail")
+    long_update = "NVDA 2026.1 " * 20
+    r = report_problem(user_client, tid, after=long_update)
+    assert r.status_code == 400 and "Keep it under 200 characters." in r.text
+    assert long_update.strip() in r.text
+    r = post(user_client, f"/library/tool/{tid}/volunteer", {"skills": "I test with JAWS. " * 70})
+    assert r.status_code == 400 and "Keep it under 1,000 characters." in r.text
+    assert _problems(tid) == [] and count("SELECT COUNT(*) FROM upkeep_volunteers") == 0
+
+
+def test_problem_heading_reads_well_when_the_update_is_unknown(user_client):
+    r = report_problem(user_client, tool_id("QuickMail"), after="not sure")
+    assert "Problem 1. Broke after: not sure" in r.text
+
+
+def test_leaving_a_list_you_were_not_on_says_so(user_client):
+    r = post(user_client, f"/library/tool/{tool_id('QuickMail')}/volunteer/remove")
+    assert "You were not on the list for this tool, so nothing changed." in r.text
+
+
+def test_library_counts_and_filter_heading(user_client):
+    with db.session() as conn:
+        conn.execute("UPDATE tools SET made_by_blind = 0 WHERE name != 'QuickMail'")
+    r = user_client.get("/library")
+    assert "1 tool is in the library." in r.text and "1 tools" not in r.text
+    r = user_client.get("/library?show=upkeep")
+    assert "<h1>Tool library: tools that need help after an update</h1>" in r.text
+
+
+def test_signing_in_after_a_session_ends_returns_to_the_tool(user_client):
+    tid = tool_id("QuickMail")
+    for path, anchor in [("problem", "problem-form-title"), ("problem/1/resolve", "problems-title"),
+                         ("volunteer", "volunteer-form-title"), ("volunteer/remove", "volunteer-form-title")]:
+        r = user_client.get(f"/library/tool/{tid}/{path}", follow_redirects=False)
+        assert r.status_code == 303 and r.headers["location"] == f"/library/tool/{tid}#{anchor}", path
+    assert user_client.get("/library/tool/999999/problem").status_code == 404
 
 
 def test_library_works_without_ai(no_ai_app):

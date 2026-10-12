@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% from "_macros.html" import csrf_input, field, select, textarea %}
 {% block content %}
-<h1>Find before you build</h1>
+<h1>{{ title }}</h1>
 <p class="lead">Before you build something, see whether it already exists and whether it worked for blind people like you. Members report whether each tool worked with their screen reader and device. Nobody on the site tests the tools; the reports come from members.</p>
 
 <h2>Search the directory</h2>
@@ -11,7 +11,7 @@
   <button type="submit" class="button button-primary">Search</button>
 </form>
 
-<h2 id="results-title">{% if searching %}{{ total }} {{ 'tool matches' if total == 1 else 'tools match' }} your search{% else %}All tools in the directory ({{ total }}){% endif %}</h2>
+<h2 id="results-title">{% if searching %}Tools that match your search ({{ total }}){% else %}All tools in the directory ({{ total }}){% endif %}</h2>
 {% if pages > 1 %}<p>Page {{ page }} of {{ pages }}. Tools are in alphabetical order.</p>{% endif %}
 {% if tools %}
 <ul class="item-list">

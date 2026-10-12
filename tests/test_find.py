@@ -79,18 +79,21 @@ def test_seed_does_not_duplicate_a_member_entry(user_client):
 def test_index_lists_every_tool_in_pages(client):
     r = client.get("/find")
     assert r.status_code == 200
-    assert "<h1>Find before you build</h1>" in r.text
+    pages = (len(SEED) + find.PAGE_SIZE - 1) // find.PAGE_SIZE
+    assert f"<h1>Find before you build: page 1 of {pages}</h1>" in r.text
+    assert f"<title>Find before you build: page 1 of {pages} – " in r.text
     assert f"All tools in the directory ({len(SEED)})" in r.text
     assert "Next page of tools" in r.text and "Page 1 of" in r.text
     assert r.text.count('<h3><a href="/find/tool/') == find.PAGE_SIZE
     last = client.get("/find?page=99")
+    assert f"<h1>Find before you build: page {pages} of {pages}</h1>" in last.text
     assert "Previous page of tools" in last.text and "Next page of tools" not in last.text
     assert "No member has reported on this yet" in r.text
 
 
 def test_search_matches_name_and_description(client):
     r = client.get("/find", params={"q": "Balatro"})
-    assert "1 tool matches your search" in r.text and "Blindfold for Balatro" in r.text
+    assert "<h1>1 tool matches &#34;Balatro&#34;</h1>" in r.text and "Blindfold for Balatro" in r.text
     r = client.get("/find", params={"q": "RODECaster"})  # only in the description
     assert "AccessCaster" in r.text
     r = client.get("/find", params={"q": "nvda add-on"})
@@ -99,14 +102,14 @@ def test_search_matches_name_and_description(client):
 
 def test_search_treats_wildcards_as_text(client):
     r = client.get("/find", params={"q": "%"})
-    assert "0 tools match your search" in r.text
+    assert "<h1>0 tools match &#34;%&#34;</h1>" in r.text
     assert "No tools in the directory match" in r.text
 
 
 def test_category_filter(client):
     r = client.get("/find", params={"category": "Games"})
     games = [i for i in SEED if i["category"] == "Games"]
-    assert f"{len(games)} tools match your search" in r.text
+    assert f"<h1>{len(games)} tools match in the category Games</h1>" in r.text
     assert "Blindfold for Balatro" in r.text and "QuickMail" not in r.text
     r = client.get("/find", params={"category": "Games", "q": "Godot"})
     assert "UnseenGodot" in r.text and "Blindfold" not in r.text
@@ -139,7 +142,7 @@ def test_report_summary_counts(client):
     switch_user(client, "c@example.com", "C")
     r = post(client, f"/find/tool/{tid}/report", {"outcome": "partly", "screen_reader": "nvda"})
     assert r.status_code == 200 and "Your report is saved" in r.text
-    expected = "3 members: 2 worked, 1 partly. Screen readers: NVDA, TalkBack"
+    expected = "3 members: 2 worked, 1 partly worked. Screen readers: NVDA, TalkBack"
     assert expected in r.text
     assert expected in client.get("/find", params={"q": "Seeing AI"}).text
     assert "Sight: lost sight later in life" in r.text and "Language: Arabic" in r.text
@@ -394,3 +397,204 @@ def test_no_ai_explains_and_keeps_the_need(no_ai_app):
     assert count("SELECT COUNT(*) FROM jobs") == 0
     # The directory itself does not need the AI.
     assert client.get("/find", params={"q": "NVDA"}).status_code == 200
+
+
+# ----- audit regressions -----------------------------------------------------------------------
+
+H1_RE = re.compile(r"<h1>(.*?)</h1>", re.S)
+TITLE_RE = re.compile(r"<title>(.*?) – ", re.S)
+
+
+def assert_h1_is_title(html: str) -> str:
+    h1 = H1_RE.search(html).group(1)
+    assert h1 == TITLE_RE.search(html).group(1), "the h1 must say the same as the page title"
+    return h1
+
+
+def test_every_error_page_h1_says_please_fix(user_client, fake_ai):
+    tid = tool_id("Glide")
+    for url, data in [("/find/add", {"name": ""}), ("/find/ask", {"need": "hi"}),
+                      (f"/find/tool/{tid}/report", {"note": "x"})]:
+        r = post(user_client, url, data)
+        assert r.status_code == 400
+        assert assert_h1_is_title(r.text).endswith(": please fix the problems"), url
+
+
+def test_search_page_h1_says_what_was_found(client):
+    r = client.get("/find", params={"q": "  Balatro  ", "category": "Games"})
+    assert assert_h1_is_title(r.text) == "1 tool matches &#34;Balatro&#34; in the category Games"
+    r = client.get("/find", params={"q": "no such thing at all"})
+    assert assert_h1_is_title(r.text) == "0 tools match &#34;no such thing at all&#34;"
+    assert "No tools in the directory match" in r.text
+
+
+def test_search_ignores_letter_case_in_any_alphabet(user_client):
+    post(user_client, "/find/add", {"name": "Éclair Ölesen Reader", "url": "https://eclair.example.org",
+                                    "description": "Reads ÅNGSTRÖM labels aloud.", "category": "Other"})
+    for q in ("éclair", "ÉCLAIR", "ölesen", "ångström"):
+        assert "Éclair Ölesen Reader" in user_client.get("/find", params={"q": q}).text, q
+
+
+def test_long_fields_are_refused_not_cut(user_client):
+    tid = tool_id("Glide")
+    long_reader = "N" * 150
+    r = post(user_client, f"/find/tool/{tid}/report", {"outcome": "worked", "screen_reader": long_reader})
+    assert r.status_code == 400 and "Keep it under 100 characters." in r.text
+    assert f'value="{long_reader}"' in r.text  # kept whole so nothing is lost
+    r = post(user_client, "/find/add", {"name": "N" * 130, "url": "https://example.org/" + "a" * 600,
+                                        "description": "d", "category": "Other", "maintainer": "M" * 130})
+    assert r.status_code == 400
+    assert "Keep the name under 120 characters." in r.text
+    assert "This web address is too long" in r.text
+    assert 'href="#field-maintainer"' in r.text
+    long_need = "a talking scale " * 40
+    r = post(user_client, "/find/ask", {"need": long_need})
+    assert r.status_code == 400 and long_need.strip() in r.text
+    assert count("SELECT COUNT(*) FROM tool_reports") == 0
+    assert count("SELECT COUNT(*) FROM tools WHERE source = 'member'") == 0
+
+
+def test_a_report_sent_twice_is_saved_once(user_client):
+    tid = tool_id("Glide")
+    data = {"outcome": "partly", "screen_reader": "TalkBack", "note": "Slow to start."}
+    post(user_client, f"/find/tool/{tid}/report", data)
+    r = post(user_client, f"/find/tool/{tid}/report", data)
+    assert "This report was already saved" in r.text
+    assert count("SELECT COUNT(*) FROM tool_reports") == 1
+    post(user_client, f"/find/tool/{tid}/report", {**data, "outcome": "worked"})
+    assert count("SELECT COUNT(*) FROM tool_reports") == 2  # a changed report is a new report
+
+
+def test_secret_detection_ignores_dates_and_pins_on_hardware():
+    assert find.looks_secret("4111 1111 1111 1111")
+    assert find.looks_secret("my card is 5500-0000-0000-0004 thanks")
+    assert find.looks_secret("PIN 1234")
+    assert not find.looks_secret("It broke between 2026-10-12 2026-10-13 and 2026-10-14")
+    assert not find.looks_secret("Steps: 1 2 3 4 5 6 7 8 9 10 11 12 13")
+    assert not find.looks_secret("The pin is bent on my braille display")
+    assert not find.looks_secret("Call me on +44 20 7946 0958")
+
+
+def test_ask_sent_twice_searches_once(user_client, fake_ai):
+    run_search(user_client, fake_ai)
+    r = post(user_client, "/find/ask", {"need": NEED})
+    assert "It was not searched again" in r.text
+    assert fake_ai.purposes() == ["find.search", "find.extract"]
+    assert count("SELECT COUNT(*) FROM find_searches") == 1
+    assert f"<h1>What already exists for: {NEED}</h1>" in r.text
+
+
+def test_ask_while_the_same_search_runs_goes_to_that_job(user_client, fake_ai):
+    uid = user_id()
+    with db.session() as conn:
+        conn.execute("INSERT INTO jobs (id, user_id, kind, title, status, created_at) VALUES ('j1', ?, 'find.search', ?,"
+                     " 'running', ?)", (uid, "Searching the web for: " + NEED, db.now()))
+    r = post(user_client, "/find/ask", {"need": NEED}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/jobs/j1"
+    assert fake_ai.calls == []
+
+
+def test_job_title_names_the_need(user_client, fake_ai):
+    run_search(user_client, fake_ai)
+    with db.session() as conn:
+        assert conn.execute("SELECT title FROM jobs").fetchone()["title"] == "Searching the web for: " + NEED
+
+
+def test_malformed_ai_answer_does_not_break_the_search(user_client, fake_ai):
+    fake_ai.on("find.search", ResearchResult(text="notes", sources=[Source(url="https://ok.example.org", title=None)]))
+    fake_ai.on("find.extract", {"summary": None, "candidates": [
+        "not an object", {"name": 42, "url": "https://x.example.org"},
+        {"name": "Good Tool", "url": "https://good.example.org", "what_it_does": None, "cost": 5}]})
+    r = post(user_client, "/find/ask", {"need": NEED})
+    assert r.status_code == 200 and "This did not finish" not in r.text
+    assert "The AI did not write a summary this time." in r.text and ">None<" not in r.text
+    assert "Tools the AI found (1)" in r.text and "Good Tool" in r.text
+    assert "What it does, according to the AI: Not found." in r.text
+    assert "https://ok.example.org" in r.text
+    fake_ai.on("find.extract", ["not", "a", "dict"])
+    r = post(user_client, "/find/ask", {"need": "a braille music reader"})
+    assert "Tools the AI found (0)" in r.text
+
+
+def test_add_candidate_rejects_negative_numbers(user_client, fake_ai):
+    run_search(user_client, fake_ai)
+    search_id = count("SELECT MAX(id) FROM find_searches")
+    assert post(user_client, f"/find/search/{search_id}/add", {"candidate": "-1"}).status_code == 404
+    assert count("SELECT COUNT(*) FROM tools WHERE source = 'member'") == 0
+
+
+def test_a_shared_name_on_another_website_is_not_our_tool(user_client, fake_ai):
+    fake_ai.on("find.search", ResearchResult(text="notes", sources=[]))
+    fake_ai.on("find.extract", {"summary": "Two.", "candidates": [
+        {"name": "Glide", "url": "https://www.glideapps.com", "what_it_does": "Builds apps.",
+         "accessibility_notes": "", "cost": ""},
+        {"name": "QuickMail", "url": "https://github.com/kellylford/QuickMail/releases", "what_it_does": "Email.",
+         "accessibility_notes": "", "cost": ""}]})
+    r = post(user_client, "/find/ask", {"need": "build an app without code"})
+    assert "Add Glide to the directory" in r.text and "Read member reports on Glide" not in r.text
+    assert "Read member reports on QuickMail" in r.text
+
+
+def test_signing_in_after_a_session_ends_does_not_land_on_an_error(user_client, fake_ai):
+    tid = tool_id("Glide")
+    r = user_client.get(f"/find/tool/{tid}/report", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == f"/find/tool/{tid}#report-form-title"
+    run_search(user_client, fake_ai)
+    search_id = count("SELECT MAX(id) FROM find_searches")
+    r = user_client.get(f"/find/search/{search_id}/add", follow_redirects=False)
+    assert r.headers["location"] == f"/find/search/{search_id}"
+    assert user_client.get("/find/tool/999999/report").status_code == 404
+
+
+def test_report_choices_can_take_focus_from_the_error_summary(user_client):
+    r = post(user_client, f"/find/tool/{tool_id('Glide')}/report", {})
+    assert 'href="#field-outcome"' in r.text
+    assert re.search(r'<input type="radio" id="field-outcome" name="outcome" value="worked"[^>]*aria-invalid="true"', r.text)
+    assert 'aria-describedby="error-outcome"' in r.text
+
+
+def test_deleting_an_account_takes_the_member_off_volunteer_lists(user_client):
+    tid = tool_id("QuickMail")
+    post(user_client, f"/library/tool/{tid}/volunteer", {"skills": "I test with JAWS"})
+    find.forget_user(user_id())
+    assert count("SELECT COUNT(*) FROM upkeep_volunteers") == 0
+
+
+def test_seed_corrections_reach_an_existing_directory(client):
+    with db.session() as conn:
+        conn.execute("UPDATE tools SET description = 'old claim', maintainer = 'Double Tap' WHERE name = 'Claude Code Reader'")
+    find.seed()
+    with db.session() as conn:
+        row = conn.execute("SELECT description, maintainer FROM tools WHERE name = 'Claude Code Reader'").fetchone()
+    assert row["maintainer"] == "doubletaponair" and "VoiceOver, NVDA and JAWS" in row["description"]
+
+
+def test_unreadable_web_addresses_get_an_error_not_a_crash(user_client):
+    for url in ("http://[broken/x", "https://example.org:99999/", "https://:80/"):
+        r = post(user_client, "/find/add", {"name": "X", "url": url, "description": "d", "category": "Other"})
+        assert r.status_code == 400 and "starts with http:// or https://" in r.text, url
+        r = post(user_client, "/library/add", {"name": "X", "url": url, "description": "d", "category": "Other",
+                                               "made_by_blind": "yes"})
+        assert r.status_code == 400, url
+    assert not find.valid_url("http://[broken/x") and find.norm_url("http://[broken/x")
+
+
+def test_report_counts_explain_themselves(user_client):
+    tid = tool_id("Glide")
+    assert "only their latest report counts" not in user_client.get(f"/find/tool/{tid}").text
+    post(user_client, f"/find/tool/{tid}/report", {"outcome": "partly"})
+    r = post(user_client, f"/find/tool/{tid}/report", {"outcome": "worked"})
+    assert "1 member: 1 worked." in r.text and "What members say (2 reports)" in r.text
+    assert "only their latest report counts here" in r.text
+    post(user_client, f"/find/tool/{tool_id('Seeing AI')}/report", {"outcome": "partly"})
+    assert find.report_summaries([tool_id("Seeing AI")])[tool_id("Seeing AI")] == "1 member: 1 partly worked"
+
+
+def test_seed_facts_follow_the_research_corrections():
+    by_name = {i["name"]: i for i in SEED}
+    assert "free" not in by_name["Seeing AI"]["description"].lower()  # the research does not say it is free
+    assert "not yet checked in claude.ai or ChatGPT" in by_name["maidr-mcp"]["description"]
+    assert "June 18, 2026" in by_name["Gemini CLI screen reader setting"]["description"]
+    assert "could not confirm" in by_name["PiccyBot"]["description"]
+    assert "prototype" in by_name["Envision"]["description"]
+    assert "building had just started" in by_name["acter"]["description"]

@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Tool library</h1>
+<h1>{{ title }}</h1>
 <p class="lead">Tools that blind and low-vision people made for each other. When a screen reader, operating system or AI tool updates and one of them breaks, members report it here and volunteer to help fix it. There are no staff: the library keeps working because members help each other.</p>
-<p>{{ counts.all }} tools are in the library. {{ counts.upkeep }} {{ 'needs' if counts.upkeep == 1 else 'need' }} help after an update.</p>
+<p>{{ counts.all }} {{ 'tool is' if counts.all == 1 else 'tools are' }} in the library. {{ counts.upkeep }} {{ 'needs' if counts.upkeep == 1 else 'need' }} help after an update.</p>
 
 <nav aria-label="Show tools">
   <ul>

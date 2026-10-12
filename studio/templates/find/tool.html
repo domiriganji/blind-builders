@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% from "_macros.html" import error_summary %}
 {% block content %}
-<h1>{{ tool.name }}</h1>
+<h1>{{ title }}</h1>
 {{ error_summary(errors) }}
 {% include "find/_facts.html" %}
 {% if tool.made_by_blind %}

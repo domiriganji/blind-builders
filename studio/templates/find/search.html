@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% from "_macros.html" import post_button, sources_list %}
 {% block content %}
-<h1>What already exists for: {{ search.need }}</h1>
+<h1>{{ title }}</h1>
 <h2>Summary</h2>
 <p>Written by the AI on {{ search.created_at[:10] }} after searching the web.</p>
-{{ search.result_md|markdown|shift_headings(2) }}
+{% if search.result_md %}{{ search.result_md|markdown|shift_headings(2) }}{% else %}<p>The AI did not write a summary this time. The tools it found, if any, are listed below.</p>{% endif %}
 <div class="panel">
 <p><strong>What was checked:</strong> nothing. The AI found these tools on the web and its notes may be wrong or out of date. Nobody on this site has checked them. Where members have tried a tool and reported on it, their reports are shown below.</p>
 </div>
@@ -15,7 +15,7 @@
 {% for c in search.candidates %}
   <li>
     <h3>{{ c.name }}</h3>
-    <p>{{ c.what_it_does }}</p>
+    <p>What it does, according to the AI: {{ c.what_it_does or 'Not found.' }}</p>
     <p>Accessibility, according to the AI: {{ c.accessibility_notes or 'Nothing found.' }}</p>
     <p>Cost, according to the AI: {{ c.cost or 'Not found.' }}</p>
     <p><a href="{{ c.url }}" rel="noopener noreferrer">Visit {{ c.name }}</a></p>

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% from "_macros.html" import csrf_input, error_summary, field, textarea, post_button %}
 {% block content %}
-<h1>{{ tool.name }}</h1>
+<h1>{{ title }}</h1>
 {{ error_summary(errors or problem_errors or volunteer_errors) }}
 <p><strong>Status:</strong> {% if upkeep.open %}needs help after an update. {{ upkeep.open|length }} open {{ 'problem' if upkeep.open|length == 1 else 'problems' }}{% else %}no open problems reported{% endif %}. {{ upkeep.volunteers|length }} {{ 'member is' if upkeep.volunteers|length == 1 else 'members are' }} helping keep it working.</p>
 {% include "find/_facts.html" %}
@@ -11,7 +11,7 @@
 <ul class="item-list">
 {% for p in upkeep.open %}
   <li>
-    <h3>Problem {{ loop.index }}: after {{ p.after_update }}</h3>
+    <h3>Problem {{ loop.index }}. Broke after: {{ p.after_update }}</h3>
     {{ p.problem|markdown|shift_headings(3) }}
     <p class="meta">Reported by {{ p.pseudonym }} on {{ p.date }}.</p>
     {% if p.can_resolve %}{{ post_button('/library/tool/' ~ tool.id ~ '/problem/' ~ p.id ~ '/resolve', 'Mark problem ' ~ loop.index ~ ' as fixed') }}{% endif %}
@@ -62,7 +62,7 @@
 {% if upkeep.resolved %}
 <h2>Fixed problems ({{ upkeep.resolved|length }})</h2>
 <ul>
-{% for p in upkeep.resolved %}<li>After {{ p.after_update }}: {{ p.problem|truncate(160) }} (reported by {{ p.pseudonym }} on {{ p.date }}, now marked fixed)</li>{% endfor %}
+{% for p in upkeep.resolved %}<li>Broke after: {{ p.after_update }}. {{ p.problem|truncate(160) }} (reported by {{ p.pseudonym }} on {{ p.date }}, now marked fixed)</li>{% endfor %}
 </ul>
 {% endif %}
 
