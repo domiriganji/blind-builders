@@ -5,12 +5,13 @@
 <p><a class="button button-primary" href="/help/ask">Ask a question</a></p>
 <nav aria-label="Which questions to show">
   <ul>
-    <li><a href="/help"{% if show == 'newest' %} aria-current="page"{% endif %}>Newest</a></li>
-    <li><a href="/help?show=open"{% if show == 'open' %} aria-current="page"{% endif %}>Not answered yet</a></li>
+    <li><a href="/help"{% if show == 'newest' %} aria-current="page"{% endif %}>Newest questions</a></li>
+    <li><a href="/help?show=open"{% if show == 'open' %} aria-current="page"{% endif %}>Questions not answered yet</a></li>
   </ul>
 </nav>
 <h2>{% if show == 'open' %}Not answered yet{% else %}Newest questions{% endif %} ({{ total }})</h2>
 {% if questions %}
+{% if pages > 1 %}<p>Page {{ page }} of {{ pages }}.</p>{% endif %}
 <ul class="section-list">
 {% for q in questions %}
   <li>
@@ -21,9 +22,14 @@
 {% endfor %}
 </ul>
 {% if newer_url or older_url %}
-<p>Page {{ page }}.{% if newer_url %} <a href="{{ newer_url }}">Newer questions</a>{% endif %}{% if older_url %} <a href="{{ older_url }}">Older questions</a>{% endif %}</p>
+<nav aria-label="Pages of questions">
+  <ul>
+    {% if newer_url %}<li><a href="{{ newer_url }}">Newer questions (page {{ page - 1 }} of {{ pages }})</a></li>{% endif %}
+    {% if older_url %}<li><a href="{{ older_url }}">Older questions (page {{ page + 1 }} of {{ pages }})</a></li>{% endif %}
+  </ul>
+</nav>
 {% endif %}
-{% elif show == 'open' %}
+{% elif total_all %}
 <p>Every question has been marked as answered. <a href="/help">Show the newest questions</a>.</p>
 {% else %}
 <p>No questions yet. Be the first: <a href="/help/ask">ask a question</a>.</p>

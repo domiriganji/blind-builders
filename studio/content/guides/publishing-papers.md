@@ -35,12 +35,12 @@ Before you post, check whether the journal you plan to submit to accepts papers 
 
 ## Journal submission systems and screen readers
 
-Thousands of open access journals run on Open Journal Systems (OJS) from the Public Knowledge Project. From April 2026, testers using JAWS, NVDA and Narrator filed a long series of accessibility issues against version 3.5, and the audit continued into September. What they found:
+Thousands of open access journals run on Open Journal Systems (OJS) from the Public Knowledge Project. From April 2026, testers using screen readers such as JAWS and NVDA filed a long series of accessibility issues against version 3.5, and the audit continued into September. What they found:
 
 - The Title and Abstract fields are rich-text editors. With JAWS and NVDA they force switching between modes, and the system can say "no title provided" even when you typed one ([issue 12601](https://github.com/pkp/pkp-lib/issues/12601)).
 - A rich-text area in the settings could not be read with a screen reader ([issue 12721](https://github.com/pkp/pkp-lib/issues/12721)).
 
-Most of these issues were still open in October 2026. Other systems, such as ScholarOne and Editorial Manager, were not checked by the research behind this guide.
+Both of these issues were still open in October 2026. Other systems, such as ScholarOne and Editorial Manager, were not checked by the research behind this guide.
 
 What to do:
 
@@ -70,7 +70,7 @@ To check a PDF, two free tools are widely used: [PAC](https://pac.pdf-accessibil
 The LaTeX Project is building tagging into LaTeX itself, so ordinary documents produce tagged PDFs.
 
 - The June 2026 LaTeX release reimplemented headings, theorems and block structures with templates, removed "fake math" from LaTeX's internals because it was "a serious tagging issue", and added new keys in `\DocumentMetadata` to set the document's language ([LaTeX News issue 43](https://raw.githubusercontent.com/latex3/latex2e/main/base/doc/ltnews43.tex)).
-- The draft notes for the November 2026 release say "our major focus remains on improving the out-of-the-box accessibility of LaTeX" and introduce ltx-talk, an accessible class for presentations ([LaTeX News issue 44, draft](https://raw.githubusercontent.com/latex3/latex2e/develop/base/doc/ltnews44.tex)).
+- The draft notes for the November 2026 release say "our major focus remains on improving the out-of-the-box accessibility of LaTeX", and report a TUG 2026 talk on making accessible presentations with ltx-talk. The draft's own section about ltx-talk still only says "to write", so check for it in the final release ([LaTeX News issue 44, draft](https://raw.githubusercontent.com/latex3/latex2e/develop/base/doc/ltnews44.tex)).
 
 How to use it: tagging is turned on with a `\DocumentMetadata{...}` line at the very top of your file, before `\documentclass`. The exact keys have changed between releases, so copy them from the LaTeX Project's [tagging project page](https://latex3.github.io/tagging-project/) for the release you have, and check its list of which classes and packages already work with tagging. Not all of them do yet. Journal templates often use older classes, so ask the journal what it accepts.
 

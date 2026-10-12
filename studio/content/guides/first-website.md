@@ -25,6 +25,8 @@ The AI builds from what you tell it, so a good description saves time. Say:
 - The words that must appear exactly: your business name, opening hours, prices, address.
 - Anything it must not have. For example: no pictures that only show text, no music that plays by itself.
 
+What can be built here: websites, phone web apps, small tools and games made of web pages. They have no server, so they cannot take payments, send email or messages, or keep accounts with sign-in. Anything they save stays in the visitor's own browser. If your idea needs one of these, the read-back should say so and describe the closest thing that can be built. If it does not, ask.
+
 You do not need to know how websites are made. Plain words are fine.
 
 ## Step 1: describe it and listen to the read-back
@@ -41,7 +43,7 @@ If anything is wrong, say so in your own words. When the read-back is right, tel
 
 ## Step 2: wait for the build
 
-Building takes a little time, so you get a job page. Its heading starts with "Working on it". Activate "Check again" to see if it is done, or, if JavaScript is on, wait for three short taps and your focus moves to the result. You can leave the page and come back through [Your recent work](/jobs).
+Building takes a little time, so you get a job page. Its heading starts with "Working on it". Activate "Check again" to see if it is done, or, if JavaScript is on, wait for three short taps: your focus moves to a link to the result. You can leave the page and come back through [Your recent work](/jobs).
 
 ## Step 3: read the result
 
@@ -77,17 +79,17 @@ The site checks the HTML of each page automatically. These checks look for:
 
 These checks read the code. They cannot hear a screen reader or see the screen. They do not check how a real screen reader speaks the page, whether the page looks right to sighted visitors, colour contrast, zooming to 400 percent on a phone, or whether buttons do what their names say. That is why peer checks exist.
 
-Blind developers who test AI-made apps keep finding the same problems: buttons announced only as "button", pages with no headings, and focus that never moves after an action ([Taylor Arndt](https://taylorarndt.substack.com/p/everybody-is-vibe-coding-here-is)). Listen for these in your preview.
+Taylor Arndt, a blind developer who tests apps made with AI, keeps finding the same problems: buttons announced only as "button", pages with no headings, and focus that never moves after an action ([Taylor Arndt](https://taylorarndt.substack.com/p/everybody-is-vibe-coding-here-is)). Listen for these in your preview.
 
 ## Step 6: ask for a change
 
 Ask for one change at a time. It is easier to check. For example:
 
 - "Put the opening hours in a list, one day per line."
-- "Make the contact form ask for a phone number, and say that it is optional."
-- "The order button only says 'Go'. Make it say 'Send your order'."
+- "Put our phone number and address at the top of the contact page."
+- "The menu button only says 'Menu'. Make it say 'Show the list of cakes'."
 
-The AI reads back the change before making it. When it is done, the result page tells you exactly what changed, and the checks run again. Listen to the changed part in the preview.
+The AI makes the change straight away, without a read-back, so say exactly what you want. When it is done, the result page tells you what changed. The site works this out itself by comparing the two versions, so it does not depend on what the AI says it did. The checks run again on the new version. Listen to the changed part in the preview.
 
 If a change made things worse, say what went wrong in plain words, the same way you would tell a person.
 
