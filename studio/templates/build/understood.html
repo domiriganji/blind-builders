@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_input, error_summary, textarea, checkbox %}
+{% block content %}
+<h1>{{ title }}</h1>
+{{ error_summary(errors) }}
+<p class="meta">Written by the AI. Nothing is built yet. Check it, then correct it or tell it to build.</p>
+<h2>Summary</h2>
+<p>{{ spec.summary }}</p>
+{% if stored.title_suggested %}<p>You did not give a title, so the AI suggested this one: {{ project.title }}.</p>{% endif %}
+<h2>Who it is for</h2>
+<p>{{ spec.audience }}</p>
+<h2>Pages ({{ spec.pages|length }})</h2>
+{% for page in spec.pages %}
+<h3>{{ page.name }}</h3>
+<p>{{ page.purpose }}</p>
+{% if page.contents %}<ul>{% for c in page.contents %}<li>{{ c }}</li>{% endfor %}</ul>{% endif %}
+{% else %}
+<p>No pages listed.</p>
+{% endfor %}
+<h2>What it does</h2>
+{% if spec.features %}<ul>{% for f in spec.features %}<li>{{ f }}</li>{% endfor %}</ul>{% else %}<p>No features listed.</p>{% endif %}
+<h2>Information it keeps</h2>
+<p>{{ spec.data_kept }}</p>
+<h2>Questions I need you to answer</h2>
+{% if spec.questions %}
+<ol>{% for q in spec.questions %}<li>{{ q }}</li>{% endfor %}</ol>
+<p>Answer them in the Corrections and answers box below.</p>
+{% else %}<p>The AI has no questions.</p>{% endif %}
+<form method="post" action="/build/{{ project.id }}/understand" novalidate>
+  {{ csrf_input() }}
+<h2>Things I would add that you did not ask for</h2>
+{% if spec.additions_not_asked %}
+<p>Only the ones you tick are built. None are ticked to start with.</p>
+{% for a in spec.additions_not_asked %}
+  {{ checkbox('add_' ~ loop.index0, a) }}
+{% endfor %}
+{% else %}<p>None.</p>{% endif %}
+<h2>What I will not do</h2>
+{% if spec.not_doing %}<ul>{% for n in spec.not_doing %}<li>{{ n }}</li>{% endfor %}</ul>{% else %}<p>Nothing listed.</p>{% endif %}
+<h2>Correct me or tell me to build</h2>
+  {{ textarea('corrections', 'Corrections and answers', values.corrections, hint='Say what I got wrong and answer my questions. Leave it empty if everything is right.', error=errors.corrections, rows=6) }}
+  <div class="actions">
+    <button type="submit" name="action" value="update" class="button button-secondary">Update what you understood</button>
+    <button type="submit" name="action" value="build" class="button button-primary">This is right: build it</button>
+  </div>
+</form>
+{% include "build/_idea.html" %}
+<h2>Other things you can do</h2>
+<ul>
+  <li><a href="/build/{{ project.id }}/delete">Delete this project</a></li>
+  <li><a href="/build">All your projects</a></li>
+</ul>
+{% endblock %}

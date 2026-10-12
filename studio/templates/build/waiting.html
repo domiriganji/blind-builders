@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_input, error_summary, textarea %}
+{% block content %}
+<h1>{{ title }}</h1>
+{% if project.status == 'understanding' %}
+<p>The AI is reading your idea. When it is done, this page shows what it understood. You can follow it in <a href="/jobs">Your recent work</a>. If nothing has happened after a few minutes, ask again below.</p>
+{% else %}
+<p>The AI has not read your idea yet. Your idea is saved. When the AI is available, ask it to read your idea.</p>
+{% endif %}
+<h2>Ask the AI to read it</h2>
+{{ error_summary(errors) }}
+<form method="post" action="/build/{{ project.id }}/understand" novalidate>
+  {{ csrf_input() }}
+  {{ textarea('corrections', 'More details', values.corrections, hint='Anything you want to add to your idea before the AI reads it.', error=errors.corrections, rows=5) }}
+  <button type="submit" name="action" value="update" class="button button-primary">Ask the AI to read my idea</button>
+</form>
+{% include "build/_idea.html" %}
+<h2>Other things you can do</h2>
+<ul>
+  <li><a href="/build/{{ project.id }}/delete">Delete this project</a></li>
+  <li><a href="/build">All your projects</a></li>
+</ul>
+{% endblock %}

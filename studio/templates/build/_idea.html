@@ -1,0 +1,11 @@
+{# The person's idea and corrections, exactly as they wrote them, never changed by the AI. #}
+<h2>Your idea, in your words</h2>
+<p class="meta">{{ kind_label }}</p>
+<div class="panel">
+{% for para in project.idea.split('\n') if para.strip() %}<p>{{ para }}</p>
+{% endfor %}
+</div>
+{% if stored.corrections %}
+<h3>What you added or corrected</h3>
+<ol>{% for c in stored.corrections %}<li>{{ c }}</li>{% endfor %}</ol>
+{% endif %}

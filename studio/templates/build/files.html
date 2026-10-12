@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p class="lead">Version {{ version.number }} has {{ listing|length }} {{ 'file' if listing|length == 1 else 'files' }}. Each link opens the file as plain text.</p>
+<ul class="item-list">
+{% for f in listing %}
+  <li><a href="{{ f.url }}">{{ f.path }}</a> <span class="meta">{{ f.lines }}, {{ f.size }}</span></li>
+{% endfor %}
+</ul>
+<p><a href="/build/{{ project.id }}/v/{{ version.number }}">Back to version {{ version.number }}</a></p>
+{% endblock %}

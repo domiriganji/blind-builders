@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_input, error_summary, field, radios, textarea %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p class="lead">Describe a website, a web app for phones, a small tool or a game in your own words. Before building anything, the AI tells you what it understood, and you correct it or say go ahead. Then it builds the files, the site checks every page with its own accessibility checks, and you get a plain report of what was checked, what was not, and, for every change, exactly which lines changed.</p>
+<p>What can be built here: pages made of HTML, CSS and JavaScript that work in any browser. They can save information only on the visitor's own device. They cannot have sign-in, payments or a shared database, and they cannot send email.</p>
+{% if user %}
+<h2>Start something new</h2>
+{{ error_summary(errors) }}
+<form method="post" action="/build/new" novalidate>
+  {{ csrf_input() }}
+  {{ field('title', 'Title', values.title, hint='If you leave this empty, the AI suggests one.', error=errors.title) }}
+  {{ radios('kind', 'What do you want to make?', kinds, values.kind, error=errors.kind) }}
+  {{ textarea('idea', 'Your idea', values.idea, hint=idea_hint, error=errors.idea, rows=10, required=true) }}
+  <button type="submit" class="button button-primary">Send my idea to the AI</button>
+</form>
+<h2>Your projects</h2>
+{% if projects %}
+<ul class="item-list">
+{% for p in projects %}
+  <li><a href="/build/{{ p.id }}">{{ p.display_title }}</a>
+    <span class="meta">{{ p.kind_label }}. {% if p.latest %}Latest: version {{ p.latest }}{% else %}No version yet{% endif %}. Status: {{ p.status_label }}.</span></li>
+{% endfor %}
+</ul>
+{% else %}
+<p>You have no projects yet. Your projects appear here after you send your first idea.</p>
+{% endif %}
+{% else %}
+<h2>Start building</h2>
+<p>You need an account to build, so your projects stay private to you. <a href="/login?next=/build">Sign in to build</a> or <a href="/register?next=/build">create a free account</a>.</p>
+{% endif %}
+{% endblock %}

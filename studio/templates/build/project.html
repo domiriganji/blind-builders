@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p class="lead">{{ kind_label }}. Latest: version {{ latest.number }}. Status: {{ status_label }}.</p>
+<h2>Latest version: version {{ latest.number }}</h2>
+<p>Checked by the site: {{ latest_check }}</p>
+<p class="meta">What the AI says it built (written by the AI):</p>
+<div class="panel">{{ latest.ai_summary|markdown|shift_headings(2) }}</div>
+<ul class="item-list">
+  <li><a href="/build/{{ project.id }}/v/{{ latest.number }}">Open the report for version {{ latest.number }}</a></li>
+  <li><a href="{{ preview_url }}">Open the preview</a></li>
+</ul>
+<h2>All versions ({{ versions|length }})</h2>
+<ol reversed class="item-list">
+{% for v in versions %}
+  <li><a href="/build/{{ project.id }}/v/{{ v.number }}">Version {{ v.number }}</a>
+    <span class="meta">{{ v.created_at[:10] }}. {{ v.request_text|truncate(160) }}</span></li>
+{% endfor %}
+</ol>
+{% include "build/_idea.html" %}
+<h2>Other things you can do</h2>
+<ul>
+  <li><a href="/build/{{ project.id }}/delete">Delete this project</a></li>
+  <li><a href="/build">All your projects</a></li>
+</ul>
+{% endblock %}
