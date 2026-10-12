@@ -1,7 +1,7 @@
 # The Blind Creators Conference: Transcript, Rounds 1 to 4
 
-Exported 2026-10-12 17:07 UTC. Rounds fully closed in this file: 1, 2, 3.
-Still in progress when exported: r4:scientist.
+Exported 2026-10-12 17:21 UTC. Rounds fully closed in this file: 1, 2, 3.
+Still in progress when exported: r4:scout.
 
 This is the working record of a multi-agent conference convened to decide what website or application should be built to help blind people turn their ideas into reality with AI. Every speaker read the verified landscape brief in `docs/research/landscape-brief.md` before speaking. Speeches given before 15:00 UTC on October 12, 2026 ran on Claude Fable 5.1; later ones ran on Claude Opus 5.5. Both at maximum reasoning effort.
 
@@ -1106,5 +1106,66 @@ Survivors: Ready, Yusuf's, with Lena's find-first and Own Words' rule inside. Co
 - Signer independence: a separate nonprofit with a blind-majority board and no Ready staff, separate keys and budgets, list-price receipts, no choice of checks, unannounced re-checks of a random 10% of live pages, and comparative scoring against Gemini Canvas and Lovable pages with 95% upper bounds.
 - Use Sigstore Rekor with hashes only, never witness identities.
 - Survivors: Ready (absorbing Lena's find-first and the Own Words rule), Countersign (absorbing Canary), and Count Us as the first project on both. Killed: Errand, which returns only as a native accessibility service on her phone, and Upkeep. Deferred: the ledger.
+
+### Dr. Lena Vasquez
+*Cognitive neuroscientist (cross-modal plasticity, sensory substitution, blind cognition). Model: Opus 5.5.*
+
+Chair, my own metric first, because it fails twice.
+
+Answerability. Two of my three seeded messages, "are you open Sunday" and "what's in the small chops," Kemi answers from her own head. A seller who never opens the record passes two of three; I was measuring that sellers know their business. Every seeded question must need the record: "the button does nothing on my phone," "my cousin uses Jieshuo; can she order?", and one whose true answer is "never checked." Second failure: thirteen of sixteen per group. If the product truly works for four builders in five, a group clears thirteen six times in ten; both groups, about one time in three. My study would likely have failed a product meeting my target. Amended: twenty-four per onset group, pass at seventeen. A group at four in five passes nine times in ten; a group at a coin flip, three in a hundred. Neither size reliably separates four in five from two in three; the preregistration says so. A late-onset recruitment shortfall by March 1 is itself the reach count the chair wanted sooner. The number that embarrasses the record itself, on April 30: five or more of forty-eight builders saying "it works" where the record says "never checked." It fires on one-in-five overclaiming almost always, on one in thirty almost never. If it fires, the record manufactures confidence, and I publish that.
+
+Yusuf, the chair's arithmetic stands; two things make it worse. "A customer found broken" counts complaints, but most disabled shoppers who hit a barrier just click away, per the UK Click-Away Pound surveys. And Priya just routed Kemi's evening through templates. A template defect is common-mode: "ready" is false on every page built from it. Fifty pages from twenty templates are nearer twenty trials than fifty, and zero defects in twenty still allows one in seven. Report templates and fills separately; fifty-nine clean pages, or ninety-three with one failure, earn "one in twenty," and January cannot. Ready's embarrassing number by January 31: one template defect the audit finds that the harness passed.
+
+Which audit? Priya, two keys and two boards make two governments, not two instruments. If the re-check is the same harness a week later, it is test-retest: the harness agreeing with itself. Whatever it does not model, TalkBack until your November 16 report, Jieshuo at all, it misses both times. And a tenth of fifty is five pages; zero failures in five still allows forty-five percent. Scoring Ready beside Gemini Canvas and Lovable under our rules is Goodhart's law: Ready's pages were built against those checks. Validity needs a second instrument: every pilot page goes to a witness on a phone, browser and reader outside the harness matrix, masked to which builder made it, doing the customer's task, placing an order. That measures Yusuf's false-ready rate; the random tenth is for scale.
+
+Errand: Priya's seventy-five percent on sixty chores she assembled, against OLLA's 52.5 on other tasks, compared different things; a revived Errand runs on OLLA's tasks or diaries frozen by someone who won't build it. Own Words: the chair is right; "every sentence hers or accepted" is our code's property, one hundred percent even if nobody publishes. Cut as a door; the rule stays in the engine. What's Missing: Sam is right. A find counts only if it was new to her and a witness on her reader confirmed it; otherwise we are scoring Mazrui's directory. Cut as a door: find-first goes into Ready, and the commons becomes Priya's template library, each template tagged with who it worked for by onset, device, reader and language. The ledger stays dead: other people's money behind a link, and no test proves an attack absent. Countersign, ten developers: listening minutes per accepted change, each against their own baseline, Sousa's evening; an effect that large shows at ten. "Defects flat" cannot; real defects are too rare. Seed them, unannounced. Its embarrassing number by March 31: a median above ten minutes; its guardrail: no receipt line marked "passed" over a seed. Count Us: one investigator is a case, not a sample; its number by June 30 is any preprint figure she could not trace to an output line herself. Pay its participants in cash, not builds; my rule bound my study, it binds Yusuf's. Sam, Canary's "half by March 31" rests on perhaps ten regressions; five of ten fits anything from a fifth to four-fifths.
+
+Underneath, one rule from my lab: no "yes" counts until we have seeded trials where the right answer is "no." Yusuf seeds witnesses; nobody seeds the builder, the writer or the harness. Priya, on November 2 put one wrong price in each tester's "What I understood"; five testers is a smoke test, my forty-eight are the estimate.
+
+Yusuf, your penalty in numbers. Thirty checks a month at one seed in ten is three seeds. An honest witness who slips one seed in ten collects two misses in a month three times in a hundred; within a year, nearly three in ten honest witnesses lose every line they ever signed. Keep the seeds; set the cutoff from honest hit rates per reader, Priya's calibration; void back to the last seed she caught, not her whole history. Each caught seed proves she was listening then.
+
+Teach-back: Priya withdrew "never a product quiz" for irreversible values; I drop the word. Teach-back tests understanding; that belongs on test day. The product needs readback, which tests the channel: ICAO Doc 4444 lists what a pilot must read back, and no pilot feels quizzed. Would I quiz a sighted sixty-one-year-old's understanding? No. Make her re-enter what cannot be taken back? Yes; the web already does: GitHub makes every user type a repository's name to delete it. Why her, if not age or blindness? The channel. A sighted reviewer's screen holds the price while her eyes return to it; a value heard once is gone unless she holds it, and "yes" to it is a recognition judgment that leans toward yes. The speech recognizer can mishear her, too. Keep the list short; Cardosi's FAA tape analyses found readback errors rise with items per transmission. In Ready: prices and the WhatsApp number, recalled, not confirmed. One misheard digit sends Kemi's orders to a stranger.
+
+Survivors, none mine: Ready, with find-first, onset tags and readback; Countersign, Canary as its release schedule, seeded defects as its guardrail; Count Us, the first project, paid in cash. Killed: What's Missing, incumbent Mazrui's directory; Own Words, a metric our code satisfies alone; Errand, the login wall.
+
+**Key points**
+
+- My own answerability metric failed two ways. Two of its three seeded questions can be answered without the record. And with 13 of 16 required in each group, a product that hits the target passes both groups only about 36% of the time. Amended to 24 builders per onset group, passing at 17. Every question must need the record, and the stop signal is 5 or more of 48 builders saying 'it works' where the record says 'never checked'.
+- Yusuf's false-ready rate counts complaints, but most disabled shoppers who hit a barrier just leave. Since Priya moved pages onto templates, one template defect breaks every page built from it, so 50 pages from 20 templates is closer to 20 tests than 50. Earning one-in-twenty takes 59 clean pages, or 93 with one failure.
+- Priya's independence plan separates governance, not measurement. Re-running the same harness a week later only shows it agrees with itself. A random tenth of 50 pages is 5 pages, and zero failures in 5 still allows a 45% failure rate. Scoring Ready against Gemini Canvas and Lovable on our own checks is Goodhart's law. A real audit puts every pilot page in front of a witness on a phone, browser and screen reader the harness doesn't model, who doesn't know who built the page and tries to place an order.
+- One rule for the whole system: no 'yes' counts until we have planted cases where the right answer is 'no'. That means builders' read-backs, writers' accepts and the harness itself, not only witnesses. Yusuf's two-miss penalty would wrongly ban nearly 3 in 10 honest witnesses a year if they miss one planted page in ten.
+- I drop teach-back from the product and replace it with readback: everyone re-enters a short, fixed list of values that can't be undone, like pilots under ICAO Doc 4444 or GitHub's type-the-name-to-delete. The reason is the channel, not age or blindness: a value heard once is gone, and speech recognition makes mistakes.
+- Survivors, none of them mine: Ready, Countersign (with Canary folded in) and Count Us. Killed: What's Missing (the incumbent is Mazrui's directory, and the ledger holds other people's money), Own Words (its metric is a rule our own code enforces) and Errand (the login wall).
+
+**Agreed with**
+
+- Chair: zero failures in 50 pages still allows up to 5.8%, about one in seventeen; I extended the arithmetic to 59 clean pages, or 93 with one failure.
+- Chair: Own Words' 'every sentence hers or accepted' is a rule our own code enforces, not evidence that anyone publishes. I cut it as a door.
+- Sam: a find is just Mazrui's directory plus a filter unless it was new to her and a witness on her screen reader confirmed it. His call to tag finds by onset goes into Ready.
+- Priya: Errand dies at the login wall. Her rule against silent rewording lives in the engine. Her template library becomes the commons. The adashe ledger stays dead because no test proves an attack absent.
+- Priya: she withdrew 'never a product quiz' for values that can't be undone. I accept her bank example and drop the word teach-back from the product.
+- Priya: calibrate each screen reader before judging witnesses on planted pages. Yusuf: keep the planted pages.
+
+**Disagreed with**
+
+- Priya: two keys and two boards give independent governance, not independent measurement. A same-harness re-check is test-retest. A random tenth of 50 pages proves nothing. Scoring Ready against Gemini Canvas and Lovable on our own checks is Goodhart's law.
+- Priya: her 75% on 60 chores she chose herself, set against OLLA's 52.5% on other tasks, compared different things.
+- Priya: five testers on November 2 is a smoke test. Teach-back measures understanding, not whether she catches an error, so each read-back needs one planted wrong price.
+- Yusuf: a false-ready rate counted from customer complaints undercounts, because most disabled shoppers just leave. Template defects make failures common-mode, and 50 pages cannot earn one-in-twenty.
+- Yusuf: two misses in 30 days, with every past line voided, would wrongly ban nearly 3 in 10 honest witnesses a year at a 10% miss rate. Void only back to the last planted page she caught.
+- Yusuf: pay Count Us participants in cash, not builds. The rule I applied to my own study applies to his.
+- Sam: 'half by March 31' rests on about ten regressions. Five of ten fits anything from 20% to 80%.
+- Myself in round 3: my answerability questions and the 13-of-16 criterion could not tell a working record from none.
+
+**Proposals made**
+
+- Redesign answerability so every planted customer question needs the record, including one whose true answer is 'never checked'. Use 48 builders, 24 per onset group, passing at 17 of 24. On April 30, embarrassment means 5 or more of 48 saying 'it works' where the record says 'never checked'.
+- Define false-ready as a page called ready on which a witness who doesn't know who built it, on a phone, browser and screen reader the harness doesn't model, cannot place an order. Re-check every pilot page and report template and fill defects separately. Ready's embarrassing number by January 31 is one template defect the audit finds that the harness passed.
+- Plant cases where the right answer is 'no' everywhere a 'yes' counts. Starting November 2, put one wrong price in each 'What I understood' read-back. Plant meaning-changing edits for writers. Plant known defects in Countersign changes; its guardrail is zero receipt lines marked 'passed' over a planted defect.
+- Witness penalty: set the cutoff from each screen reader's honest hit rate, and void a witness's lines only back to the last planted page she caught, not her whole history.
+- Replace teach-back with recall readback of a short, fixed list of values that can't be undone, for every user. In Ready, that means prices and the WhatsApp number.
+- Countersign evaluation: ten developers, each measured against their own baseline. It is embarrassed if the median is still above ten listening minutes per accepted change by March 31.
+- Count Us: its embarrassing number by June 30, 2027 is any preprint figure the lead investigator could not trace to an output line herself. Participants are paid in cash.
+- Merge What's Missing into Ready. Find-first counts a find only if it was new to her and confirmed by a witness on her screen reader. The commons becomes Priya's template library, tagged by onset, device, screen reader and language.
 
 ---
