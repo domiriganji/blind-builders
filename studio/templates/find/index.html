@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_input, field, select, textarea %}
+{% block content %}
+<h1>Find before you build</h1>
+<p class="lead">Before you build something, see whether it already exists and whether it worked for blind people like you. Members report whether each tool worked with their screen reader and device. Nobody on the site tests the tools; the reports come from members.</p>
+
+<h2>Search the directory</h2>
+<form method="get" action="/find">
+  {{ field('q', 'What are you looking for?', q, type='search', hint='A few words, for example: describe photos, NVDA, podcast.') }}
+  {{ select('category', 'Category', [('', 'All categories')] + category_pairs, category) }}
+  <button type="submit" class="button button-primary">Search</button>
+</form>
+
+<h2 id="results-title">{% if searching %}{{ total }} {{ 'tool matches' if total == 1 else 'tools match' }} your search{% else %}All tools in the directory ({{ total }}){% endif %}</h2>
+{% if pages > 1 %}<p>Page {{ page }} of {{ pages }}. Tools are in alphabetical order.</p>{% endif %}
+{% if tools %}
+<ul class="item-list">
+{% for t in tools %}
+  <li>
+    <h3><a href="/find/tool/{{ t.id }}">{{ t.name }}</a></h3>
+    <p>{{ t.description }}</p>
+    <p class="meta">{{ t.category }}.{% if t.made_by_blind %} Made by a blind or low-vision person.{% endif %}{% if t.needs_upkeep %} Needs help after an update.{% endif %} {{ summaries[t.id] }}.</p>
+  </li>
+{% endfor %}
+</ul>
+{% else %}
+<p>No tools in the directory match. Try fewer words or another category, or ask the AI to search the web below.</p>
+{% endif %}
+{% if prev_url or next_url %}
+<nav aria-label="Pages of results">
+  <ul>
+    {% if prev_url %}<li><a href="{{ prev_url }}">Previous page of tools</a></li>{% endif %}
+    {% if next_url %}<li><a href="{{ next_url }}">Next page of tools</a></li>{% endif %}
+  </ul>
+</nav>
+{% endif %}
+{% if searching %}<p><a href="/find">Show all tools</a></p>{% endif %}
+
+<h2 id="ask-title">Ask the AI to search the web</h2>
+<p>If the directory does not have what you need, the AI can search the web for tools that already exist. It tells you what it found and where. It uses the AI, paid from your own Claude API key or your credits.</p>
+{% if user %}
+<form method="post" action="/find/ask" novalidate>
+  {{ csrf_input() }}
+  {{ textarea('need', 'What do you want to do or make?', q, hint='For example: an app that reads restaurant menus aloud in Arabic.', rows=3, required=true) }}
+  <button type="submit" class="button button-primary">Search the web</button>
+</form>
+{% else %}
+<p><a href="/login?next=/find/ask">Sign in to ask the AI to search the web</a>.</p>
+{% endif %}
+
+{% if searches %}
+<h2>Your earlier web searches</h2>
+<ul>
+{% for s in searches %}<li><a href="/find/search/{{ s.id }}">{{ s.need }}</a> ({{ s.created_at[:10] }})</li>{% endfor %}
+</ul>
+{% endif %}
+
+<h2>Help the directory grow</h2>
+<ul>
+  <li><a href="/find/add">Add a tool you know to the directory</a></li>
+  <li><a href="/library">See the Tool library: tools blind people made for each other</a></li>
+</ul>
+{% endblock %}
