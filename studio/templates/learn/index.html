@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p class="lead">Guides for building with AI using a screen reader, and a place to ask other members when you are stuck. There is no phone line and no support staff: members help each other, and the AI can suggest an answer while you wait.</p>
+<p>New here? Begin with <a href="/learn/start-here">Start here: using this site with a screen reader</a>.</p>
+<h2>Guides ({{ guides|length }})</h2>
+<ul class="section-list">
+{% for g in guides %}
+  <li>
+    <h3><a href="{{ g.url }}">{{ g.title }}</a></h3>
+    <p>{{ g.summary }}</p>
+    <p class="meta">Last checked {{ g.last_checked_words }}.</p>
+  </li>
+{% endfor %}
+</ul>
+<h2>Ask the community</h2>
+<p>If a guide does not answer your question, ask other members. Say which screen reader and device you use, so answers fit how you work.</p>
+<ul>
+  <li><a href="/help">Read questions and answers from members</a></li>
+  <li><a href="/help/ask">Ask a question</a></li>
+</ul>
+{% endblock %}

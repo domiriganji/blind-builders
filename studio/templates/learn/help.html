@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p class="lead">Members answer each other's questions here. There is no phone line and no support staff. When you ask, you can also get a suggested answer from the AI while you wait. It is always labelled, because no member has checked it.</p>
+<p><a class="button button-primary" href="/help/ask">Ask a question</a></p>
+<nav aria-label="Which questions to show">
+  <ul>
+    <li><a href="/help"{% if show == 'newest' %} aria-current="page"{% endif %}>Newest</a></li>
+    <li><a href="/help?show=open"{% if show == 'open' %} aria-current="page"{% endif %}>Not answered yet</a></li>
+  </ul>
+</nav>
+<h2>{% if show == 'open' %}Not answered yet{% else %}Newest questions{% endif %} ({{ total }})</h2>
+{% if questions %}
+<ul class="section-list">
+{% for q in questions %}
+  <li>
+    <h3><a href="/help/q/{{ q.id }}">{{ q.title }}</a></h3>
+    <p>{{ q.member_answers }} {{ 'answer' if q.member_answers == 1 else 'answers' }} from members{% if q.ai_answers %}, and a suggested answer from the AI{% endif %}. {{ 'Answered' if q.status == 'answered' else 'Not answered yet' }}.</p>
+    <p class="meta">Asked by {{ q.asker_name }} on {{ q.date }}{% if q.screen_reader %}, using {{ q.screen_reader }}{% endif %}{% if q.device %} on {{ q.device }}{% endif %}.</p>
+  </li>
+{% endfor %}
+</ul>
+{% if newer_url or older_url %}
+<p>Page {{ page }}.{% if newer_url %} <a href="{{ newer_url }}">Newer questions</a>{% endif %}{% if older_url %} <a href="{{ older_url }}">Older questions</a>{% endif %}</p>
+{% endif %}
+{% elif show == 'open' %}
+<p>Every question has been marked as answered. <a href="/help">Show the newest questions</a>.</p>
+{% else %}
+<p>No questions yet. Be the first: <a href="/help/ask">ask a question</a>.</p>
+{% endif %}
+<h2>Before you ask</h2>
+<p>The <a href="/learn">guides</a> may already answer it. Never post passwords, one-time codes, card numbers or API keys: everyone can read these pages.</p>
+{% endblock %}

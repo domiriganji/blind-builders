@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_input, error_summary, textarea, post_button %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p class="lead">{{ 'Answered' if question.status == 'answered' else 'Not answered yet' }}. {{ member_count }} {{ 'answer' if member_count == 1 else 'answers' }} from members{% if has_ai %}, and a suggested answer from the AI{% endif %}.</p>
+<p class="meta">Asked by {{ question.asker_name }} on {{ date }}{% if question.screen_reader %}, using {{ question.screen_reader }}{% endif %}{% if question.device %} on {{ question.device }}{% endif %}.</p>
+{{ error_summary(errors) }}
+<h2>The question</h2>
+{{ question_html }}
+{% if is_asker %}
+<h2>While you wait</h2>
+{% if not has_ai %}
+<p>Members answer when they can. The AI can write a suggested answer now. It uses your credits or your own Claude API key, and each question gets one. No member will have checked it.</p>
+{{ post_button('/help/q/' ~ question.id ~ '/ai', 'Get a suggested answer from the AI while you wait', 'primary') }}
+{% endif %}
+{% if question.status == 'open' %}
+<p>When you have the help you need, mark your question as answered, so members can spend their time on other questions.</p>
+{{ post_button('/help/q/' ~ question.id ~ '/answered', 'Mark as answered') }}
+{% else %}
+<p>You marked this question as answered. If you still need help, put it back in the list of questions that need answers.</p>
+{{ post_button('/help/q/' ~ question.id ~ '/reopen', 'Mark as not answered yet') }}
+{% endif %}
+{% endif %}
+<h2 id="answers">Answers ({{ answers|length }})</h2>
+{% if answers %}
+<ol class="item-list">
+{% for a in answers %}
+  <li id="answer-{{ a.id }}">
+    {% if a.is_ai %}
+    <h3>Suggested answer from the AI</h3>
+    <p><strong>{{ ai_label }}</strong></p>
+    {% elif a.by_asker %}
+    <h3>Reply from {{ a.author_name }}, who asked</h3>
+    {% else %}
+    <h3>Answer from {{ a.author_name }}</h3>
+    {% endif %}
+    <p class="meta">Posted {{ a.created_at[:10] }}. {{ a.helpful_count }} {{ 'member' if a.helpful_count == 1 else 'members' }} found this helpful.</p>
+    {{ a.body_html }}
+    {% if user and not a.is_own %}
+      {% if a.marked_by_viewer %}
+    <p>You marked this answer as helpful.</p>
+      {% else %}
+    {{ post_button('/help/q/' ~ question.id ~ '/answers/' ~ a.id ~ '/helpful', 'This helped me') }}
+      {% endif %}
+    {% endif %}
+  </li>
+{% endfor %}
+</ol>
+{% else %}
+<p>No answers yet.</p>
+{% endif %}
+<h2>Answer this question</h2>
+{% if user %}
+<form method="post" action="/help/q/{{ question.id }}/answer" novalidate>
+  {{ csrf_input() }}
+  {{ textarea('body', 'Your answer', answer_value, required=true, rows=8, hint="Never post passwords or codes. If you can, give steps for the asker's screen reader and device.", error=errors.body) }}
+  <button type="submit" class="button button-primary">Post your answer</button>
+</form>
+{% else %}
+<p><a href="/login?next=/help/q/{{ question.id }}">Sign in to answer this question</a>, or <a href="/register?next=/help/q/{{ question.id }}">create an account</a>.</p>
+{% endif %}
+<p><a href="/help">Back to Ask the community</a></p>
+{% endblock %}
