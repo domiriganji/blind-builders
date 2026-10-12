@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% from "_macros.html" import post_button %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p class="lead">This deletes {{ project.title or 'this project' }}, your idea and all {{ version_count }} {{ 'version' if version_count == 1 else 'versions' }}. Preview links stop working, including any you shared. This cannot be undone.</p>
+<p>If you might want the files later, download them from a version page first.</p>
+<div class="actions">
+{{ post_button('/build/' ~ project.id ~ '/delete', 'Delete this project', 'primary') }}
+<a href="/build/{{ project.id }}">Keep it and go back</a>
+</div>
+{% endblock %}

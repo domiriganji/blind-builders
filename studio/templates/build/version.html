@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_input, error_summary, textarea, post_button %}
+{% block content %}
+<h1>{{ title }}</h1>
+{{ error_summary(errors) }}
+<p class="lead">{{ check_sentence }}{% if version.number > 1 %} Compared with version {{ diff_base }}, {{ diff_count }} {{ 'file' if diff_count == 1 else 'files' }} changed.{% endif %}</p>
+{% if version.number != latest_number %}<p>This is not the latest version. The latest is <a href="/build/{{ project.id }}/v/{{ latest_number }}">version {{ latest_number }}</a>.</p>{% endif %}
+
+<h2>Checked by the site</h2>
+<p>{{ file_summary }} The site ran its own machine checks on every HTML page.</p>
+{% for page in pages %}
+<h3>{{ page.path }}</h3>
+<p>{{ page.size }}. Passed {{ page.passed }} checks.
+{% if page.errors or page.warnings %}Found {{ page.found }}.{% else %}<span class="status-pass">No problems found.</span>{% endif %}</p>
+{% if page.errors or page.warnings %}
+<ul class="item-list">
+{% for f in page.errors %}<li><span class="status-fail">Problem:</span> {{ f.message }}{% if f.where %} <span class="meta">Where: {{ f.where }}</span>{% endif %}</li>
+{% endfor %}
+{% for f in page.warnings %}<li>Warning: {{ f.message }}{% if f.where %} <span class="meta">Where: {{ f.where }}</span>{% endif %}</li>
+{% endfor %}
+</ul>
+{% endif %}
+{% else %}
+<p>There are no HTML pages to check.</p>
+{% endfor %}
+
+<h2>What the AI says it built</h2>
+<p class="meta">Written by the AI. The site has not checked these claims.</p>
+<div class="panel">{{ version.ai_summary|markdown|shift_headings(2) }}</div>
+
+<h2>How to use it</h2>
+<p class="meta">Written by the AI.</p>
+<div class="panel">{{ version.how_to_use|markdown|shift_headings(2) }}</div>
+
+<h2>Not checked</h2>
+<p>Nobody has checked these yet:</p>
+<ul>
+{% for item in not_checked %}<li>{{ item }}</li>
+{% endfor %}
+{% if unchecked_files %}<li>These files, which are not HTML pages: {{ unchecked_files|join(', ') }}.</li>{% endif %}
+</ul>
+{% if not_done %}
+<h3>What the AI says it did not do</h3>
+<ul>{% for n in not_done %}<li>{{ n }}</li>{% endfor %}</ul>
+{% endif %}
+
+{% if version.number > 1 %}
+<h2>What changed (computed by the site, not the AI)</h2>
+<p>Compared with version {{ diff_base }}.</p>
+{% if diff_lines %}
+<ul>{% for line in diff_lines %}<li>{{ line }}</li>{% endfor %}</ul>
+{% if diff_count == 1 %}<p>Nothing else changed.</p>{% endif %}
+{% else %}
+<p>No files changed.</p>
+{% endif %}
+<h3>What was asked for</h3>
+<div class="panel">{% for para in version.request_text.split('\n') if para.strip() %}<p>{{ para }}</p>
+{% endfor %}</div>
+{% endif %}
+
+<h2>What you can do next</h2>
+<ul class="item-list">
+  <li><a href="{{ preview_url }}">Open the preview</a> <span class="meta">Anyone with this link can open the preview, but nothing else of yours.</span></li>
+  <li><a href="/build/{{ project.id }}/v/{{ version.number }}/download.zip">Download all files as a zip</a></li>
+  <li><a href="/build/{{ project.id }}/v/{{ version.number }}/files">Read the files</a></li>
+  {% if version.number > 1 %}<li><a href="/build/{{ project.id }}/v/{{ version.number }}/changes">See the changed lines</a></li>{% endif %}
+  <li><a href="{{ checks_link }}">Ask blind members to check it</a></li>
+  <li><a href="/build/{{ project.id }}">All versions of this project</a></li>
+</ul>
+{% if error_count %}
+<p>The checks found {{ error_count }} {{ 'problem' if error_count == 1 else 'problems' }}. The AI can try to fix {{ 'it' if error_count == 1 else 'them' }} in a new version. This version stays as it is.</p>
+{{ post_button('/build/' ~ project.id ~ '/v/' ~ version.number ~ '/fix', 'Fix the problems the checks found', 'primary') }}
+{% endif %}
+
+<h2>Ask for a change</h2>
+<p>The AI makes a new version from this one. This version stays as it is, and the site shows you exactly what changed.</p>
+<form method="post" action="/build/{{ project.id }}/v/{{ version.number }}/change" novalidate>
+  {{ csrf_input() }}
+  {{ textarea('request', 'The change you want', values.request, hint='For example: change the price of small chops from 1200 to 1500.', error=errors.request, rows=6, required=true) }}
+  <button type="submit" class="button button-primary">Ask the AI to make this change</button>
+</form>
+{% endblock %}
