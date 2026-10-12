@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% from "_macros.html" import post_button %}
+{% from "checks/_text.html" import literal %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p class="lead">{{ req.done }} of {{ req.max_checks }} checks done. This request is {{ 'open' if req.status == 'open' else 'closed' }}.
+{% if req.reward_cents %}Reward: {{ money(req.reward_cents) }} in credits for each check.{% else %}No reward is offered.{% endif %}</p>
+<p class="actions">
+{% if eligible %}<a class="button button-primary" href="/checks/{{ req.id }}/report">Check this now</a>{% endif %}
+<a href="/checks/{{ req.id }}/record">Read the check record</a>
+</p>
+{% if not eligible and not is_owner %}<p>{{ reason }}</p>{% endif %}
+
+<h2>What to try</h2>
+<div class="panel">{{ literal(req.what_to_try) }}</div>
+<h2>Where</h2>
+<p><a href="{{ req.url }}" rel="noopener noreferrer">Open {{ req.title }} (the member's own page)</a></p>
+<p class="meta">Address: {{ req.url }}</p>
+<p class="meta">Asked on {{ req.created_at[:10] }}{% if req.closed_at %}. Closed on {{ req.closed_at[:10] }}{% endif %}.</p>
+
+{% if is_owner %}
+<h2>Your request</h2>
+{% if req.status == 'open' %}
+<p>When you close this request, nobody else can check it.{% if refund_cents %} The {{ refund }} held for checks not done yet comes back to your credits.{% endif %}</p>
+{{ post_button('/checks/' ~ req.id ~ '/close', 'Close this request') }}
+{% else %}
+<p>This request is closed.{% if req.reward_cents %} Credits held for checks that were not done came back to you when it closed.{% endif %}</p>
+{% endif %}
+<p>To share the results, send people the address of the check record. Anyone can read it without an account.</p>
+{% endif %}
+<p><a href="/checks">Back to Peer checks</a></p>
+{% endblock %}

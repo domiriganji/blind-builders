@@ -1,0 +1,2 @@
+{# Member text shown exactly as typed: escaped, with line breaks kept. Never rewritten or formatted. #}
+{% macro literal(text) %}{% for para in (text or '').replace('\r\n', '\n').split('\n\n') if para.strip() %}<p>{% for line in para.strip().split('\n') %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</p>{% endfor %}{% endmacro %}

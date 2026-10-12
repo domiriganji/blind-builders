@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p>{{ reason }}</p>
+<ul>
+  <li><a href="/checks/{{ req.id }}/record">Read the check record for {{ req.title }}</a></li>
+  <li><a href="/checks">Find other work to check</a></li>
+</ul>
+{% endblock %}
