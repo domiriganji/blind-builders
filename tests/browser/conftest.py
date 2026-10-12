@@ -102,7 +102,8 @@ def same_site_links(page, base: str) -> list[str]:
         path = h[len(base):].split("#")[0]
         if not path or path.startswith(("/static/", "/logout")) or "/preview" in path or "/p/" in path:
             continue
-        if path.rsplit("/", 1)[-1].count(".") and not path.endswith(".html"):
+        last = path.split("?", 1)[0].rsplit("/", 1)[-1]
+        if "/export" in path or ("." in last and not last.endswith(".html")):
             continue  # downloads and JSON
         out.append(path)
     return out
@@ -115,7 +116,10 @@ def crawl(page, base: str, start: str = "/", limit: int = 250) -> list[str]:
         if path in seen:
             continue
         seen.add(path)
-        response = page.goto(base + path)
+        try:
+            response = page.goto(base + path)
+        except playwright_api.Error:
+            continue  # a download or an aborted navigation
         if response is None or "text/html" not in (response.headers.get("content-type") or ""):
             continue
         visited.append(path)

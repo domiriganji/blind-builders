@@ -711,6 +711,10 @@ async def delete_account(request: Request, user: dict = Depends(require_user)):
     if form.get("confirm") != "yes":
         return _render_delete(request, {"confirm": "Tick the box to confirm you want to delete your account."},
                               status_code=400)
+    for hook in getattr(request.app.state, "forget_user_hooks", []):
+        hook(user["id"])
+    with db.session() as conn:
+        conn.execute("DELETE FROM jobs WHERE user_id = ?", (user["id"],))
     anonymise_user(user["id"])
     request.session.clear()
     flash(request, "Your account is deleted. You are signed out.", "success")

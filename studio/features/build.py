@@ -970,3 +970,9 @@ async def delete_project(request: Request, project_id: int, user: dict = Depends
         conn.execute("DELETE FROM build_projects WHERE id = ? AND user_id = ?", (project_id, user["id"]))
     flash(request, f"Deleted {_display_title(project)} and all its versions.", "success")
     return redirect("/build")
+
+
+def forget_user(user_id: int) -> None:
+    """Called when a member deletes their account: remove their projects (versions cascade)."""
+    with db.session() as conn:
+        conn.execute("DELETE FROM build_projects WHERE user_id = ?", (user_id,))

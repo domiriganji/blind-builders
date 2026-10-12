@@ -5,6 +5,6 @@ node_modules/
 .venv/
 __pycache__/
 *.pyc
-data/
+/data/
 .pytest_cache/
 .claude/

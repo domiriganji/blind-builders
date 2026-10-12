@@ -75,7 +75,8 @@ def current_user(request: Request) -> dict | None:
         return cached
     with db.session() as conn:
         row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-    if row is None:
+    if row is None or row["email"].endswith("@invalid"):
+        # Missing or deleted account: treat as signed out on every device.
         request.session.pop("user_id", None)
         return None
     user = dict(row)
@@ -92,7 +93,8 @@ def require_user(request: Request) -> dict:
     """FastAPI dependency: the signed-in user, or a redirect to sign in."""
     user = current_user(request)
     if user is None:
-        raise LoginRequired(str(request.url.path))
+        query = request.url.query
+        raise LoginRequired(str(request.url.path) + ("?" + query if query else ""))
     return user
 
 

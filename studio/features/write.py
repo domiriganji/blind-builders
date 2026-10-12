@@ -1002,3 +1002,9 @@ async def delete(request: Request, doc_id: int, user: dict = Depends(require_use
         conn.execute("DELETE FROM write_docs WHERE id = ? AND user_id = ?", (doc_id, user["id"]))
     flash(request, f"Deleted \"{doc['title']}\" and all its versions.", "success")
     return redirect("/write")
+
+
+def forget_user(user_id: int) -> None:
+    """Called when a member deletes their account: remove their documents (versions, suggestions cascade)."""
+    with db.session() as conn:
+        conn.execute("DELETE FROM write_docs WHERE user_id = ?", (user_id,))

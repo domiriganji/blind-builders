@@ -26,7 +26,7 @@ main:focus { outline: none; box-shadow: none; }
 .site-name { font-weight: 700; font-size: 1.2rem; margin: 0.75rem 0 0.25rem; }
 .site-header nav ul, .site-footer nav ul { list-style: none; margin: 0.25rem 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; }
 [aria-current] { font-weight: 700; }
-main { padding-top: 1rem; padding-bottom: 2rem; }
+main { padding-top: 1rem; padding-bottom: 2rem; overflow-wrap: anywhere; }
 h1 { font-size: 1.7rem; line-height: 1.25; margin: 0.5rem 0 1rem; }
 h2 { font-size: 1.35rem; margin-top: 2rem; }
 h3 { font-size: 1.15rem; margin-bottom: 0.25rem; }
@@ -71,7 +71,8 @@ a.button-primary:visited { color: var(--accent-fg); }
 pre, code { font-family: ui-monospace, Consolas, monospace; }
 pre { white-space: pre-wrap; word-break: break-word; background: var(--panel); padding: 0.75rem; border: 1px solid var(--border); }
 table { border-collapse: collapse; width: 100%; }
-th, td { border: 1px solid var(--border); padding: 0.4rem 0.5rem; text-align: left; vertical-align: top; }
+th, td { border: 1px solid var(--border); padding: 0.4rem 0.5rem; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+th[scope=row] { font-weight: normal; }
 .js-only { display: none; }
 .js .js-only { display: block; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }

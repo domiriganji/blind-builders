@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib
 import logging
 from pathlib import Path
+from urllib.parse import urlencode
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -43,6 +44,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.ai_factory = ai.default_factory(settings)
     app.state.nav = [m.NAV for m in modules if getattr(m, "NAV", None)]
+    # Sections that hold private work define forget_user(user_id); account deletion calls each one.
+    app.state.forget_user_hooks = [m.forget_user for m in modules if callable(getattr(m, "forget_user", None))]
 
     @app.middleware("http")
     async def security_headers(request: Request, call_next):
@@ -68,7 +71,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.exception_handler(LoginRequired)
     async def login_required(request: Request, exc: LoginRequired):
-        return redirect(f"/login?next={exc.next_url}")
+        return redirect("/login?" + urlencode({"next": exc.next_url}))
 
     @app.exception_handler(StarletteHTTPException)
     async def http_error(request: Request, exc: StarletteHTTPException):

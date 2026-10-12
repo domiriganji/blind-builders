@@ -13,6 +13,14 @@ python -m pytest -q
 
 Environment variables are listed in `studio/config.py`. `ANTHROPIC_API_KEY` is optional: without it, members connect their own Claude API key on their account page.
 
+### Running the site for real
+
+- Set `STUDIO_SECRET_KEY` to a long random value and keep it. It signs sessions and encrypts members' saved API keys.
+- Set `STUDIO_BASE_URL` to the public address, for example `https://studio.example.org`. Preview links for peer checks are built from it.
+- Credits need both `ANTHROPIC_API_KEY` (the site's own Claude key) and payments. For Stripe, set `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`, and add a webhook to `<base URL>/payments/stripe/webhook` for the events `checkout.session.completed` and `checkout.session.async_payment_succeeded`. Without payments, members use their own Claude API keys.
+- `STUDIO_CREDIT_MARKUP` (default 1.25) is what credits cost compared with the AI price. `STUDIO_SIGNUP_CREDITS` gives new members free credits, in cents.
+- Admin tasks: `python -m studio.manage make-admin EMAIL` and `python -m studio.manage grant-credits EMAIL CENTS REASON`. Admins also get a page at `/account/admin`.
+
 ## How a section is built
 
 Each section is one module in `studio/features/` (two for Find and Library). The app imports every name in `FEATURES` in `studio/app.py`.
@@ -23,6 +31,7 @@ A section module defines:
 - `NAV`: `{"label", "url", "description"}` for the main navigation and the home page, or `None`.
 - `SCHEMA`: SQL run at start-up. Use `CREATE TABLE IF NOT EXISTS` and prefix table names with the section, for example `build_projects`.
 - `seed()` (optional): inserts starting data. It must be idempotent (safe to run on every start).
+- `forget_user(user_id)` (required if the section stores private work): deletes that member's private items. It is called when a member deletes their account.
 
 Templates go in `studio/templates/<section>/`. Tests go in `tests/test_<section>.py`. Data files go in `studio/data/`. Guides go in `studio/content/guides/`.
 
