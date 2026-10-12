@@ -52,8 +52,8 @@
 
 <section aria-labelledby="versions-title">
 <h2 id="versions-title">Versions</h2>
-{% if versions %}
-<p>{{ versions|length }} version{{ '' if versions|length == 1 else 's' }} saved. <a href="/write/{{ doc.id }}/versions">See all versions and restore an earlier one</a>.</p>
+{% if version_count %}
+<p>{{ version_count }} version{{ '' if version_count == 1 else 's' }} saved. <a href="/write/{{ doc.id }}/versions">See all versions and restore an earlier one</a>.</p>
 {% else %}
 <p>No versions yet. Each time you save, or accept a suggestion, a version is kept. <a href="/write/{{ doc.id }}/versions">See the versions page</a>.</p>
 {% endif %}
@@ -81,15 +81,14 @@
 <section aria-labelledby="cover-title">
 <h2 id="cover-title">Draft a cover letter</h2>
 {% if doc.target %}
-<p>The AI drafts a letter to the editor of {{ doc.target }}, using only what is in your text. It becomes a new document that you edit before sending. Anything it does not know is left in square brackets.</p>
+<p>The AI drafts a letter to the editor of {{ doc.target }}. It is told to use only what is in your text and your notes, and to leave anything it does not know in square brackets. The letter becomes a new document. The site does not check it, so read and edit it before you send it.</p>
 <form method="post" action="/write/{{ doc.id }}/cover-letter" novalidate>
   {{ csrf_input() }}
   {{ textarea('notes', 'Anything the letter should mention', values.notes, rows=3, error=errors.notes, hint='For example: your name, your role, or why you wrote this.') }}
   <button type="submit" class="button button-primary">Draft a cover letter for {{ doc.target }}</button>
 </form>
 {% else %}
-{% if errors.notes %}<p class="field-error" id="field-notes">{{ errors.notes }}</p>{% endif %}
-<p>To draft a cover letter, first fill in "Publication you are aiming for" in the edit form above and save.</p>
+<p>To draft a cover letter, first fill in "Publication you are aiming for" under "Edit your text" on this page, and save. <a href="#field-target">Go to the publication field</a>.</p>
 {% endif %}
 </section>
 

@@ -10,7 +10,9 @@ from __future__ import annotations
 import io
 import json
 import re
+import time
 import unicodedata
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -112,7 +114,15 @@ MAX_INSTRUCTIONS = 2000
 MAX_AI_BODY = 150_000          # longest text we send for suggestions
 VENUE_EXCERPT = 8000           # how much of the text we send when searching for venues
 MAX_SUGGESTIONS = 60
+MAX_PROPOSED = 20_000          # longest replacement we accept from the AI
+MAX_REASON = 1000
+MAX_NOTE = 10_000
 GONE = "This document was deleted before the AI started, so there was nothing to work on."
+GONE_DURING = "This document was deleted while the AI was working, so the result was not kept."
+BAD_ANSWER = "The AI's answer was incomplete, so nothing was saved and your text was not changed. Please try again."
+JOB_FRESH_SECONDS = 15 * 60    # a job older than this that never finished is treated as abandoned
+OUTCOME_KEY = "write_outcome"
+OUTCOME_SECONDS = 300
 
 STATUS_TEXT = {
     "pending": "Waiting for your decision.",
@@ -197,6 +207,73 @@ def _slug(title: str) -> str:
     return slug or "document"
 
 
+def _text(form: dict, key: str) -> str:
+    """One text value from a form. A field sent twice (for example by a double submission) counts once."""
+    value = form.get(key, "")
+    if isinstance(value, list):
+        value = value[0] if value else ""
+    return value if isinstance(value, str) else ""
+
+
+_DOCX_BREAKS = re.compile("[\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029]")
+_XML_ILLEGAL = re.compile("[\x00-\x08\x0e-\x1f\x7f\ufffe\uffff]")
+
+
+def _xml_safe(text: str) -> str:
+    """Text a Word file can hold. Line and page breaks pasted from other programs become line breaks;
+    other invisible control characters, which Word files cannot contain, are left out."""
+    return _XML_ILLEGAL.sub("", _DOCX_BREAKS.sub("\n", text or ""))
+
+
+def _say(request: Request, url: str, text: str) -> None:
+    """Remember what just happened, so the next page's h1 (the first thing a screen reader reads) says it."""
+    request.session[OUTCOME_KEY] = {"url": url, "text": text[:300], "at": int(time.time())}
+
+
+def _heard(request: Request, url: str) -> str:
+    """The outcome _say saved for this page, once. Empty if there is none."""
+    outcome = request.session.pop(OUTCOME_KEY, None)
+    if (isinstance(outcome, dict) and outcome.get("url") == url
+            and time.time() - float(outcome.get("at") or 0) < OUTCOME_SECONDS):
+        return str(outcome.get("text") or "")
+    return ""
+
+
+def _begin_write(conn) -> None:
+    """Take the write lock before reading, so two quick presses cannot both act on the same old text."""
+    conn.execute("BEGIN IMMEDIATE")
+
+
+def _running_job(user_id: int, kind: str) -> str | None:
+    """A job of this kind that is still working, so pressing a button twice does not pay for the AI twice."""
+    with db.session() as conn:
+        row = conn.execute("SELECT id, created_at FROM jobs WHERE user_id = ? AND kind = ? AND status IN ('queued', 'running')"
+                           " ORDER BY created_at DESC LIMIT 1", (user_id, kind)).fetchone()
+    if row is None:
+        return None
+    try:
+        age = (datetime.now(timezone.utc) - datetime.fromisoformat(row["created_at"])).total_seconds()
+    except (TypeError, ValueError):
+        return None
+    return row["id"] if age < JOB_FRESH_SECONDS else None
+
+
+def _start_job(request: Request, user: dict, doc: dict, kind: str, title: str, fn, *args):
+    """Start AI work for a document, or send the person to the same work if it is already running."""
+    kind = f"{kind}:{doc['id']}"
+    running = _running_job(user["id"], kind)
+    if running:
+        flash(request, "The AI is already working on this. Nothing new was started, so you are not charged twice.", "info")
+        return redirect(jobs.job_url(running))
+    try:
+        ai = get_ai(request, user)
+    except AINotAvailable as exc:
+        flash(request, exc.user_message, "error")
+        _say(request, f"/write/{doc['id']}", f"{doc['title']}: the AI is not available")
+        return redirect(f"/write/{doc['id']}")
+    return redirect(jobs.job_url(jobs.submit(user["id"], kind, title, fn, ai, *args)))
+
+
 def _not_found(what: str = "document") -> HTTPException:
     return HTTPException(status_code=404, detail=f"We could not find that {what}.")
 
@@ -241,6 +318,28 @@ def _versions(doc_id: int) -> list[dict]:
         v["words"] = word_count(v["body"])
         out.append(v)
     return out
+
+
+def _version_summary(doc_id: int) -> tuple[int, dict | None]:
+    """How many versions there are and the newest one, without loading every version's text."""
+    with db.session() as conn:
+        count = conn.execute("SELECT COUNT(*) AS n FROM write_versions WHERE doc_id = ?", (doc_id,)).fetchone()["n"]
+        last = conn.execute("SELECT id, note, created_at FROM write_versions WHERE doc_id = ? ORDER BY id DESC LIMIT 1",
+                            (doc_id,)).fetchone()
+    if last is None:
+        return count, None
+    return count, dict(last, number=count, when=when(last["created_at"]))
+
+
+def _versions_by_day(versions: list[dict]) -> list[tuple[str, list[dict]]]:
+    """Versions grouped under the day they were saved, newest day first (versions should already be newest first)."""
+    groups: list[tuple[str, list[dict]]] = []
+    for v in versions:
+        day = (v["created_at"] or "")[:10] or "Unknown date"
+        if not groups or groups[-1][0] != day:
+            groups.append((day, []))
+        groups[-1][1].append(v)
+    return groups
 
 
 def _add_version(conn, doc_id: int, body: str, note: str) -> None:
@@ -314,8 +413,9 @@ def index(request: Request):
         rows = conn.execute("SELECT * FROM write_docs WHERE user_id = ? ORDER BY updated_at DESC, id DESC",
                             (user["id"],)).fetchall()
     docs = [_doc_view(dict(r)) for r in rows]
-    return render(request, "write/index.html", title="Write and publish", docs=docs, values=_new_values(),
-                  errors={}, kinds=KINDS)
+    outcome = _heard(request, "/write")
+    return render(request, "write/index.html", title=f"Write and publish: {outcome}" if outcome else "Write and publish",
+                  docs=docs, values=_new_values(), errors={}, kinds=KINDS)
 
 
 @router.get("/new")
@@ -328,7 +428,7 @@ def new_form(request: Request, title: str = "", kind: str = "article", target: s
 @router.post("/new")
 async def create(request: Request, user: dict = Depends(require_user)):
     form = await checked_form(request)
-    values = {k: str(form.get(k, "")).strip() for k in ("title", "kind", "target")}
+    values = {k: _text(form, k).strip() for k in ("title", "kind", "target")}
     errors: dict[str, str] = {}
     if not values["title"]:
         errors["title"] = "Enter a title for your document. You can change it later."
@@ -348,6 +448,7 @@ async def create(request: Request, user: dict = Depends(require_user)):
             (user["id"], values["title"], values["kind"], values["target"], now, now))
         doc_id = cur.lastrowid
     flash(request, f"Your document \"{values['title']}\" is ready. Write or paste your text, then save.", "success")
+    _say(request, f"/write/{doc_id}", f"{values['title']}: new document started")
     return redirect(f"/write/{doc_id}")
 
 
@@ -355,28 +456,34 @@ async def create(request: Request, user: dict = Depends(require_user)):
 
 def _render_doc(request: Request, doc: dict, *, title: str | None = None, values: dict | None = None,
                 errors: dict | None = None, status_code: int = 200):
-    versions = _versions(doc["id"])
+    version_count, last_version = _version_summary(doc["id"])
     vals = {"title": doc["title"], "body": doc["body"], "target": doc["target"], "goal": "spelling",
             "instructions": "", "notes": ""}
     vals.update(values or {})
     return render(request, "write/doc.html", title=title or doc["title"], doc=_doc_view(doc), values=vals,
-                  errors=errors or {}, goals=GOALS, versions=versions,
-                  last_version=versions[-1] if versions else None,
+                  errors=errors or {}, goals=GOALS, version_count=version_count, last_version=last_version,
                   batches=_batches(doc["id"]), research=_research_list(doc["id"]), status_code=status_code)
+
+
+def _fix_problems(request: Request, doc: dict, values: dict, errors: dict):
+    return _render_doc(request, doc, title=f"{doc['title']}: please fix the problems", values=values, errors=errors,
+                       status_code=400)
 
 
 @router.get("/{doc_id}")
 def doc_page(request: Request, doc_id: int, user: dict = Depends(require_user)):
-    return _render_doc(request, _owned_doc(doc_id, user))
+    doc = _owned_doc(doc_id, user)
+    outcome = _heard(request, f"/write/{doc_id}")
+    return _render_doc(request, doc, title=outcome or None)
 
 
 @router.post("/{doc_id}/save")
 async def save(request: Request, doc_id: int, user: dict = Depends(require_user)):
     doc = _owned_doc(doc_id, user)
     form = await checked_form(request)
-    body = str(form.get("body", "")).replace("\r\n", "\n")
-    new_title = str(form.get("title", "")).strip()
-    target = str(form.get("target", "")).strip()
+    body = _text(form, "body").replace("\r\n", "\n").replace("\r", "\n")
+    new_title = _text(form, "title").strip()
+    target = _text(form, "target").strip()
     errors: dict[str, str] = {}
     if len(body) > MAX_BODY:
         errors["body"] = f"Your text is too long to save here ({len(body):,} characters). The limit is {MAX_BODY:,}. Split it into two documents."
@@ -389,21 +496,25 @@ async def save(request: Request, doc_id: int, user: dict = Depends(require_user)
     if len(target) > MAX_TARGET:
         errors["target"] = f"Use {MAX_TARGET} characters or fewer for the publication's name."
     if errors:
-        return _render_doc(request, doc, title=f"{doc['title']}: please fix the problems",
-                           values={"body": body, "title": new_title, "target": target}, errors=errors, status_code=400)
+        return _fix_problems(request, doc, {"body": body, "title": new_title, "target": target}, errors)
     with db.session() as conn:
+        _begin_write(conn)
+        # Read the text again under the lock: a second press of Save must not save a second identical version.
+        current = conn.execute("SELECT body FROM write_docs WHERE id = ?", (doc_id,)).fetchone()["body"]
         conn.execute("UPDATE write_docs SET title = ?, target = ?, updated_at = ? WHERE id = ?",
                      (new_title, target, db.now(), doc_id))
         last = conn.execute("SELECT body FROM write_versions WHERE doc_id = ? ORDER BY id DESC LIMIT 1",
                             (doc_id,)).fetchone()
-        text_changed = body != doc["body"] or (last is None and body != "")
+        text_changed = body != current or (last is None and body != "")
         if text_changed:
             _set_body(conn, doc_id, body, "Saved by you")
             count = conn.execute("SELECT COUNT(*) AS n FROM write_versions WHERE doc_id = ?", (doc_id,)).fetchone()["n"]
     if text_changed:
         flash(request, f"Saved as version {count}. {plural(word_count(body), 'word')}.", "success")
+        _say(request, f"/write/{doc_id}", f"{new_title}: saved as version {count}")
     else:
         flash(request, "Saved. Your text had not changed, so no new version was needed.", "success")
+        _say(request, f"/write/{doc_id}", f"{new_title}: saved, the text had not changed")
     return redirect(f"/write/{doc_id}")
 
 
@@ -413,51 +524,51 @@ async def save(request: Request, doc_id: int, user: dict = Depends(require_user)
 async def suggest(request: Request, doc_id: int, user: dict = Depends(require_user)):
     doc = _owned_doc(doc_id, user)
     form = await checked_form(request)
-    goal = str(form.get("goal", "")).strip()
-    instructions = str(form.get("instructions", "")).strip()
+    goal = _text(form, "goal").strip()
+    instructions = _text(form, "instructions").strip()
     errors: dict[str, str] = {}
+    if not doc["body"].strip():
+        errors["body"] = "Your document has no saved text yet. Write or paste your text here and save it, then ask for suggestions."
+    elif len(doc["body"]) > MAX_AI_BODY:
+        errors["body"] = (f"Your text is too long for one round of suggestions ({len(doc['body']):,} characters; the limit is "
+                          f"{MAX_AI_BODY:,}). Split it into two documents and ask about each one.")
     if goal not in GOAL_NAMES:
         errors["goal"] = "Choose what you want the AI to look for."
     elif goal == "publication" and not doc["target"]:
-        errors["goal"] = "Name the publication you are aiming for in the edit form and save first, or choose another goal."
+        errors["target"] = ("Fill in the publication you are aiming for and save, so the AI knows what to prepare your text for. "
+                            "Or choose another goal.")
     if len(instructions) > MAX_INSTRUCTIONS:
-        errors["instructions"] = f"Keep your instructions to {MAX_INSTRUCTIONS} characters or fewer."
+        errors["instructions"] = (f"Your instructions are {len(instructions):,} characters long. "
+                                  f"Shorten them to {MAX_INSTRUCTIONS:,} characters or fewer.")
     elif looks_like_card_number(instructions):
         errors["instructions"] = "This seems to contain a payment card number. Remove it. This site never sends card numbers to the AI."
-    if not doc["body"].strip():
-        errors["goal"] = "Your document has no saved text yet. Write or paste your text, save it, then ask for suggestions."
-    elif len(doc["body"]) > MAX_AI_BODY:
-        errors["goal"] = (f"Your text is too long for one round of suggestions ({len(doc['body']):,} characters; the limit is "
-                          f"{MAX_AI_BODY:,}). Split it into parts and ask about each part.")
     if errors:
-        return _render_doc(request, doc, title=f"{doc['title']}: please fix the problems",
-                           values={"goal": goal, "instructions": instructions}, errors=errors, status_code=400)
-    try:
-        ai = get_ai(request, user)
-    except AINotAvailable as exc:
-        flash(request, exc.user_message, "error")
-        return redirect(f"/write/{doc_id}")
-    job_id = jobs.submit(user["id"], "write.suggest", f"Suggestions for {doc['title']}", _suggest_job, ai, doc_id,
-                         goal, instructions)
-    return redirect(jobs.job_url(job_id))
+        return _fix_problems(request, doc, {"goal": goal, "instructions": instructions}, errors)
+    return _start_job(request, user, doc, "write.suggest", f"Suggestions for {doc['title']}", _suggest_job, doc_id,
+                      goal, instructions)
 
 
 def filter_suggestions(body: str, raw: list[dict]) -> tuple[list[dict], int]:
     """Keep suggestions whose original is an exact excerpt of body and that change something.
+    A suggestion with a missing or wrongly typed original or proposed text is dropped, never guessed at:
+    a missing proposed text must not turn into "remove these words".
     Returns (kept, in document order) and how many were dropped."""
     kept: list[tuple[int, int, dict]] = []
     dropped = 0
     seen: set[tuple[str, str]] = set()
     for i, s in enumerate(raw or []):
-        original = str(s.get("original", "")) if isinstance(s, dict) else ""
-        proposed = str(s.get("proposed", "")) if isinstance(s, dict) else ""
-        reason = str(s.get("reason", "")) if isinstance(s, dict) else ""
+        s = s if isinstance(s, dict) else {}
+        original, proposed, reason = s.get("original"), s.get("proposed"), s.get("reason")
+        if not isinstance(original, str) or not isinstance(proposed, str) or len(proposed) > MAX_PROPOSED:
+            dropped += 1
+            continue
+        reason = reason.strip()[:MAX_REASON] if isinstance(reason, str) else ""
         pos = body.find(original) if original else -1
         if pos < 0 or original == proposed or (original, proposed) in seen:
             dropped += 1
             continue
         seen.add((original, proposed))
-        kept.append((pos, i, {"original": original, "proposed": proposed, "reason": reason.strip()}))
+        kept.append((pos, i, {"original": original, "proposed": proposed, "reason": reason}))
     kept.sort(key=lambda t: (t[0], t[1]))
     if len(kept) > MAX_SUGGESTIONS:
         dropped += len(kept) - MAX_SUGGESTIONS
@@ -495,12 +606,19 @@ def _suggest_job(ctx, ai, doc_id: int, goal: str, instructions: str) -> str:
                              "the text exactly. Respect the writer's voice.",
         prompt="\n\n".join(prompt_parts), schema=SUGGEST_SCHEMA, purpose="write.suggest")
     ctx.progress("Checking each suggestion against your text")
-    kept, dropped = filter_suggestions(body, result.get("suggestions") or [])
+    if not isinstance(result, dict) or not isinstance(result.get("suggestions"), list):
+        # Showing "no suggestions" here would wrongly tell the writer their text needs nothing.
+        raise AIError(BAD_ANSWER)
+    kept, dropped = filter_suggestions(body, result["suggestions"])
+    note = result.get("overall_note")
+    note = note.strip()[:MAX_NOTE] if isinstance(note, str) else ""
+    if _get_doc(doc_id) is None:
+        raise AIError(GONE_DURING)
     now = db.now()
     with db.session() as conn:
         cur = conn.execute(
             "INSERT INTO write_batches (doc_id, goal, overall_note, dropped_count, created_at) VALUES (?, ?, ?, ?, ?)",
-            (doc_id, goal, str(result.get("overall_note") or "").strip(), dropped, now))
+            (doc_id, goal, note, dropped, now))
         batch_id = cur.lastrowid
         for number, s in enumerate(kept, start=1):
             conn.execute(
@@ -525,6 +643,9 @@ def suggestions_page(request: Request, doc_id: int, batch_id: int, user: dict = 
         title = f"No suggestions for {doc['title']}"
     else:
         title = f"{plural(n, 'suggestion')} for {doc['title']}"
+    outcome = _heard(request, f"/write/{doc_id}/suggestions/{batch_id}")
+    if outcome:
+        title = f"{title}: {outcome}"
     return render(request, "write/suggestions.html", title=title, doc=_doc_view(doc),
                   batch=dict(batch, when=when(batch["created_at"]), goal_name=GOAL_NAMES.get(batch["goal"], batch["goal"])),
                   items=items, n=n, counts=counts, next_pending=next_pending, status_text=STATUS_TEXT)
@@ -563,20 +684,26 @@ async def accept(request: Request, doc_id: int, batch_id: int, suggestion_id: in
     _owned_batch(doc, batch_id)
     s = _owned_suggestion(doc, batch_id, suggestion_id)
     back = f"/write/{doc_id}/suggestions/{batch_id}"
-    if s["status"] != "pending":
-        flash(request, f"Suggestion {s['number']} was already decided: {STATUS_TEXT[s['status']]}", "info")
-        return redirect(back)
     with db.session() as conn:
+        # Under the write lock, so pressing Accept twice cannot apply the change twice (to a second "teh", say).
+        _begin_write(conn)
+        status = conn.execute("SELECT status FROM write_suggestions WHERE id = ?", (s["id"],)).fetchone()["status"]
         body = conn.execute("SELECT body FROM write_docs WHERE id = ?", (doc_id,)).fetchone()["body"]
-        if s["original"] in body:
+        if status != "pending":
+            outcome = f"suggestion {s['number']} was already decided"
+            message, kind = f"Suggestion {s['number']} was already decided: {STATUS_TEXT[status]}", "info"
+        elif s["original"] in body:
             _set_body(conn, doc_id, body.replace(s["original"], s["proposed"], 1), f"Accepted suggestion {s['number']}")
             conn.execute("UPDATE write_suggestions SET status = 'accepted' WHERE id = ?", (s["id"],))
+            outcome = f"suggestion {s['number']} accepted"
             message, kind = f"Suggestion {s['number']} accepted. Your text has the change and is saved as a new version.", "success"
         else:
             conn.execute("UPDATE write_suggestions SET status = 'stale' WHERE id = ?", (s["id"],))
+            outcome = f"suggestion {s['number']} is out of date, nothing changed"
             message, kind = (f"Suggestion {s['number']} no longer matches your text, because the words it would change "
                              "are not there any more. Nothing was changed.", "error")
     flash(request, message, kind)
+    _say(request, back, outcome)
     return redirect(back)
 
 
@@ -587,12 +714,16 @@ async def reject(request: Request, doc_id: int, batch_id: int, suggestion_id: in
     _owned_batch(doc, batch_id)
     s = _owned_suggestion(doc, batch_id, suggestion_id)
     back = f"/write/{doc_id}/suggestions/{batch_id}"
-    if s["status"] != "pending":
-        flash(request, f"Suggestion {s['number']} was already decided: {STATUS_TEXT[s['status']]}", "info")
-        return redirect(back)
     with db.session() as conn:
-        conn.execute("UPDATE write_suggestions SET status = 'rejected' WHERE id = ?", (s["id"],))
-    flash(request, f"Suggestion {s['number']} rejected. Your text is unchanged.", "success")
+        changed = conn.execute("UPDATE write_suggestions SET status = 'rejected' WHERE id = ? AND status = 'pending'",
+                               (s["id"],)).rowcount
+        status = conn.execute("SELECT status FROM write_suggestions WHERE id = ?", (s["id"],)).fetchone()["status"]
+    if changed:
+        flash(request, f"Suggestion {s['number']} rejected. Your text is unchanged.", "success")
+        _say(request, back, f"suggestion {s['number']} rejected")
+    else:
+        flash(request, f"Suggestion {s['number']} was already decided: {STATUS_TEXT[status]}", "info")
+        _say(request, back, f"suggestion {s['number']} was already decided")
     return redirect(back)
 
 
@@ -611,6 +742,7 @@ async def accept_all(request: Request, doc_id: int, batch_id: int, user: dict = 
     accepted: list[int] = []
     stale: list[int] = []
     with db.session() as conn:
+        _begin_write(conn)
         body = conn.execute("SELECT body FROM write_docs WHERE id = ?", (doc_id,)).fetchone()["body"]
         rows = conn.execute("SELECT * FROM write_suggestions WHERE batch_id = ? AND status = 'pending' ORDER BY number",
                             (batch_id,)).fetchall()
@@ -635,7 +767,14 @@ async def accept_all(request: Request, doc_id: int, batch_id: int, user: dict = 
     if not parts:
         parts.append("There were no suggestions waiting for a decision. Nothing was changed.")
     flash(request, " ".join(parts), "success" if accepted else "info")
-    return redirect(f"/write/{doc_id}/suggestions/{batch_id}")
+    outcomes = []
+    if accepted:
+        outcomes.append(f"{plural(len(accepted), 'suggestion')} accepted")
+    if stale:
+        outcomes.append(f"{len(stale)} out of date")
+    back = f"/write/{doc_id}/suggestions/{batch_id}"
+    _say(request, back, ", ".join(outcomes) if outcomes else "nothing was waiting, nothing changed")
+    return redirect(back)
 
 
 @router.post("/{doc_id}/suggestions/{batch_id}/reject-all")
@@ -647,11 +786,14 @@ async def reject_all(request: Request, doc_id: int, batch_id: int, user: dict = 
         cur = conn.execute("UPDATE write_suggestions SET status = 'rejected' WHERE batch_id = ? AND status = 'pending'",
                            (batch_id,))
         count = cur.rowcount
+    back = f"/write/{doc_id}/suggestions/{batch_id}"
     if count:
         flash(request, f"Rejected {plural(count, 'suggestion')}. Your text is unchanged.", "success")
+        _say(request, back, f"{plural(count, 'suggestion')} rejected")
     else:
         flash(request, "There were no suggestions waiting for a decision. Nothing was changed.", "info")
-    return redirect(f"/write/{doc_id}/suggestions/{batch_id}")
+        _say(request, back, "nothing was waiting, nothing changed")
+    return redirect(back)
 
 
 # ----- versions --------------------------------------------------------------------------------
@@ -661,14 +803,20 @@ def versions_page(request: Request, doc_id: int, user: dict = Depends(require_us
     doc = _owned_doc(doc_id, user)
     versions = list(reversed(_versions(doc_id)))
     return render(request, "write/versions.html", title=f"Versions of {doc['title']}", doc=_doc_view(doc),
-                  versions=versions)
+                  versions=versions, days=_versions_by_day(versions))
 
 
 def _owned_version(doc: dict, version_id: int) -> dict:
-    for v in _versions(doc["id"]):
-        if v["id"] == version_id:
-            return v
-    raise _not_found("version")
+    """One version of this document, with its number, without loading every other version's text."""
+    with db.session() as conn:
+        row = conn.execute("SELECT * FROM write_versions WHERE id = ? AND doc_id = ?", (version_id, doc["id"])).fetchone()
+        if row is None:
+            raise _not_found("version")
+        number = conn.execute("SELECT COUNT(*) AS n FROM write_versions WHERE doc_id = ? AND id <= ?",
+                              (doc["id"], version_id)).fetchone()["n"]
+    v = dict(row)
+    v.update(number=number, when=when(v["created_at"]), words=word_count(v["body"]))
+    return v
 
 
 @router.get("/{doc_id}/versions/{version_id}")
@@ -684,17 +832,25 @@ async def restore(request: Request, doc_id: int, version_id: int, user: dict = D
     await checked_form(request)
     doc = _owned_doc(doc_id, user)
     v = _owned_version(doc, version_id)
-    if v["body"] == doc["body"]:
-        flash(request, f"Version {v['number']} is the same as your current text. Nothing was changed.", "info")
-        return redirect(f"/write/{doc_id}")
+    here = f"/write/{doc_id}"
     with db.session() as conn:
-        last = conn.execute("SELECT body FROM write_versions WHERE doc_id = ? ORDER BY id DESC LIMIT 1",
-                            (doc_id,)).fetchone()
-        if last is None or last["body"] != doc["body"]:
-            _add_version(conn, doc_id, doc["body"], f"Your text before restoring version {v['number']}")
-        _set_body(conn, doc_id, v["body"], f"Restored version {v['number']}")
-    flash(request, f"Restored version {v['number']}. Your text from before is kept in the versions list.", "success")
-    return redirect(f"/write/{doc_id}")
+        # Under the write lock, so pressing Restore twice does not save the same versions twice.
+        _begin_write(conn)
+        current = conn.execute("SELECT body FROM write_docs WHERE id = ?", (doc_id,)).fetchone()["body"]
+        same = v["body"] == current
+        if not same:
+            last = conn.execute("SELECT body FROM write_versions WHERE doc_id = ? ORDER BY id DESC LIMIT 1",
+                                (doc_id,)).fetchone()
+            if last is None or last["body"] != current:
+                _add_version(conn, doc_id, current, f"Your text before restoring version {v['number']}")
+            _set_body(conn, doc_id, v["body"], f"Restored version {v['number']}")
+    if same:
+        flash(request, f"Version {v['number']} is the same as your current text. Nothing was changed.", "info")
+        _say(request, here, f"{doc['title']}: version {v['number']} is already your text")
+    else:
+        flash(request, f"Restored version {v['number']}. Your text from before is kept in the versions list.", "success")
+        _say(request, here, f"{doc['title']}: version {v['number']} restored")
+    return redirect(here)
 
 
 # ----- export ----------------------------------------------------------------------------------
@@ -752,6 +908,8 @@ def export_html(doc: dict, lang: str = "en") -> str:
 def export_docx(doc: dict) -> bytes:
     from docx import Document
 
+    # Text pasted from other programs can hold control characters a Word file cannot contain.
+    doc = dict(doc, title=" ".join(_xml_safe(doc["title"]).split()), body=_xml_safe(doc["body"]))
     document = Document()
     document.core_properties.title = doc["title"]
     document.add_heading(doc["title"], level=1)
@@ -861,15 +1019,10 @@ async def venues(request: Request, doc_id: int, user: dict = Depends(require_use
     await checked_form(request)
     doc = _owned_doc(doc_id, user)
     if not doc["body"].strip():
-        flash(request, "Your document has no saved text yet. Save your text first, so the AI knows what it is about.", "error")
-        return redirect(f"/write/{doc_id}")
-    try:
-        ai = get_ai(request, user)
-    except AINotAvailable as exc:
-        flash(request, exc.user_message, "error")
-        return redirect(f"/write/{doc_id}")
-    job_id = jobs.submit(user["id"], "write.venues", f"Where to publish {doc['title']}", _venues_job, ai, doc_id)
-    return redirect(jobs.job_url(job_id))
+        return _fix_problems(request, doc, {}, {
+            "body": "Your document has no saved text yet. Write or paste your text here and save it, "
+                    "so the AI knows what it is about. Then search for where to publish."})
+    return _start_job(request, user, doc, "write.venues", f"Where to publish {doc['title']}", _venues_job, doc_id)
 
 
 def _venues_job(ctx, ai, doc_id: int) -> str:
@@ -896,11 +1049,16 @@ def _venues_job(ctx, ai, doc_id: int) -> str:
     )
     result = ai.research(system=SYSTEM_BASE + " You help writers choose where to submit their work.",
                          prompt=prompt, purpose="write.venues")
-    sources = _clean_sources(result.sources)
+    text = getattr(result, "text", None)
+    if not isinstance(text, str) or not text.strip():
+        raise AIError("The AI searched but did not write an answer, so nothing was saved. Please try again.")
+    sources = _clean_sources(getattr(result, "sources", None))
+    if _get_doc(doc_id) is None:
+        raise AIError(GONE_DURING)
     with db.session() as conn:
         cur = conn.execute(
             "INSERT INTO write_research (doc_id, kind, content_md, sources_json, created_at) VALUES (?, 'venues', ?, ?, ?)",
-            (doc_id, result.text, json.dumps(sources), db.now()))
+            (doc_id, text.strip(), json.dumps(sources), db.now()))
         rid = cur.lastrowid
     return f"/write/{doc_id}/publish/{rid}"
 
@@ -927,27 +1085,21 @@ def research_page(request: Request, doc_id: int, research_id: int, user: dict = 
 async def cover_letter(request: Request, doc_id: int, user: dict = Depends(require_user)):
     form = await checked_form(request)
     doc = _owned_doc(doc_id, user)
-    notes = str(form.get("notes", "")).strip()
+    notes = _text(form, "notes").strip()
     errors: dict[str, str] = {}
+    # Each message is attached to the field that fixes it, so the error summary link goes to a real field.
+    if not doc["body"].strip():
+        errors["body"] = "Your document has no saved text yet. Write or paste your text here and save it, so the letter can describe it."
     if not doc["target"]:
-        errors["notes"] = "Name the publication you are aiming for in the edit form and save, then draft a cover letter."
-    elif not doc["body"].strip():
-        errors["notes"] = "Your document has no saved text yet. Save your text first, so the letter can describe it."
-    elif len(notes) > MAX_INSTRUCTIONS:
-        errors["notes"] = f"Keep this to {MAX_INSTRUCTIONS} characters or fewer."
+        errors["target"] = "Fill in the publication you are sending this to and save, then draft a cover letter."
+    if len(notes) > MAX_INSTRUCTIONS:
+        errors["notes"] = f"This is {len(notes):,} characters long. Shorten it to {MAX_INSTRUCTIONS:,} characters or fewer."
     elif looks_like_card_number(notes):
         errors["notes"] = "This seems to contain a payment card number. Remove it. This site never sends card numbers to the AI."
     if errors:
-        return _render_doc(request, doc, title=f"{doc['title']}: please fix the problems", values={"notes": notes},
-                           errors=errors, status_code=400)
-    try:
-        ai = get_ai(request, user)
-    except AINotAvailable as exc:
-        flash(request, exc.user_message, "error")
-        return redirect(f"/write/{doc_id}")
-    job_id = jobs.submit(user["id"], "write.cover_letter", f"Cover letter for {doc['title']}", _cover_letter_job,
-                         ai, doc_id, notes)
-    return redirect(jobs.job_url(job_id))
+        return _fix_problems(request, doc, {"notes": notes}, errors)
+    return _start_job(request, user, doc, "write.cover_letter", f"Cover letter for {doc['title']}", _cover_letter_job,
+                      doc_id, notes)
 
 
 def _cover_letter_job(ctx, ai, doc_id: int, notes: str) -> str:
@@ -970,6 +1122,11 @@ def _cover_letter_job(ctx, ai, doc_id: int, notes: str) -> str:
     )
     draft = ai.text(system=SYSTEM_BASE + " You draft cover letters for submissions. The writer will edit and send it themselves.",
                     prompt=prompt, purpose="write.cover_letter")
+    if not isinstance(draft, str) or not draft.strip():
+        raise AIError("The AI did not write a letter, so no new document was made. Please try again.")
+    draft = draft.strip().replace("\r\n", "\n")[:MAX_BODY]
+    if _get_doc(doc_id) is None:
+        raise AIError(GONE_DURING)
     title = f"Cover letter: {doc['title']}"[:MAX_TITLE]
     now = db.now()
     with db.session() as conn:
@@ -987,7 +1144,7 @@ def _cover_letter_job(ctx, ai, doc_id: int, notes: str) -> str:
 def delete_page(request: Request, doc_id: int, user: dict = Depends(require_user)):
     doc = _owned_doc(doc_id, user)
     return render(request, "write/delete.html", title=f"Delete {doc['title']}?", doc=_doc_view(doc),
-                  version_count=len(_versions(doc_id)))
+                  version_count=_version_summary(doc_id)[0])
 
 
 @router.post("/{doc_id}/delete")
@@ -1001,6 +1158,7 @@ async def delete(request: Request, doc_id: int, user: dict = Depends(require_use
         conn.execute("DELETE FROM write_research WHERE doc_id = ?", (doc_id,))
         conn.execute("DELETE FROM write_docs WHERE id = ? AND user_id = ?", (doc_id, user["id"]))
     flash(request, f"Deleted \"{doc['title']}\" and all its versions.", "success")
+    _say(request, "/write", f"{doc['title']} deleted")
     return redirect("/write")
 
 
