@@ -10,7 +10,7 @@
 <p>{{ file_summary }} The site ran its own machine checks on every HTML page.</p>
 {% for page in pages %}
 <h3>{{ page.path }}</h3>
-<p>{{ page.size }}. Passed {{ page.passed }} checks.
+<p>{{ page.size }}. Passed {{ page.passed }}.
 {% if page.errors or page.warnings %}Found {{ page.found }}.{% else %}<span class="status-pass">No problems found.</span>{% endif %}</p>
 {% if page.errors or page.warnings %}
 <ul class="item-list">
@@ -60,20 +60,23 @@
 
 <h2>What you can do next</h2>
 <ul class="item-list">
-  <li><a href="{{ preview_url }}">Open the preview</a> <span class="meta">Anyone with this link can open the preview, but nothing else of yours.</span></li>
+  <li><a href="{{ preview_url }}">Open the preview of version {{ version.number }}</a> <span class="meta">Anyone with this link can open the previews of every version of this project, but nothing else of yours. Deleting the project stops the link working.</span></li>
   <li><a href="/build/{{ project.id }}/v/{{ version.number }}/download.zip">Download all files as a zip</a></li>
   <li><a href="/build/{{ project.id }}/v/{{ version.number }}/files">Read the files</a></li>
   {% if version.number > 1 %}<li><a href="/build/{{ project.id }}/v/{{ version.number }}/changes">See the changed lines</a></li>{% endif %}
   <li><a href="{{ checks_link }}">Ask blind members to check it</a></li>
   <li><a href="/build/{{ project.id }}">All versions of this project</a></li>
 </ul>
+{% if version.number != latest_number %}
+<p><strong>This is an older version.</strong> A fix or a change asked for here starts from version {{ version.number }}, so it will not include what changed in later versions. To build on everything so far, go to <a href="/build/{{ project.id }}/v/{{ latest_number }}">version {{ latest_number }}, the latest</a>.</p>
+{% endif %}
 {% if error_count %}
 <p>The checks found {{ error_count }} {{ 'problem' if error_count == 1 else 'problems' }}. The AI can try to fix {{ 'it' if error_count == 1 else 'them' }} in a new version. This version stays as it is.</p>
 {{ post_button('/build/' ~ project.id ~ '/v/' ~ version.number ~ '/fix', 'Fix the problems the checks found', 'primary') }}
 {% endif %}
 
 <h2>Ask for a change</h2>
-<p>The AI makes a new version from this one. This version stays as it is, and the site shows you exactly what changed.</p>
+<p>The AI makes a new version from this one. This version stays as it is, and the site shows you exactly what changed.{% if version.number != latest_number %} This is an older version, so the new version will not include what changed in versions after {{ version.number }}.{% endif %}</p>
 <form method="post" action="/build/{{ project.id }}/v/{{ version.number }}/change" novalidate>
   {{ csrf_input() }}
   {{ textarea('request', 'The change you want', values.request, hint='For example: change the price of small chops from 1200 to 1500.', error=errors.request, rows=6, required=true) }}

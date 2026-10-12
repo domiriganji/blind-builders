@@ -2,13 +2,14 @@
 {% block content %}
 <h1>{{ title }}</h1>
 <p class="lead">{{ kind_label }}. Latest: version {{ latest.number }}. Status: {{ status_label }}.</p>
+{% if busy and project.status == 'changing' %}<p>When the AI finishes, the new version appears in the list below. You can follow it in <a href="/jobs">Your recent work</a>.</p>{% endif %}
 <h2>Latest version: version {{ latest.number }}</h2>
 <p>Checked by the site: {{ latest_check }}</p>
 <p class="meta">What the AI says it built (written by the AI):</p>
 <div class="panel">{{ latest.ai_summary|markdown|shift_headings(2) }}</div>
 <ul class="item-list">
   <li><a href="/build/{{ project.id }}/v/{{ latest.number }}">Open the report for version {{ latest.number }}</a></li>
-  <li><a href="{{ preview_url }}">Open the preview</a></li>
+  <li><a href="{{ preview_url }}">Open the preview of version {{ latest.number }}</a></li>
 </ul>
 <h2>All versions ({{ versions|length }})</h2>
 <ol reversed class="item-list">

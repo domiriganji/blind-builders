@@ -3,16 +3,23 @@
 {% block content %}
 <h1>{{ title }}</h1>
 {{ error_summary(errors) }}
+{% if busy and project.status == 'building' %}
+<p class="lead">The AI is building it now. When it is done, the first version appears on this project's page. You can follow it in <a href="/jobs">Your recent work</a>. If nothing has happened after ten minutes, you can ask again below.</p>
+{% elif busy and project.status == 'understanding' %}
+<p class="lead">The AI is reading your newest corrections now. Below is what it understood before them. You can follow it in <a href="/jobs">Your recent work</a>. If nothing has happened after ten minutes, you can ask again below.</p>
+{% elif unread_corrections > 0 %}
+<p class="lead">The AI has not read your newest {{ 'correction' if unread_corrections == 1 else 'corrections' }} yet, because the last try did not finish. Below is what it understood before. To try again, choose Update what you understood.</p>
+{% endif %}
 <p class="meta">Written by the AI. Nothing is built yet. Check it, then correct it or tell it to build.</p>
 <h2>Summary</h2>
 <p>{{ spec.summary }}</p>
 {% if stored.title_suggested %}<p>You did not give a title, so the AI suggested this one: {{ project.title }}.</p>{% endif %}
 <h2>Who it is for</h2>
-<p>{{ spec.audience }}</p>
+<p>{{ spec.audience or 'The AI did not say.' }}</p>
 <h2>Pages ({{ spec.pages|length }})</h2>
 {% for page in spec.pages %}
 <h3>{{ page.name }}</h3>
-<p>{{ page.purpose }}</p>
+{% if page.purpose %}<p>{{ page.purpose }}</p>{% endif %}
 {% if page.contents %}<ul>{% for c in page.contents %}<li>{{ c }}</li>{% endfor %}</ul>{% endif %}
 {% else %}
 <p>No pages listed.</p>
@@ -20,7 +27,7 @@
 <h2>What it does</h2>
 {% if spec.features %}<ul>{% for f in spec.features %}<li>{{ f }}</li>{% endfor %}</ul>{% else %}<p>No features listed.</p>{% endif %}
 <h2>Information it keeps</h2>
-<p>{{ spec.data_kept }}</p>
+<p>{{ spec.data_kept or 'The AI did not say.' }}</p>
 <h2>Questions I need you to answer</h2>
 {% if spec.questions %}
 <ol>{% for q in spec.questions %}<li>{{ q }}</li>{% endfor %}</ol>
