@@ -23,8 +23,11 @@
 
 <h2>Your errands</h2>
 {% if errands %}
+<p>You have {{ errands|length }} errand{{ '' if errands|length == 1 else 's' }}, newest change first.</p>
+{% for heading, items in groups %}
+<h3>{{ heading }} ({{ items|length }})</h3>
 <ul class="item-list">
-{% for e in errands %}
+{% for e in items %}
   <li>
     <a href="/do/{{ e.id }}">{{ e.label }}</a>
     <br><span class="meta">{{ e.kind_words }}. {{ e.status_words }}. Last changed {{ e.updated_at[:10] }}.</span>
@@ -32,6 +35,7 @@
   </li>
 {% endfor %}
 </ul>
+{% endfor %}
 {% else %}
 <p>You have no errands yet. When you ask for something, it appears here.</p>
 {% endif %}

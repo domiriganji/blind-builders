@@ -3,7 +3,7 @@
 {% block content %}
 <h1>{{ title }}</h1>
 {{ error_summary(errors) }}
-<p class="lead">Nothing has been done yet. Check what I understood. Then correct me, answer my questions, or press Go ahead.</p>
+<p class="lead">Nothing has been done yet. The AI read your request and wrote what it understood. Check it. Then correct it, answer its questions, or press Go ahead.</p>
 {% set c = errand.contract %}
 <h2>Goal</h2>
 <p>{{ c.goal }}</p>
@@ -16,7 +16,7 @@
 <h2>I will not</h2>
 <ul>{% for s in c.will_not_do %}<li>{{ s }}</li>{% endfor %}</ul>
 <h2>Done when</h2>
-<p>{{ c.done_when or 'I did not say. Tell me below what result you want.' }}</p>
+<p>{{ c.done_when or 'I did not say. Write the result you want in the Corrections or answers box.' }}</p>
 {% if c.questions %}
 <h2>Questions for you</h2>
 <ol>{% for q in c.questions %}<li>{{ q }}</li>{% endfor %}</ol>
@@ -26,7 +26,7 @@
 <ul>{% for i in c.information_needed_from_you %}<li>{{ i }}</li>{% endfor %}</ul>
 <p>Only give what you are happy to share. Never give passwords, card numbers or codes. Where you leave something out, I will put a gap like [your date of birth] for you to fill in yourself.</p>
 {% endif %}
-<p class="meta">The AI wrote this read-back from your request. The three things under "I will not" are the site's own rules and always apply.</p>
+<p class="meta">The AI wrote this read-back from your request. The first three things under "I will not" are the site's own rules and always apply.</p>
 
 <h2>Correct me or go ahead</h2>
 <form method="post" action="/do/{{ errand.id }}/respond" novalidate>
