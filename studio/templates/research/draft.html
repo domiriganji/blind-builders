@@ -29,9 +29,10 @@
 <p>There are no sources yet, so the draft should cite nothing. Run stage 1, prior work, to find some.</p>
 {% endif %}
 <h2>What next</h2>
+<p>To edit and publish the draft, download it as Markdown, then start a paper in Write and paste the draft into it. Write starts with an empty document: it does not copy the draft for you.</p>
 <div class="actions">
-  <a class="button button-primary" href="{{ write_url }}">Edit it in Write and publish</a>
-  <a href="/research/{{ project.id }}/draft.md">Download the draft as Markdown</a>
+  <a class="button button-primary" href="/research/{{ project.id }}/draft.md">Download the draft as Markdown</a>
+  <a href="{{ write_url }}">Start a paper in Write with this title</a>
   {{ post_button(stage_url, 'Write the draft again') }}
   <a href="/research/{{ project.id }}">Back to {{ project.title }}</a>
 </div>
