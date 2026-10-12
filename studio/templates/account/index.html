@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>{{ title }}</h1>
+{% if title != "Your account" %}<p>You are on your account page.</p>{% endif %}
 <dl class="panel">
   <dt>Name</dt><dd>{{ user.display_name }}</dd>
   <dt>Email</dt><dd>{{ user.email }}</dd>

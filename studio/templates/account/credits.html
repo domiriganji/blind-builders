@@ -2,7 +2,7 @@
 {% block content %}
 <h1>{{ title }}</h1>
 {% if just_paid %}
-<p class="message message-success" role="status">Thank you. Your payment went to Stripe. Your credits are added here as soon as Stripe confirms it, usually within a minute. Reload this page to see them.</p>
+<p>Your credits are added here as soon as Stripe confirms the payment, usually within a minute. Reload this page to see them, or come back later. If they have not arrived after an hour, ask in <a href="/help">Ask the community</a>.</p>
 {% endif %}
 <div class="panel">
 <p>Credit balance: <strong>{{ status.balance_text }}</strong>.</p>
@@ -15,7 +15,11 @@
 {% endif %}
 </div>
 <h2>Buy credits</h2>
+{% if status.can_buy %}
 <p><a href="/account/credits/buy">Buy credits</a> in packs of $5, $10 or $20. <a href="/pricing">Read how paying works</a>.</p>
+{% else %}
+<p>Buying credits is not set up on this site yet. <a href="/account/ai-key">Connect your own Claude API key</a> to use the AI now. <a href="/pricing">Read how paying works</a>.</p>
+{% endif %}
 <h2>Credit history</h2>
 {% if ledger %}
 <table>

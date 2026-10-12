@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Build your ideas with AI, without needing to see the screen</h1>
+<h1>{{ title }}</h1>
+{% if title != home_title %}<p>You are on the home page. {{ home_title }}.</p>{% endif %}
 <p class="lead">Tell the AI what you want in your own words. It reads back what it understood before it does anything, does the work, and tells you plainly what it did and what nobody has checked yet. Every page here works with a screen reader, a keyboard, voice or a braille display.</p>
 {% if not user %}
 <p><a class="button button-primary" href="/register">Create a free account</a> or <a href="/login">sign in</a>.</p>

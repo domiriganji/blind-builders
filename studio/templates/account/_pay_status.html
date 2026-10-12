@@ -3,6 +3,7 @@
 <p>You use your own Claude API key ending in <strong>{{ status.last4 }}</strong>. Anthropic bills you directly and this site charges nothing for AI.</p>
 {% elif status.mode == 'credits' %}
 <p>You use credits. Balance: <strong>{{ status.balance_text }}</strong>.</p>
+{% if status.key_unreadable %}<p>Your saved Claude API key can no longer be read, so the AI uses your credits instead. <a href="/account/ai-key">Connect your Claude API key again</a> to stop using credits.</p>{% endif %}
 {% else %}
 <p><strong>The AI is not set up for you yet.</strong>{% if status.key_unreadable %} Your saved Claude API key can no longer be read, so connect it again.{% endif %} There are two ways to fix it:</p>
 <ol>
