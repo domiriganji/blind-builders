@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Accessibility</h1>
+<p>This site is built for screen reader users first. We aim to meet WCAG 2.2 level AA on every page.</p>
+<h2>What we test</h2>
+<ul>
+  <li>Every page is checked automatically for labels, headings, link and button names, language and zoom.</li>
+  <li>Pages work with JavaScript turned off.</li>
+  <li>Nothing streams or updates by itself while you are reading.</li>
+</ul>
+<h2>What we know is not perfect yet</h2>
+<p>Some screen reader and browser combinations have not been tested by people yet. If something does not work for you, please tell us in <a href="/help">Ask the community</a> and say which screen reader, browser and device you use.</p>
+{% endblock %}

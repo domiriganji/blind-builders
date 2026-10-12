@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block main_attrs %} data-job-id="{{ job.id }}" data-job-status="{{ job.status }}"{% endblock %}
+{% block content %}
+{% if job.status == 'failed' %}
+<h1>This did not finish: {{ job.title }}</h1>
+<p>{{ job.error }}</p>
+<p><a href="{{ back_url }}">Go back and try again</a></p>
+{% else %}
+<h1>Working on it: {{ job.title }}</h1>
+<p>Started {{ elapsed }} ago. Most work takes between half a minute and three minutes.</p>
+<p>Current step: <span id="job-step">{{ job.progress or 'Starting' }}</span></p>
+<p id="job-live" role="status"></p>
+<p><a class="button button-primary" href="/jobs/{{ job.id }}">Check again</a></p>
+<p>You can leave this page. Your result will also be in <a href="/jobs">Your recent work</a>.</p>
+<div class="field choice js-only">
+  <input type="checkbox" id="job-sound" checked>
+  <label for="job-sound">Play three short taps when it is done</label>
+</div>
+{% endif %}
+{% endblock %}

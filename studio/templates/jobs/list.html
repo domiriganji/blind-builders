@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Your recent work</h1>
+{% if jobs %}
+<ul class="item-list">
+{% for j in jobs %}
+  <li>
+    {% if j.status == 'done' and j.result_url %}<a href="{{ j.result_url }}">{{ j.title }}</a>: done
+    {% elif j.status == 'failed' %}<a href="/jobs/{{ j.id }}">{{ j.title }}</a>: did not finish
+    {% else %}<a href="/jobs/{{ j.id }}">{{ j.title }}</a>: still working{% endif %}
+    <span class="meta">({{ j.created_at[:16].replace('T', ' ') }} UTC)</span>
+  </li>
+{% endfor %}
+</ul>
+{% else %}
+<p>Nothing yet. When you ask the AI to do something, it appears here.</p>
+{% endif %}
+{% endblock %}

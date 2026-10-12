@@ -1,0 +1,88 @@
+{# Form helpers. Every field gets a visible label, an optional hint and an error, all linked with aria-describedby. #}
+{% macro csrf_input() %}<input type="hidden" name="csrf_token" value="{{ csrf_value() }}">{% endmacro %}
+
+{% macro error_summary(errors) %}
+{% if errors %}
+<div class="error-summary" role="alert" aria-labelledby="error-summary-title" tabindex="-1">
+  <h2 id="error-summary-title">There {{ 'is a problem' if errors|length == 1 else 'are ' ~ errors|length ~ ' problems' }}</h2>
+  <ul>
+  {% for name, message in errors.items() %}<li><a href="#field-{{ name }}">{{ message }}</a></li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+{% endmacro %}
+
+{% macro _described(name, hint, error) -%}
+{%- set ids = [] -%}
+{%- if hint %}{% set _ = ids.append('hint-' ~ name) %}{% endif -%}
+{%- if error %}{% set _ = ids.append('error-' ~ name) %}{% endif -%}
+{%- if ids %} aria-describedby="{{ ids|join(' ') }}"{% endif %}{% if error %} aria-invalid="true"{% endif -%}
+{%- endmacro %}
+
+{% macro _hint_error(name, hint, error) %}
+{% if hint %}<p class="hint" id="hint-{{ name }}">{{ hint }}</p>{% endif %}
+{% if error %}<p class="field-error" id="error-{{ name }}"><span class="visually-hidden">Error: </span>{{ error }}</p>{% endif %}
+{% endmacro %}
+
+{% macro field(name, label, value='', type='text', hint='', error='', required=false, autocomplete='', extra='') %}
+<div class="field{% if error %} has-error{% endif %}">
+  <label for="field-{{ name }}">{{ label }}{% if not required %} <span class="optional">(optional)</span>{% endif %}</label>
+  {{ _hint_error(name, hint, error) }}
+  <input id="field-{{ name }}" name="{{ name }}" type="{{ type }}" value="{{ value or '' }}"{% if required %} required{% endif %}{% if autocomplete %} autocomplete="{{ autocomplete }}"{% endif %}{{ _described(name, hint, error) }} {{ extra|safe }}>
+</div>
+{% endmacro %}
+
+{% macro textarea(name, label, value='', hint='', error='', rows=8, required=false) %}
+<div class="field{% if error %} has-error{% endif %}">
+  <label for="field-{{ name }}">{{ label }}{% if not required %} <span class="optional">(optional)</span>{% endif %}</label>
+  {{ _hint_error(name, hint, error) }}
+  <textarea id="field-{{ name }}" name="{{ name }}" rows="{{ rows }}"{% if required %} required{% endif %}{{ _described(name, hint, error) }}>{{ value or '' }}</textarea>
+</div>
+{% endmacro %}
+
+{% macro select(name, label, options, selected='', hint='', error='', required=false) %}
+<div class="field{% if error %} has-error{% endif %}">
+  <label for="field-{{ name }}">{{ label }}{% if not required %} <span class="optional">(optional)</span>{% endif %}</label>
+  {{ _hint_error(name, hint, error) }}
+  <select id="field-{{ name }}" name="{{ name }}"{% if required %} required{% endif %}{{ _described(name, hint, error) }}>
+  {% for value, text in options %}<option value="{{ value }}"{% if value == selected %} selected{% endif %}>{{ text }}</option>{% endfor %}
+  </select>
+</div>
+{% endmacro %}
+
+{% macro radios(name, legend, options, selected='', hint='', error='') %}
+<fieldset class="field{% if error %} has-error{% endif %}" id="field-{{ name }}"{{ _described(name, hint, error) }}>
+  <legend>{{ legend }}</legend>
+  {{ _hint_error(name, hint, error) }}
+  {% for value, text in options %}
+  <div class="choice"><input type="radio" id="field-{{ name }}-{{ loop.index }}" name="{{ name }}" value="{{ value }}"{% if value == selected %} checked{% endif %}><label for="field-{{ name }}-{{ loop.index }}">{{ text }}</label></div>
+  {% endfor %}
+</fieldset>
+{% endmacro %}
+
+{% macro checkbox(name, label, checked=false, hint='') %}
+<div class="field choice">
+  <input type="checkbox" id="field-{{ name }}" name="{{ name }}" value="yes"{% if checked %} checked{% endif %}{% if hint %} aria-describedby="hint-{{ name }}"{% endif %}>
+  <label for="field-{{ name }}">{{ label }}</label>
+  {% if hint %}<p class="hint" id="hint-{{ name }}">{{ hint }}</p>{% endif %}
+</div>
+{% endmacro %}
+
+{% macro post_button(action, text, kind='secondary', hidden={}) %}
+<form method="post" action="{{ action }}" class="inline-form">
+  {{ csrf_input() }}
+  {% for k, v in hidden.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+  <button type="submit" class="button button-{{ kind }}">{{ text }}</button>
+</form>
+{% endmacro %}
+
+{% macro sources_list(sources, heading_level=2, heading='Sources') %}
+{% if sources %}
+<section aria-labelledby="sources-title">
+<h{{ heading_level }} id="sources-title">{{ heading }} ({{ sources|length }})</h{{ heading_level }}>
+<ol class="sources">
+{% for s in sources %}<li><a href="{{ s.url }}" rel="noopener noreferrer">{{ s.title or s.url }}</a>{% if s.quote %}<br><span class="quote">"{{ s.quote }}"</span>{% endif %}</li>{% endfor %}
+</ol>
+</section>
+{% endif %}
+{% endmacro %}

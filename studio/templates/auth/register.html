@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_input, error_summary, field %}
+{% block content %}
+<h1>Create your account</h1>
+{{ error_summary(errors) }}
+<form method="post" action="/register" novalidate>
+  {{ csrf_input() }}
+  <input type="hidden" name="next" value="{{ next }}">
+  {{ field('email', 'Email address', values.email, type='email', required=true, autocomplete='email', error=errors.email) }}
+  {{ field('display_name', 'Your name', values.display_name, required=true, autocomplete='name', hint='Other members see this name in Help. Peer checks use a code name unless you choose otherwise.', error=errors.display_name) }}
+  {{ field('password', 'Password', '', type='password', required=true, autocomplete='new-password', hint='At least 10 characters.', error=errors.password) }}
+  {{ field('screen_reader', 'Screen reader you use most', values.screen_reader, hint='For example NVDA, JAWS, VoiceOver, TalkBack or none. This helps the AI and other members give advice that fits you.') }}
+  {{ field('device', 'Device you use most', values.device, hint='For example an Android phone, an iPhone or a Windows laptop.') }}
+  <button type="submit" class="button button-primary">Create account</button>
+</form>
+<p>Already have an account? <a href="/login">Sign in</a>.</p>
+{% endblock %}

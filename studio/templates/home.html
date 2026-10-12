@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Build your ideas with AI, without needing to see the screen</h1>
+<p class="lead">Tell the AI what you want in your own words. It reads back what it understood before it does anything, does the work, and tells you plainly what it did and what nobody has checked yet. Every page here works with a screen reader, a keyboard, voice or a braille display.</p>
+{% if not user %}
+<p><a class="button button-primary" href="/register">Create a free account</a> or <a href="/login">sign in</a>.</p>
+{% endif %}
+<h2>What you can do here</h2>
+<ul class="section-list">
+{% for item in nav %}
+  <li><h3><a href="{{ item.url }}">{{ item.label }}</a></h3><p>{{ item.description }}</p></li>
+{% endfor %}
+</ul>
+<h2>How the AI works with you</h2>
+<ul>
+  <li><strong>Read-back first.</strong> Before building or doing anything, the AI tells you what it understood. You correct it or say go ahead.</li>
+  <li><strong>Whole answers, summary first.</strong> Nothing streams or talks over your screen reader. Each answer arrives complete, under headings, with the summary at the top.</li>
+  <li><strong>Honest checks.</strong> Every result says what was checked, how, and what nobody checked yet.</li>
+  <li><strong>Your words stay yours.</strong> The AI never silently changes what you wrote. Every suggested change is shown as before and after, and you accept or reject each one.</li>
+</ul>
+<h2>How paying works</h2>
+<p>Connect your own Claude API key and use the site's AI at your own cost, or buy credits. <a href="/pricing">Read how paying works</a>.</p>
+{% endblock %}
