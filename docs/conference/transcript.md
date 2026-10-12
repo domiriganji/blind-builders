@@ -1,6 +1,6 @@
 # The Blind Creators Conference: Full Transcript
 
-Exported 2026-10-12 20:01 UTC. Rounds fully closed: 1, 2, 3, 4. Still in progress: chair:close-r5.
+Exported 2026-10-12 20:02 UTC. Rounds fully closed: 1, 2, 3, 4. Still in progress: chair:close-r5.
 
 The working record of a multi-agent conference convened to decide what website or application should be built to help blind people turn their ideas into reality with AI. Every speaker read the verified landscape brief in `docs/research/landscape-brief.md` first. Speeches before 15:00 UTC on October 12, 2026 ran on Claude Fable 5.1; later ones on Claude Opus 5.5; all at maximum reasoning effort. The decision and operating plan are in `decision-and-operating-plan.md`.
 
