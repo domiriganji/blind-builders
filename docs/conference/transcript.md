@@ -1,6 +1,6 @@
 # The Blind Creators Conference: Full Transcript
 
-Exported 2026-10-12 18:46 UTC. Rounds fully closed: 1, 2, 3, 4. Still in progress: r5:scout.
+Exported 2026-10-12 19:13 UTC. Rounds fully closed: 1, 2, 3, 4. Still in progress: r5:builder.
 
 The working record of a multi-agent conference convened to decide what website or application should be built to help blind people turn their ideas into reality with AI. Every speaker read the verified landscape brief in `docs/research/landscape-brief.md` first. Speeches before 15:00 UTC on October 12, 2026 ran on Claude Fable 5.1; later ones on Claude Opus 5.5; all at maximum reasoning effort. The decision and operating plan are in `decision-and-operating-plan.md`.
 
@@ -1752,5 +1752,148 @@ Publication: preregistrations on OSF; April 30 results whatever they show; a qua
 - Reach screening December 1 to 16: at least 150 late-blind adults over 50 at UCH Ibadan's eye clinic plus Yusuf's groups. If the clinic's upper bound is below one-half, we concede Ready misses the median.
 - Voice-note trial: 20 users dial a phone number from April 5, and it becomes a door if 10 ship a working change alone by June 30. Zoom users get their own headline cell.
 - Publication: preregistration on OSF, April 30 results whatever they show, and a quarterly report with every count and its bound. Formats are headed HTML, plain text, braille-ready file and audio with Yoruba and Pidgin summaries, and participants hear results first.
+
+### Sam Reyes
+*Technology scout (tools built for blind people in the last six months). Model: Opus 5.5.*
+
+Part A, the decision.
+
+Chair, only Lena's round-five section has reached me; I build on her numbers.
+
+I back the venture judge's thesis with three amendments and beat it on one point. One product: Countersign, a website opened from a WhatsApp link. Paste any link, or let its phone door, Ready, make one. You get back who checked it, on which phone and reader, and what nobody checked. Day-one user: Kemi, blind from glaucoma at forty-one, now fifty-two; Tecno Spark, TalkBack; English on screen, Yoruba and Pidgin with customers; no card. First users: Yusuf's fifty January sellers and Priya's ten paying developers.
+
+Five non-negotiables, beside Lena's five:
+1. Any link is checkable: WordPress, Gemini Canvas, Ready, and a WhatsApp catalog through witnesses alone until TalkBack automation exists.
+2. Two lines no builder can say about its own page: "everything here is something you said, sent or approved," matched against her inputs, and an exact Friday diff.
+3. Every check pays its witness in cash, Ready's included. Builds-for-checks dies: with fifteen-cent template builds, it would pay fifteen cents for ten minutes of blind listening.
+4. Canary is free to read.
+5. Independence anyone can audit: two registered organisations, money flowing one way, one public price list for every buyer, Ready included.
+
+Amendments. Canary covers three rows weekly (Claude Code's CLI, Codex's CLI and Claude Desktop), not seven tools within two days of each release. Ready builds only where October 30 finds no free builder a seller can finish alone, under Lena's one-direction rule. January 15 counts agency letters of intent; agencies buy quarterly, so cash waits for Lena's March 31 gate.
+
+Where I beat it: the venture judge stakes the product on European agencies buying blind witness checks. Yusuf's witnesses use TalkBack and Jieshuo on Tecnos, in English, Yoruba and Pidgin. Many European agencies need VoiceOver on iPhones, in German or French. The agency line covers English pages and Android checks. It can pay wages; it cannot carry the product.
+
+Nearest duplicates: the WhatsApp catalog and Gemini Canvas for building, Fable and JAWS Inspect for checking, ariawalk for CI.
+
+I concede Lena's dissent: in January Kemi hears "checked," with the count. Ten developers make a pilot: this is a grant-funded year.
+
+My dissent from Lena's ballot is narrow. Before October 30 she builds first, I route first; under her one-direction rule, that costs a week. Ranking: venture amended, science, blind-user.
+
+Part B: ecosystem, distribution and money.
+
+The October 30 test. Three blind testers on their own Android phones: two on TalkBack, one on Jieshuo. At least two sell today, one lost her sight after forty, and none knows the catalog editor. Each starts from a fresh WhatsApp Business install, alone, with no hints. She sets up the profile and adds two items, each with name, price and a photo picked from a gallery holding her product photo and a decoy, then shares the link into a group. On a second phone, as the customer, she opens it, adds both items and sends the order. Caps: thirty minutes as seller, Lena's session limit, and ten as customer. A pass needs exact names and prices, the right photo twice, the order received, and a typed recall of what her reader said at the price field. Meta's review delay doesn't count. If all three pass, Ready routes to the catalog first, and I add seven testers by November 20, because three for three still allows a 29 percent success rate. One failure: Ready builds templates. Gemini Canvas runs as a second row. I pay the $150, disclosed.
+
+Funders, read today in search snippets unless noted. Our rule needs four clarifications:
+- Endowment holdings do not count.
+- Reselling a model counts as selling one.
+- In-kind gifts count.
+- No bank money enters anywhere while Count Us runs, because the study uses our witnesses.
+
+Fail. MTN and Airtel sit in the G6 operators' consortium building African-language models, announced at MWC Kigali in October 2025, and MTN is bringing Microsoft 365 Copilot to customers in selected markets from early 2026. Yusuf, your two largest telcos fail; I have not checked Glo or 9mobile. MTN Foundation's sixty blind scholars become recruits, never funding. The communications ministry fails: its N-ATLAS, launched September 20, 2025, is built on Meta's Llama 3. Microsoft, Google.org, Amazon, Meta, IBM, NVIDIA and Apple fail. The Tony Elumelu Foundation ships no model, but its founder chairs UBA, a bank Count Us may name; it waits for the preprint.
+
+Pass, with fallbacks:
+- Ford Foundation's West Africa office in Lagos: our ask, $150,000 a year for two years. Precedent: $300,000 to the Disability Rights Advocacy Center, 2020 to 2023, for technology adoption in disability-inclusive policymaking. Inquiry by November 15; fallback, the Open Society Initiative for West Africa, unchecked.
+- NLnet: European open-source money for the verifier and the TalkBack bridge; the call closes November 3, noon Central European time, funds unconfirmed. Fallback: Germany's Sovereign Tech Agency.
+- TETFund, through the investigator's university, for Count Us's $12,000. Fallback: the Holman Prize, up to $25,000 for a blind applicant, cycle unchecked.
+- Disability Rights Fund: disabled people's organisations, advocacy, under $50,000; its 2026 round starts January 1, so NAB applies next round.
+- LASODA: Lagos doubled its disability fund to ₦1 billion and paid twelve organisations ₦24 million on September 3. At a ₦1,500 planning rate, two million naira buys about 420 Ready builds. After June's kickback allegations, which LASODA says nobody formally filed, its money reaches us only through NAB, every naira published.
+
+Budget, November 1 to October 31: $202,000.
+- People: $141,000, my Lagos-rate placeholder for Priya's headcount.
+- Witness wages for Ready's checks, seeds, masked orders and pre-launch tests: $8,200.
+- Infrastructure, with Canary's phone arm, a hardware key and Lena's April phone trial: $10,100.
+- Model tokens: $700.
+- Legal, compliance and insurance: $14,600.
+- Upstream maintainers: $4,800.
+- Yusuf's community body: $4,200.
+- Contingency: $18,400.
+Earned revenue grosses about $21,000, netting $10,000; the gap is $192,000. No month breaks even; Ford's grant replaces break-even. Phase zero, to December 18, needs $9,500 that nobody has pledged: a blank with my name on it. If no funder commits by December 18, we launch at the floor: $14,000 to March for twenty sellers, Yusuf's twenty witnesses and a monthly Canary, raised from individuals through a fiscal host, with gifts over $1,000 published by name.
+
+Prices: one list for everyone.
+- Kemi pays nothing; the sponsor pool buys her checks at list.
+- Phone check, ten minutes on TalkBack or Jieshuo: $3, of which $2 is Yusuf's wage.
+- Full check, twenty minutes on any reader we staff, or a sighted taste check: $30, half to the witness. No witness gets less than half of what her minutes sold for.
+- Developers: $49 for forty receipts and two phone checks; extra receipts 75 cents, since Sousa's pace means eighty deploys a month.
+- Agencies: metered, $300 monthly minimum; resellers 20 percent off, published.
+
+A Ready build costs $3.17. A full check contributes $13.50, so break-even at $16,800 a month takes about 1,250 full checks, or roughly eighty agencies. Lena, your banner prints every month: Ready's sponsor-paid checks are a quarter or more of the signer's income. At October's 500 builds, twenty witnesses earn about $67 a month each: above the ₦70,000 minimum wage at that rate, still a supplement, not a living. Weekly payouts stay under the CBN's ₦50,000 Tier 1 limit, a 2017 figure still repeated in 2026 guides, so no BVN is needed.
+
+Ten partners; what each gets:
+1. Nigeria Association of the Blind, Lagos and Oyo chapters: paid work, two community-body seats, free checks for members.
+2. MTN Foundation's scholars: paid work.
+3. Federal College of Education (Special), Oyo: paid student work; the seed battery as coursework.
+4. UCH Ibadan's eye clinic: a referral path and co-authorship.
+5. Disability Rights Advocacy Center: Count Us data on publication day.
+6. LASODA, through NAB: a quarterly reach report.
+7. Accessible Android: phone-arm results 48 hours early.
+8. Mazrui's directory: signed records as Evidence links, with onset tags.
+9. Community Access: the seed battery as an open skill.
+10. Funka, Lovable's evaluator: our reseller price for Android checks.
+
+Reuse versus build; licences checked on GitHub today.
+- Reuse: Playwright, Apache 2.0; axe-core, MPL 2.0; guidepup, MIT, pushed yesterday; nvda-addon-testkit, GPL 2.0, inside our CI only; Rekor, Apache 2.0, for hashes only; MAIDR, GPL 3.0, for Count Us charts. TalkBack's source is Apache 2.0, but its public repository was last pushed April 1, so an emulator built from it may not match the TalkBack on Kemi's phone.
+- Ask first: GitHub cannot classify screen-readers-mcp's licence, and its description says "JAWS/TalkBack bridges planned." Priya, before you assemble TalkBack alone, we pay Marlon Sousa to build that bridge.
+- No licence, so no reuse: ariawalk-action; guidepup-mcp, which I offered in round two, untouched since May 19, withdrawn; Mazrui's directory, which we link, never copy; and buyable, built on Amazon Bedrock and tagged for the European Accessibility Act: a competitor for our agency line.
+- Build: the read-back-to-test compiler, templates, the record and its open verifier, seeds, the wage ledger, the masked arm and the refusal checks. Lena's twenty seeded regressions for Canary come from reverting fixes in Codex's open-source CLI and pinning old Claude Code versions, which npm keeps.
+
+Competitors. guidepup is our component, not a competitor; it makes a bare machine log worthless, so we sell the spec, seeds, witnesses and record. We pay its maintainer per green month: Upkeep's first subscriber. Fable raised a $25 million Series B in October 2024. It sells pay-as-you-go testing by disabled people with a two-day turnaround and names Microsoft, Meta, NBC Universal and Walmart as clients; I found no 2026 price. Its findings belong to whoever paid, two of them model vendors. Ours belong to the next reader, and in Yusuf's telling of Kemi's evening, the witness answered in twenty-five minutes. We won't chase its enterprise customers. JAWS Inspect already turns JAWS speech into reports and replays regression flows, so we build no JAWS log; agencies needing JAWS get a human witness.
+
+If Google ships a receipt inside Canvas, Canvas pages go through our seeded battery with masked witnesses within 48 hours, and Canary publishes. Within fourteen days, if Google flags all twenty seeds, we retire our machine lines for Canvas pages, keep the witness lines, and tell sellers to build there. If it misses one, we publish which. One rule from today: TalkBack can speak Gemini's descriptions, so transcripts tag those words as Gemini's, or a Google model vouches for a Google page.
+
+Legal, my reading, not counsel's; Nigeria first:
+- Two not-for-profit companies at the Corporate Affairs Commission by December 18.
+- Data Protection Commission registration under the 2023 Act and 2025 directive; disability status is sensitive data, needing explicit consent and an impact assessment.
+- Sending Kemi's words to American model servers is a disclosed cross-border transfer.
+- An accountant signs off witness pay under the 2025 Tax Act before the first payout.
+- Under the consumer protection act, our words are representations: "checked," never "safe."
+- A signed line states an observation and a time, never a warranty. Liability caps at twelve months of fees; a wrong line gets a public correction within 48 hours. Witnesses are never personally liable. Indemnity insurance: quote pending.
+- Count Us: the university runs it, reports counts with methods, and gives banks thirty days to reply. Counsel reviews first: banks litigate, and section 24 of the Cybercrimes Act, narrowed in 2024, still reaches critics.
+
+European Union:
+- Business-to-business sales only, with VAT numbers.
+- A GDPR Article 27 representative.
+- AI Act Article 50 already applies, so our INFERRED tag becomes machine-readable.
+- The Product Liability Directive covers software from December 9 but excludes a business's economic loss, so contract caps govern.
+- The Platform Work Directive, due December 2, requires human review of every witness suspension; we adopt that everywhere.
+
+My list is input; the panel decides.
+
+**Key points**
+
+- I back Countersign as the one product, on the venture judge's thesis with three amendments. Any link can be checked, and Ready's phone door builds only if the October 30 test finds no free builder that a TalkBack or Jieshuo seller can finish alone.
+- European agencies cannot carry the product. Our Lagos witnesses use TalkBack and Jieshuo in English, Yoruba and Pidgin, while many European agencies need VoiceOver in German or French. Year one is grant-funded: a $202,000 budget, a $192,000 gap and no break-even month.
+- The funding rule bites harder than the panel assumed. MTN and Airtel fail (the G6 African-language model consortium, and MTN bringing Microsoft 365 Copilot to customers), and so does Nigeria's communications ministry (N-ATLAS, built on Llama 3). Ford West Africa, NLnet (deadline November 3), TETFund, and the Disability Rights Fund and LASODA, both through NAB, pass.
+- Every check pays cash. A phone check costs $3, of which $2 is the wage; a full check costs $30, half to the witness; no witness ever gets less than half her check's price. Builds-for-checks dies, because a fifteen-cent build would pay fifteen cents for ten minutes of listening.
+- Licences checked live on GitHub today: guidepup (MIT) is our component. screen-readers-mcp has an unclassifiable licence and a planned TalkBack bridge, so we fund Marlon Sousa instead of duplicating him. ariawalk-action, buyable, guidepup-mcp and Mazrui's directory carry no licence.
+- Pre-committed retreat: if Google's own Canvas receipt catches all twenty seeds, we retire our machine lines for Canvas within fourteen days. Witness transcripts tag TalkBack's Gemini descriptions so a Google model never vouches for a Google page.
+
+**Agreed with**
+
+- Lena: in January Kemi hears 'checked' with the count, not 'ready'. I also adopt her one-direction October 30 rule, her March 31 money gate, her banner printed every month, her twenty seeded regressions before any clean Canary row, and her 30-minute session cap.
+- Venture judge: Countersign is the one product, Canary is free to read, and Ready's two lines become checks on any URL, Gemini Canvas included.
+- Yusuf: money flows one way, from builder to signer and never from signer to builder. His $2 per ten-minute check is the wage floor, and no bank money comes near Count Us.
+- Priya: her $49 developer plan with two phone checks and her fifteen-cent template build cost are the basis of my price list.
+- Lena and the science judge: listening, not tokens, is the real cost per build. Tokens are $700 of a $202,000 year.
+
+**Disagreed with**
+
+- Venture judge: January 15 cannot be a cash gate, because agencies buy quarterly, so it counts letters of intent. The European agency line cannot carry the product given our witnesses' devices and languages. And seven tools checked within two days of every release is unfundable, so Canary gets three weekly rows.
+- Yusuf: his 'telcos' fail our own rule (MTN and Airtel). His builds-for-checks exchange dies, because at Priya's fifteen-cent template build it pays blind listening fifteen cents per ten minutes.
+- Lena (narrow): before October 30 evidence she defaults to building, and I default to routing to the incumbent. Under her one-direction rule the gap is a week of work.
+- Priya: she should not assemble TalkBack automation alone, because screen-readers-mcp already lists a TalkBack bridge as planned; we fund that bridge. Her $49 plan also needs Lena's receipt cap: forty receipts, then 75 cents each.
+- My own round-two self: I withdraw guidepup-mcp as a component. It has no licence and has been untouched since May 19.
+
+**Proposals made**
+
+- October 30 catalog test, three blind testers on their own phones (two TalkBack, one Jieshuo), each starting from a fresh WhatsApp Business install. Task: set up the profile, add two items with a decoy photo in the gallery, share the link, then order as a customer from a second phone. Caps: 30 minutes as seller, 10 as customer. A pass needs exact names and prices, the right photos, the order received and a typed recall. Three passes: route to the catalog and add seven testers by November 20. One failure: Ready builds templates. Gemini Canvas runs as a second row.
+- Four clarifications to the funding rule: endowment holdings do not count; reselling a model counts as selling one; in-kind gifts count; no bank money anywhere while Count Us runs.
+- Named funders with fallbacks: Ford West Africa ($150,000 a year for two years, inquiry by November 15; fallback OSIWA); NLnet (November 3 deadline; fallback Sovereign Tech Agency); TETFund for Count Us (fallback Holman Prize); the Disability Rights Fund via NAB next round; LASODA only through NAB, every naira published.
+- Twelve-month budget of $202,000, with $141,000 for people as a placeholder pending Priya's headcount. Earned revenue nets about $10,000, leaving a $192,000 gap. Phase zero needs $9,500, so far unpledged. Floor plan if no funder commits by December 18: $14,000 to March, raised from individual donors with gifts over $1,000 published.
+- Public price list, the same for every buyer, Ready included. Kemi pays nothing. Phone check $3 ($2 wage); full check $30 (half to the witness; no witness ever below half the price). Developer plan $49 for forty receipts and two phone checks, then 75 cents per receipt. Agencies metered with a $300 monthly minimum; resellers 20 percent off.
+- Two registered not-for-profit companies, signer and builder, by December 18, with money flowing one way and Ready buying checks at list price.
+- Ten distribution partners: Nigeria Association of the Blind, MTN Foundation's blind scholars (recruits only), FCE (Special) Oyo, UCH Ibadan eye clinic, Disability Rights Advocacy Center, LASODA via NAB, Accessible Android, Mazrui's directory, Community Access, Funka.
+- Reuse by licence: Playwright, axe-core, guidepup, nvda-addon-testkit, Rekor, MAIDR. Fund the TalkBack bridge inside screen-readers-mcp and pay guidepup's maintainer per green month, as Upkeep's first subscriber. Build the twenty Canary seeds by reverting fixes in Codex's open-source CLI and pinning old Claude Code versions.
+- Competitive response if Google ships a Canvas receipt: seeded masked test within 48 hours, decision within 14 days, and retire our Canvas machine lines if it catches all 20 seeds. Witness transcripts tag TalkBack's Gemini descriptions as Gemini's.
+- Legal checklist. Nigeria: NDPA and GAID registration, explicit consent and an impact assessment for disability data, a disclosed cross-border transfer, tax sign-off before the first payout, 'checked' never 'safe' wording, liability capped at twelve months of fees, 48-hour public correction, witnesses indemnified, counsel review before Count Us is released. EU: business-to-business sales only, a GDPR Article 27 representative, a machine-readable INFERRED tag for AI Act Article 50, contract caps under the Product Liability Directive, and human review of suspensions under the Platform Work Directive.
 
 ---
