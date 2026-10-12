@@ -10,33 +10,43 @@
 <ul>
   <li>Rows of data, not counting the column names: {{ stats.rows }}</li>
   <li>Columns: {{ stats.columns }}</li>
-  <li>Column names: {{ stats.column_names|join(', ') }}</li>
+  <li>Column names: {{ names_text(stats.column_names) }}</li>
   <li>Separator between cells: {{ stats.delimiter }}</li>
   <li>Empty cells: {{ stats.empty_cells }}</li>
   {% if stats.uneven_rows %}<li>Rows with a different number of cells than the first row: {{ stats.uneven_rows }}. Check these rows.</li>{% endif %}
 </ul>
-<h3>Each column</h3>
 {% if stats.columns_shown < stats.columns %}<p>Facts are shown for the first {{ stats.columns_shown }} of {{ stats.columns }} columns.</p>{% endif %}
+{% set number_columns = stats.column_stats|selectattr('kind', 'equalto', 'number')|list %}
+{% set text_columns = stats.column_stats|rejectattr('kind', 'equalto', 'number')|list %}
+{% if number_columns %}
+<h3>Columns with numbers ({{ number_columns|length }})</h3>
 <ul class="item-list">
-{% for c in stats.column_stats %}
-  <li><strong>{{ c.name }}</strong>
-  {%- if c.kind == 'number' %} (numbers): {{ c.count }} value{{ '' if c.count == 1 else 's' }}, {{ c.empty }} empty. Mean {{ c.mean_text }}, smallest {{ c.min_text }}, largest {{ c.max_text }}.
-  {%- else %} (text): {{ c.filled }} filled, {{ c.empty }} empty, {{ c.distinct }} distinct value{{ '' if c.distinct == 1 else 's' }}.{% if c.top %} Most common: {% for t in c.top %}{{ t.value }} ({{ t.count }}){{ '; ' if not loop.last }}{% endfor %}.{% endif %}
-  {%- endif %}</li>
+{% for c in number_columns %}
+  <li><strong>{{ c.name }}</strong>: {{ c.count }} value{{ '' if c.count == 1 else 's' }}, {{ c.empty }} empty. Mean {{ c.mean_text }}, smallest {{ c.min_text }}, largest {{ c.max_text }}.</li>
 {% endfor %}
 </ul>
+{% endif %}
+{% if text_columns %}
+<h3>Columns with text ({{ text_columns|length }})</h3>
+<p>A column counts as text when any filled cell in it is not a number.</p>
+<ul class="item-list">
+{% for c in text_columns %}
+  <li><strong>{{ c.name }}</strong>: {{ c.filled }} filled, {{ c.empty }} empty, {{ c.distinct }} distinct value{{ '' if c.distinct == 1 else 's' }}.{% if c.top %} Most common: {% for t in c.top %}{{ t.value }} ({{ t.count }}){{ '; ' if not loop.last }}{% endfor %}.{% endif %}</li>
+{% endfor %}
+</ul>
+{% endif %}
 {% else %}
-<p>No data file yet. Upload a CSV file below and the site will count its rows and columns and work out averages.</p>
+<p>No data file yet. Upload a CSV file with the form under the heading "Upload a data file", and the site will count its rows and columns and work out averages.</p>
 {% endif %}
 <h2>The AI's interpretation</h2>
 {% if interpretation_html %}
-<p class="panel">Written by the AI on {{ item.created_at[:10] }}, from the computed facts, your notes and the first {{ sample_rows }} rows. It is an interpretation, not a result. It may be wrong. Test any pattern with a proper analysis before you report it.</p>
+<p class="panel">Written by the AI on {{ item.created_at[:10] }}, from {% if stats %}the computed facts, the first {{ sample_rows }} rows of {{ meta.filename }} and your notes{% else %}your notes only, because no data file was uploaded{% endif %}. It is an interpretation, not a result. It may be wrong. Test any pattern with a proper analysis before you report it.</p>
 {{ interpretation_html }}
 {% else %}
 <p>Nothing yet. When you have uploaded a file or saved notes, the AI can describe patterns and suggest analyses.</p>
 {% endif %}
 <div class="actions">
-  {{ post_button('/research/' ~ project.id ~ '/data/describe', 'Ask the AI again' if interpretation_html else 'Ask the AI to describe patterns') }}
+  {{ post_button('/research/' ~ project.id ~ '/data/describe', 'Ask the AI to describe the data again' if interpretation_html else 'Ask the AI to describe patterns') }}
 </div>
 <h2>Your notes</h2>
 <form method="post" action="/research/{{ project.id }}/notes" novalidate>

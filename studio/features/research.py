@@ -10,8 +10,10 @@ from __future__ import annotations
 import csv
 import io
 import json
+import math
 import re
 from collections import Counter
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode, urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -66,7 +68,12 @@ MAX_CSV_BYTES = 200 * 1024
 # A request far bigger than any allowed upload is refused before the body is read.
 MAX_UPLOAD_REQUEST = 1024 * 1024
 MAX_STAT_COLUMNS = 50
+MAX_CELL_TEXT = 100
 SAMPLE_ROWS = 10
+MAX_SOURCES = 50
+MAX_ID = 2**63 - 1  # SQLite's largest integer: a bigger number in an address is simply not found
+# A second click on a button that starts AI work joins the work already running instead of paying twice.
+DUPLICATE_WINDOW = timedelta(minutes=15)
 CSV_TYPES = {"text/csv", "application/csv", "text/comma-separated-values"}
 RESULT_NEEDED = "[RESULT NEEDED]"
 
@@ -247,6 +254,10 @@ def _clean(form: dict, key: str) -> str:
     return value.strip() if isinstance(value, str) else ""
 
 
+def _count(n: int, word: str) -> str:
+    return f"{n} {word}{'' if n == 1 else 's'}"
+
+
 def _date(stamp: str | None) -> str:
     return (stamp or "")[:10]
 
@@ -255,15 +266,43 @@ def _when(stamp: str | None) -> str:
     return (stamp or "")[:16].replace("T", " ") + " UTC" if stamp else ""
 
 
+def _one_line(value, limit: int) -> str:
+    """Text as one line: anything that is not text becomes empty; runs of spaces and line breaks become one space."""
+    return " ".join(value.split())[:limit] if isinstance(value, str) else ""
+
+
 def _safe_sources(sources) -> list[dict]:
-    out = []
-    for s in sources or []:
-        url = (s.get("url") if isinstance(s, dict) else getattr(s, "url", "")) or ""
-        title = (s.get("title") if isinstance(s, dict) else getattr(s, "title", "")) or ""
-        quote = (s.get("quote") if isinstance(s, dict) else getattr(s, "quote", "")) or ""
-        if urlparse(url).scheme in ("http", "https"):
-            out.append({"url": url, "title": title.strip() or url, "quote": quote.strip()})
+    """Keep only web sources with an http or https address and a host, each once, with tidy titles and quotes."""
+    out, seen = [], set()
+    for s in sources if isinstance(sources, (list, tuple)) else []:
+        def get(key, _s=s):
+            return _s.get(key) if isinstance(_s, dict) else getattr(_s, key, "")
+        url = get("url")
+        if not isinstance(url, str):
+            continue
+        url = url.strip()
+        if not url or len(url) > 2000 or any(ch.isspace() for ch in url) or url in seen:
+            continue
+        try:
+            parsed = urlparse(url)
+        except ValueError:
+            continue
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            continue
+        seen.add(url)
+        out.append({"url": url, "title": _one_line(get("title"), 300) or url, "quote": _one_line(get("quote"), 300)})
+        if len(out) >= MAX_SOURCES:
+            break
     return out
+
+
+def _answer_text(value) -> str:
+    """The AI's answer as text, or a plain failure that the job page shows. Nothing is saved from a bad answer."""
+    if not isinstance(value, str):
+        raise AIError("The AI's answer was not in the expected form. Nothing was saved. Please try again.")
+    if not value.strip():
+        raise AIError("The AI returned an empty answer. Nothing was saved. Please try again.")
+    return value.strip()
 
 
 _HEADING_RE = re.compile(r"<(/?)h([1-6])>")
@@ -296,7 +335,24 @@ class CSVProblem(ValueError):
     pass
 
 
+def _number(cell: str) -> float | None:
+    """The cell as a finite number, or None. A value too big for the computer (like 1e999) is not a number here."""
+    if not _NUMBER_RE.match(cell):
+        return None
+    value = float(cell)
+    return value if math.isfinite(value) else None
+
+
+def _mean(values: list[float]) -> float:
+    try:
+        return math.fsum(values) / len(values)
+    except OverflowError:  # the total is too big for the computer, but the average is not
+        return math.fsum(v / len(values) for v in values)
+
+
 def format_number(x: float) -> str:
+    if not math.isfinite(x):
+        return str(x)
     if abs(x) >= 1e15:
         return f"{x:.6g}"
     if x == int(x):
@@ -318,14 +374,16 @@ def compute_csv_stats(text: str) -> dict:
     except csv.Error as exc:
         raise CSVProblem("The file could not be read as CSV. Check that it is a plain CSV file.") from exc
     if not rows:
-        raise CSVProblem("The file is empty.")
+        raise CSVProblem("The file is empty. Choose a CSV file with the column names in the first row "
+                         "and your data in the rows after it.")
     header, data = rows[0], rows[1:]
     if not data:
-        raise CSVProblem("The file has a first row of column names but no rows of data under it.")
+        raise CSVProblem("The file has a first row of column names but no rows of data after it. "
+                         "Add your data rows, save the file and upload it again.")
     width = max(len(header), max(len(r) for r in data))
     names = []
     for i in range(width):
-        name = header[i].strip() if i < len(header) else ""
+        name = " ".join(header[i].split())[:MAX_CELL_TEXT] if i < len(header) else ""
         names.append(name or f"Column {i + 1}")
     uneven = sum(1 for r in data if len(r) != len(header))
     columns = []
@@ -333,18 +391,19 @@ def compute_csv_stats(text: str) -> dict:
         cells = [(r[i].strip() if i < len(r) else "") for r in data]
         filled = [c for c in cells if c != ""]
         col = {"name": name, "filled": len(filled), "empty": len(cells) - len(filled)}
-        if filled and all(_NUMBER_RE.match(c) for c in filled):
-            values = [float(c) for c in filled]
-            mean = sum(values) / len(values)
+        numbers = [_number(c) for c in filled]
+        if filled and all(n is not None for n in numbers):
+            values = [n for n in numbers if n is not None]
+            mean = _mean(values)
             col.update(kind="number", count=len(values), mean=mean, min=min(values), max=max(values),
                        mean_text=format_number(mean), min_text=format_number(min(values)),
                        max_text=format_number(max(values)))
         else:
             counts = Counter(filled)
             col.update(kind="text", distinct=len(counts),
-                       top=[{"value": v[:100], "count": n} for v, n in counts.most_common(3)])
+                       top=[{"value": v[:MAX_CELL_TEXT], "count": n} for v, n in counts.most_common(3)])
         columns.append(col)
-    sample_rows = [[c[:100] for c in r[:MAX_STAT_COLUMNS]] for r in data[:SAMPLE_ROWS]]
+    sample_rows = [[c[:MAX_CELL_TEXT] for c in r[:MAX_STAT_COLUMNS]] for r in data[:SAMPLE_ROWS]]
     return {
         "rows": len(data),
         "columns": width,
@@ -365,7 +424,7 @@ def facts_as_text(stats: dict | None) -> str:
     lines = [
         f"Rows of data (not counting the column names): {stats['rows']}",
         f"Columns: {stats['columns']}",
-        "Column names: " + ", ".join(stats["column_names"]),
+        "Column names: " + names_text(stats["column_names"]),
         f"Rows with a different number of cells than the first row: {stats['uneven_rows']}",
     ]
     for c in stats["column_stats"]:
@@ -379,6 +438,12 @@ def facts_as_text(stats: dict | None) -> str:
     if stats["columns_shown"] < stats["columns"]:
         lines.append(f"Facts were computed for the first {stats['columns_shown']} columns only.")
     return "\n".join(lines)
+
+
+def names_text(names: list[str]) -> str:
+    """Column names as one list: the first 50 only, then how many more there are."""
+    more = len(names) - MAX_STAT_COLUMNS
+    return ", ".join(names[:MAX_STAT_COLUMNS]) + (f", and {more} more" if more > 0 else "")
 
 
 def _sample_as_text(stats: dict | None) -> str:
@@ -418,6 +483,8 @@ def check_citations(text: str, source_count: int) -> dict:
 # ----- storage ---------------------------------------------------------------------------------
 
 def _project(project_id: int, user: dict) -> dict:
+    if not 1 <= project_id <= MAX_ID:
+        raise HTTPException(status_code=404, detail="We could not find that research project.")
     with db.session() as conn:
         row = conn.execute("SELECT * FROM research_projects WHERE id = ? AND user_id = ?",
                            (project_id, user["id"])).fetchone()
@@ -443,6 +510,8 @@ def _latest(project_id: int, kind: str) -> dict | None:
 def _item(project_id: int, kind: str, version: int | None) -> dict | None:
     if version is None:
         return _latest(project_id, kind)
+    if not 1 <= version <= MAX_ID:
+        raise HTTPException(status_code=404, detail="We could not find that version.")
     with db.session() as conn:
         row = conn.execute("SELECT * FROM research_items WHERE id = ? AND project_id = ? AND kind = ?",
                            (version, project_id, kind)).fetchone()
@@ -500,6 +569,22 @@ def _stages(project: dict) -> list[dict]:
     return out
 
 
+# ----- saying what just happened ---------------------------------------------------------------
+# After an action, the next page's h1 (and so its title, which screen readers announce first) says
+# what happened. The words are kept in the session for the one page they belong to, so a link
+# cannot make a page claim something happened, and reloading the page shows its usual heading.
+
+def _say_done(request: Request, path: str, text: str) -> None:
+    request.session["research_done"] = {"path": path, "text": text}
+
+
+def _done_text(request: Request) -> str:
+    done = request.session.pop("research_done", None)
+    if isinstance(done, dict) and done.get("path") == request.url.path:
+        return str(done.get("text") or "")
+    return ""
+
+
 # ----- pages: list and create ------------------------------------------------------------------
 
 def _index_page(request: Request, user: dict | None, *, values: dict | None = None, errors: dict | None = None,
@@ -514,6 +599,8 @@ def _index_page(request: Request, user: dict | None, *, values: dict | None = No
             p["done_count"] = sum(1 for s in _stages(p) if s["done"])
             projects.append(p)
     title = "Run your own research" + (": please fix the problems" if errors else "")
+    if not errors:
+        title = _done_text(request) or title
     return render(request, "research/index.html", title=title, projects=projects, values=values or {},
                   errors=errors or {}, status_code=status_code)
 
@@ -527,19 +614,24 @@ def index(request: Request):
 async def create(request: Request, user: dict = Depends(require_user)):
     form = await checked_form(request)
     values = {k: _clean(form, k) for k in ("title", "question", "field", "known")}
+    # The name and field are one line each: a line break pasted into them would break headings and lists.
+    values["title"] = " ".join(values["title"].split())
+    values["field"] = " ".join(values["field"].split())
     errors: dict[str, str] = {}
     if not values["title"]:
         errors["title"] = "Enter a short name for your project."
     elif len(values["title"]) > MAX_TITLE:
-        errors["title"] = f"Use {MAX_TITLE} characters or fewer for the name."
+        errors["title"] = f"Use {MAX_TITLE} characters or fewer for the name. It has {len(values['title'])} now."
     if not values["question"]:
         errors["question"] = "Enter your research question."
     elif len(values["question"]) > MAX_QUESTION:
-        errors["question"] = f"Use {MAX_QUESTION} characters or fewer for the question."
+        errors["question"] = (f"Use {MAX_QUESTION} characters or fewer for the question. "
+                              f"It has {len(values['question'])} now.")
     if len(values["field"]) > MAX_FIELD:
-        errors["field"] = f"Use {MAX_FIELD} characters or fewer for the field."
+        errors["field"] = f"Use {MAX_FIELD} characters or fewer for the field. It has {len(values['field'])} now."
     if len(values["known"]) > MAX_KNOWN:
-        errors["known"] = f"Use {MAX_KNOWN} characters or fewer here."
+        errors["known"] = (f"Use {MAX_KNOWN} characters or fewer for what you already know. "
+                           f"It has {len(values['known'])} now.")
     for key in ("title", "question", "field", "known"):
         if key not in errors and looks_secret(values[key]):
             errors[key] = SECRET_MESSAGE
@@ -553,7 +645,7 @@ async def create(request: Request, user: dict = Depends(require_user)):
             (user["id"], values["title"], values["question"], values["field"], values["known"], stamp, stamp),
         )
         project_id = cur.lastrowid
-    flash(request, "Your research project is saved. Start with stage 1, prior work.", "success")
+    _say_done(request, f"/research/{project_id}", f"Project saved: {values['title']}")
     return redirect(f"/research/{project_id}")
 
 
@@ -564,19 +656,43 @@ def project_page(request: Request, project_id: int, user: dict = Depends(require
     project = _project(project_id, user)
     stages = _stages(project)
     next_stage = next((s for s in stages if not s["done"]), None)
-    return render(request, "research/project.html", title=project["title"], project=project, stages=stages,
-                  done_count=sum(1 for s in stages if s["done"]), next_stage=next_stage)
+    return render(request, "research/project.html", title=_done_text(request) or project["title"], project=project,
+                  stages=stages, done_count=sum(1 for s in stages if s["done"]), next_stage=next_stage)
 
 
 # ----- starting AI work ------------------------------------------------------------------------
 
+def _running_job(user_id: int, job_kind: str) -> str | None:
+    """The id of the same work for the same project, if it is still queued or running."""
+    with db.session() as conn:
+        rows = conn.execute("SELECT id, created_at FROM jobs WHERE user_id = ? AND kind = ? AND status IN ('queued', 'running')"
+                            " ORDER BY created_at DESC LIMIT 5", (user_id, job_kind)).fetchall()
+    now = datetime.now(timezone.utc)
+    for r in rows:
+        try:
+            started = datetime.fromisoformat(r["created_at"])
+        except ValueError:
+            continue
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        if now - started < DUPLICATE_WINDOW:  # older ones were stopped by a restart and will never finish
+            return r["id"]
+    return None
+
+
 def _start(request: Request, user: dict, project: dict, kind: str, title: str, fn, back: str):
+    job_kind = f"research.{kind}:{project['id']}"
+    running = _running_job(user["id"], job_kind)
+    if running:
+        # A double click, or a second tab: show the work already under way instead of paying for it twice.
+        flash(request, "This was already started, so it was not started again. You will not pay twice.", "info")
+        return redirect(jobs.job_url(running))
     try:
         ai = get_ai(request, user)
     except AINotAvailable as exc:
         flash(request, exc.user_message, "error")
         return redirect(back)
-    job_id = jobs.submit(user["id"], f"research.{kind}", title, fn, ai, project["id"])
+    job_id = jobs.submit(user["id"], job_kind, title, fn, ai, project["id"])
     return redirect(jobs.job_url(job_id))
 
 
@@ -641,13 +757,12 @@ def _run_prior_work(ctx, ai, project_id: int) -> str:
         purpose="research.prior_work",
         max_searches=10,
     )
-    if not (result.text or "").strip():
-        raise AIError("The AI returned an empty answer. Please try again.")
+    text = _answer_text(getattr(result, "text", None))
     ctx.progress("Saving what was found")
-    sources = _safe_sources(result.sources)
-    if not _save_item(project_id, "prior_work", result.text.strip(), sources, {"source_count": len(sources)}):
+    sources = _safe_sources(getattr(result, "sources", None))
+    if not _save_item(project_id, "prior_work", text, sources, {"source_count": len(sources)}):
         return "/research"
-    return f"/research/{project_id}/prior-work"
+    return f"/research/{project_id}/prior-work?done=1"
 
 
 def _prior_work_context(project_id: int) -> tuple[str, list[dict]]:
@@ -663,17 +778,15 @@ def _run_plan(ctx, ai, project_id: int) -> str:
         return "/research"
     prior_text, sources = _prior_work_context(project_id)
     ctx.progress("Writing the study plan")
-    text = ai.text(
+    text = _answer_text(ai.text(
         system=PLAN_SYSTEM,
         prompt=(f"{_project_brief(project)}\n\nPrior work found so far:\n{prior_text}\n\n"
                 f"Numbered sources:\n{_numbered_sources(sources)}\n\nWrite the study plan."),
         purpose="research.plan",
-    )
-    if not (text or "").strip():
-        raise AIError("The AI returned an empty answer. Please try again.")
-    if not _save_item(project_id, "plan", text.strip(), sources, {"citations": check_citations(text, len(sources))}):
+    ))
+    if not _save_item(project_id, "plan", text, sources, {"citations": check_citations(text, len(sources))}):
         return "/research"
-    return f"/research/{project_id}/plan"
+    return f"/research/{project_id}/plan?done=1"
 
 
 def _run_data(ctx, ai, project_id: int) -> str:
@@ -685,20 +798,24 @@ def _run_data(ctx, ai, project_id: int) -> str:
     stats = meta.get("stats")
     notes = _notes(project_id)
     ctx.progress("Reading the computed facts and your notes")
-    text = ai.text(
+    text = _answer_text(ai.text(
         system=DATA_SYSTEM,
         prompt=(f"{_project_brief(project)}\n\nComputed by the site:\n{facts_as_text(stats)}\n\n"
                 f"First rows of the file:\n{_sample_as_text(stats)}\n\n"
                 f"Researcher's notes:\n{(notes or {}).get('body', '').strip()[:15000] or '(none)'}\n\n"
                 "Describe the patterns and suggest analyses."),
         purpose="research.data",
-    )
-    if not (text or "").strip():
-        raise AIError("The AI returned an empty answer. Please try again.")
+    ))
+    now_latest = _latest(project_id, "data")
+    if (now_latest or {}).get("id") != (latest or {}).get("id") and _load_project(project_id) is not None:
+        # A new file was uploaded while the AI worked. Saving would put the old file's facts back on
+        # the page with an interpretation of the old file, so nothing is saved.
+        raise AIError("You uploaded a new data file while the AI was working, so its answer describes the old "
+                      "file. Nothing was saved. Ask the AI again to describe the new file.")
     meta["interpreted_at"] = db.now()
-    if not _save_item(project_id, "data", text.strip(), [], meta):
+    if not _save_item(project_id, "data", text, [], meta):
         return "/research"
-    return f"/research/{project_id}/data"
+    return f"/research/{project_id}/data?done=1"
 
 
 def _run_draft(ctx, ai, project_id: int) -> str:
@@ -712,7 +829,7 @@ def _run_draft(ctx, ai, project_id: int) -> str:
     stats = data["meta"].get("stats") if data else None
     interpretation = data["content_md"] if data and data["content_md"] else "(none)"
     ctx.progress("Writing the draft paper")
-    text = ai.text(
+    text = _answer_text(ai.text(
         system=DRAFT_SYSTEM,
         prompt=(f"{_project_brief(project)}\n\nPrior work:\n{prior_text}\n\n"
                 f"Numbered sources (cite only these, as [n]):\n{_numbered_sources(sources)}\n\n"
@@ -723,25 +840,27 @@ def _run_draft(ctx, ai, project_id: int) -> str:
                 "Write the draft paper."),
         purpose="research.draft",
         max_tokens=32000,
-    )
-    if not (text or "").strip():
-        raise AIError("The AI returned an empty answer. Please try again.")
+    ))
     ctx.progress("Checking the citation numbers")
     citations = check_citations(text, len(sources))
-    if not _save_item(project_id, "draft", text.strip(), sources, {"citations": citations}):
+    if not _save_item(project_id, "draft", text, sources, {"citations": citations}):
         return "/research"
-    return f"/research/{project_id}/draft"
+    return f"/research/{project_id}/draft?done=1"
 
 
 # ----- result pages ----------------------------------------------------------------------------
 
-def _stage_page(request: Request, project_id: int, user: dict, slug: str, version: int | None, template: str):
+def _stage_page(request: Request, project_id: int, user: dict, slug: str, version: int | None, template: str,
+                done: str = ""):
     project = _project(project_id, user)
     stage = STAGE_BY_SLUG[slug]
     item = _item(project_id, stage["key"], version)
     latest = _latest(project_id, stage["key"])
     is_latest = bool(item and latest and item["id"] == latest["id"])
     heading = f"{stage['name']}: {project['title']}"
+    if item and is_latest and done and version is None:
+        # Arrived from the finished job: say so first.
+        heading = f"{stage['name']} is ready: {project['title']}"
     if item and not is_latest:
         heading = f"{stage['name']}: {project['title']}, version from {_when(item['created_at'])}"
     ctx = {"project": project, "stage": stage, "item": item, "is_latest": is_latest,
@@ -755,18 +874,21 @@ def _stage_page(request: Request, project_id: int, user: dict, slug: str, versio
 
 
 @router.get("/{project_id}/prior-work")
-def prior_work_page(request: Request, project_id: int, version: int | None = None, user: dict = Depends(require_user)):
-    return _stage_page(request, project_id, user, "prior-work", version, "research/prior_work.html")
+def prior_work_page(request: Request, project_id: int, version: int | None = None, done: str = "",
+                  user: dict = Depends(require_user)):
+    return _stage_page(request, project_id, user, "prior-work", version, "research/prior_work.html", done)
 
 
 @router.get("/{project_id}/plan")
-def plan_page(request: Request, project_id: int, version: int | None = None, user: dict = Depends(require_user)):
-    return _stage_page(request, project_id, user, "plan", version, "research/plan.html")
+def plan_page(request: Request, project_id: int, version: int | None = None, done: str = "",
+                  user: dict = Depends(require_user)):
+    return _stage_page(request, project_id, user, "plan", version, "research/plan.html", done)
 
 
 @router.get("/{project_id}/draft")
-def draft_page(request: Request, project_id: int, version: int | None = None, user: dict = Depends(require_user)):
-    return _stage_page(request, project_id, user, "draft", version, "research/draft.html")
+def draft_page(request: Request, project_id: int, version: int | None = None, done: str = "",
+                  user: dict = Depends(require_user)):
+    return _stage_page(request, project_id, user, "draft", version, "research/draft.html", done)
 
 
 # ----- exports ---------------------------------------------------------------------------------
@@ -797,7 +919,16 @@ def _export(project_id: int, user: dict, slug: str) -> Response:
                      f"places marked {RESULT_NEEDED}: {c['result_needed']}.")
         if c["unmatched"]:
             lines.append("Citations the site could not match: " + ", ".join(f"[{n}]" for n in c["unmatched"]))
+        lines.append("Not checked: whether each source supports the sentence that cites it.")
         lines.append("")
+    elif stage["key"] == "prior_work":
+        lines += ["Not checked: whether each study says what the AI says, or whether the authors, years and "
+                  "venues are right. Open the sources to check.", ""]
+    else:
+        unmatched = (item["meta"].get("citations") or {}).get("unmatched") or []
+        if unmatched:
+            lines += ["Citations the site could not match: " + ", ".join(f"[{n}]" for n in unmatched), ""]
+        lines += ["Not checked: whether the plan works. Pilot every survey and task with blind participants.", ""]
     lines += ["---", "", item["content_md"], "", "## Sources", "", _sources_md(item["sources"])]
     return _md_response("\n".join(lines), f"research-{project_id}-{slug}.md")
 
@@ -820,23 +951,29 @@ def export_draft(project_id: int, user: dict = Depends(require_user)):
 # ----- notes and data --------------------------------------------------------------------------
 
 def _data_page(request: Request, project: dict, *, errors: dict | None = None, notes_value: str | None = None,
-               status_code: int = 200):
+               status_code: int = 200, done: str = ""):
     pid = project["id"]
     item = _latest(pid, "data")
     notes = _notes(pid)
     stats = item["meta"].get("stats") if item else None
     title = f"Notes and data: {project['title']}" + (": please fix the problems" if errors else "")
+    if not errors:
+        said = _done_text(request)
+        if said:
+            title = f"{said}: {project['title']}"
+        elif done and item and item["content_md"]:
+            title = f"The AI's interpretation is ready: {project['title']}"
     return render(request, "research/data.html", title=title, project=project, item=item, stats=stats,
                   meta=item["meta"] if item else {}, notes=notes,
                   notes_value=notes_value if notes_value is not None else (notes or {}).get("body", ""),
                   interpretation_html=place_headings(item["content_md"], 3) if item and item["content_md"] else "",
                   errors=errors or {}, status_code=status_code, sample_rows=SAMPLE_ROWS,
-                  max_columns=MAX_STAT_COLUMNS, when=_when)
+                  max_columns=MAX_STAT_COLUMNS, when=_when, names_text=names_text)
 
 
 @router.get("/{project_id}/data")
-def data_page(request: Request, project_id: int, user: dict = Depends(require_user)):
-    return _data_page(request, _project(project_id, user))
+def data_page(request: Request, project_id: int, done: str = "", user: dict = Depends(require_user)):
+    return _data_page(request, _project(project_id, user), done=done)
 
 
 @router.post("/{project_id}/notes")
@@ -846,8 +983,9 @@ async def save_notes(request: Request, project_id: int, user: dict = Depends(req
     body = form.get("notes", "")
     body = body.strip() if isinstance(body, str) else ""
     if len(body) > MAX_NOTES:
-        return _data_page(request, project, errors={"notes": f"Use {MAX_NOTES} characters or fewer for notes."},
-                          notes_value=body, status_code=400)
+        message = (f"Use {MAX_NOTES} characters or fewer for notes. They have {len(body)} now. "
+                   "Shorten them, or keep the long parts in your own files.")
+        return _data_page(request, project, errors={"notes": message}, notes_value=body, status_code=400)
     if looks_secret(body):
         return _data_page(request, project, errors={"notes": SECRET_MESSAGE}, notes_value=body, status_code=400)
     stamp = db.now()
@@ -858,7 +996,7 @@ async def save_notes(request: Request, project_id: int, user: dict = Depends(req
             (project_id, body, stamp),
         )
         conn.execute("UPDATE research_projects SET updated_at = ? WHERE id = ?", (stamp, project_id))
-    flash(request, "Your notes are saved.", "success")
+    _say_done(request, f"/research/{project_id}/data", "Your notes are saved" if body else "Your notes are cleared")
     return redirect(f"/research/{project_id}/data")
 
 
@@ -883,15 +1021,20 @@ async def upload_csv(request: Request, project_id: int, user: dict = Depends(req
     upload = form.get("csv")
     if upload is None or isinstance(upload, str) or not getattr(upload, "filename", ""):
         return _csv_error_page(request, project, "Choose a CSV file to upload.")
-    filename = upload.filename.replace("\\", "/").rsplit("/", 1)[-1][:120]
+    filename = " ".join(upload.filename.replace("\\", "/").rsplit("/", 1)[-1].split())[:120] or "your file"
     content_type = (upload.content_type or "").split(";")[0].strip().lower()
     if content_type not in CSV_TYPES and not filename.lower().endswith(".csv"):
         return _csv_error_page(request, project, "This is not a CSV file. Upload a file that ends in .csv.")
     raw = await upload.read(MAX_CSV_BYTES + 1)
     if len(raw) > MAX_CSV_BYTES:
         return _csv_error_page(request, project, TOO_LARGE)
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        # Excel's "Unicode text" and some exports save as UTF-16, which is full of zero bytes.
+        return _csv_error_page(request, project, "The file is saved as UTF-16 text, which the site cannot read. "
+                                                 "Save it again as CSV UTF-8 and upload it.")
     if b"\x00" in raw:
-        return _csv_error_page(request, project, "This is not a CSV file. It looks like a binary file, such as a spreadsheet or an image.")
+        return _csv_error_page(request, project, "This is not a CSV file. It looks like a binary file, such as a "
+                                                 "spreadsheet or an image. Save it as CSV UTF-8 and upload that file.")
     try:
         text = raw.decode("utf-8-sig")
     except UnicodeDecodeError:
@@ -901,7 +1044,9 @@ async def upload_csv(request: Request, project_id: int, user: dict = Depends(req
     except CSVProblem as exc:
         return _csv_error_page(request, project, str(exc))
     _save_item(project_id, "data", "", [], {"stats": stats, "filename": filename, "uploaded_at": db.now()})
-    flash(request, f"The site computed facts about {filename}: {stats['rows']} rows and {stats['columns']} columns.", "success")
+    _say_done(request, f"/research/{project_id}/data",
+              f"The site computed facts from {filename}: {_count(stats['rows'], 'row')} and "
+              f"{_count(stats['columns'], 'column')}")
     return redirect(f"/research/{project_id}/data")
 
 
@@ -921,9 +1066,8 @@ async def delete(request: Request, project_id: int, user: dict = Depends(require
         conn.execute("DELETE FROM research_items WHERE project_id = ?", (project_id,))
         conn.execute("DELETE FROM research_notes WHERE project_id = ?", (project_id,))
         conn.execute("DELETE FROM research_projects WHERE id = ? AND user_id = ?", (project_id, user["id"]))
-    flash(request, f"Deleted the research project {project['title']}.", "success")
+    _say_done(request, "/research", f"Deleted the research project {project['title']}")
     return redirect("/research")
-
 
 
 def forget_user(user_id: int) -> None:

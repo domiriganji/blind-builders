@@ -6,6 +6,7 @@
 <p class="panel">Written by the AI on {{ item.created_at[:10] }} from your question and the prior work. It is a plan for you to check, not a tested design. Pilot every survey and task with blind participants before the real study.</p>
 {% if not is_latest %}<p>This is an earlier version. <a href="{{ stage_url }}">Read the latest study plan</a>.</p>{% endif %}
 {% set unmatched = item.meta.citations.unmatched if item.meta.citations else [] %}
+<p>Checked by the site: each citation number in square brackets was compared with the numbered sources. {% set matched = item.meta.citations.matched if item.meta.citations else [] %}{% if unmatched %}{{ unmatched|length }} could not be matched.{% elif matched %}Every one matches a source.{% else %}The plan cites no numbered sources.{% endif %} Not checked: whether a source supports the sentence that cites it.</p>
 {% if unmatched %}
 <h2>Citations the site could not match</h2>
 <p>The plan cites {% for n in unmatched %}[{{ n }}]{{ ', ' if not loop.last }}{% endfor %}, but there {{ 'is' if item.sources|length == 1 else 'are' }} only {{ item.sources|length }} numbered source{{ '' if item.sources|length == 1 else 's' }}. Treat those claims as unsupported.</p>
