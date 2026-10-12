@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% from "_macros.html" import post_button %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p>This deletes the project {{ project.title }}, every result in it and your notes. It cannot be undone. Download anything you want to keep first.</p>
+<div class="actions">
+  {{ post_button('/research/' ~ project.id ~ '/delete', 'Yes, delete this project', 'primary') }}
+  <a href="/research/{{ project.id }}">No, keep it</a>
+</div>
+{% endblock %}

@@ -1,0 +1,9 @@
+{% if versions|length > 1 %}
+<h2>Earlier versions</h2>
+<p>Each time you run this stage again, the earlier version is kept.</p>
+<ul class="item-list">
+{% for v in versions %}
+  <li>{% if item and v.id == item.id %}Version from {{ v.when }} (this page){% elif loop.first %}<a href="{{ stage_url }}">Latest version, from {{ v.when }}</a>{% else %}<a href="{{ stage_url }}?version={{ v.id }}">Version from {{ v.when }}</a>{% endif %}</li>
+{% endfor %}
+</ul>
+{% endif %}

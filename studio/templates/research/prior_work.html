@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% from "_macros.html" import post_button, sources_list %}
+{% block content %}
+<h1>{{ title }}</h1>
+{% if item %}
+<p class="panel">Written by the AI on {{ item.created_at[:10] }} after searching the web. The sources below are the pages its search returned ({{ item.sources|length }} in all). The site did not check that each study says what the AI says, or that the authors, years and venues are right. Open the sources to check.</p>
+{% if not is_latest %}<p>This is an earlier version. <a href="{{ stage_url }}">Read the latest prior work</a>.</p>{% endif %}
+<h2>What the AI found</h2>
+{{ content_html }}
+{{ sources_list(item.sources, 2, 'Sources returned by the search') }}
+<h2>What next</h2>
+<div class="actions">
+  <a class="button button-primary" href="/research/{{ project.id }}">Back to {{ project.title }}</a>
+  {{ post_button(stage_url, 'Search again') }}
+  <a href="/research/{{ project.id }}/prior-work.md">Download the prior work as Markdown</a>
+</div>
+{% include "research/_versions.html" %}
+{% else %}
+<p>No prior work yet. The AI searches the web for studies on your question and lists them with their sources.</p>
+<div class="actions">
+  {{ post_button(stage_url, 'Find prior work', 'primary') }}
+  <a href="/research/{{ project.id }}">Back to {{ project.title }}</a>
+</div>
+{% endif %}
+{% endblock %}

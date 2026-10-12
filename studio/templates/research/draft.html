@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% from "_macros.html" import post_button, sources_list %}
+{% block content %}
+<h1>{{ title }}</h1>
+{% if item %}
+<p class="panel">The AI wrote this draft on {{ item.created_at[:10] }}. It is a starting point for you to edit, not a finished paper. Where results were not available it wrote [RESULT NEEDED].</p>
+{% if not is_latest %}<p>This is an earlier version. <a href="{{ stage_url }}">Read the latest draft</a>.</p>{% endif %}
+<h2>What the site checked</h2>
+<ul>
+  <li>Citation numbers that match a source: {% if citations.matched %}{% for n in citations.matched %}[{{ n }}]{{ ', ' if not loop.last }}{% endfor %}{% else %}none{% endif %}.</li>
+  <li>Citation numbers the site could not match: {{ citations.unmatched|length }}.</li>
+  <li>Places marked [RESULT NEEDED]: {{ citations.result_needed }}.</li>
+  {% if citations.uncited %}<li>Sources the draft does not cite: {% for n in citations.uncited %}[{{ n }}]{{ ', ' if not loop.last }}{% endfor %}.</li>{% endif %}
+</ul>
+<p>The site checked only that each number in square brackets matches a source in the list. It did not check that a source supports the sentence that cites it.</p>
+{% if citations.unmatched %}
+<h2>Citations the site could not match</h2>
+<p>There {{ 'is' if item.sources|length == 1 else 'are' }} {{ item.sources|length }} numbered source{{ '' if item.sources|length == 1 else 's' }}, but the draft also cites these numbers. Remove them or find a real source.</p>
+<ul>
+{% for n in citations.unmatched %}<li>[{{ n }}]</li>{% endfor %}
+</ul>
+{% endif %}
+<h2>The draft</h2>
+{{ content_html }}
+{% if item.sources %}
+{{ sources_list(item.sources, 2, 'Numbered sources') }}
+{% else %}
+<h2>Numbered sources</h2>
+<p>There are no sources yet, so the draft should cite nothing. Run stage 1, prior work, to find some.</p>
+{% endif %}
+<h2>What next</h2>
+<div class="actions">
+  <a class="button button-primary" href="{{ write_url }}">Edit it in Write and publish</a>
+  <a href="/research/{{ project.id }}/draft.md">Download the draft as Markdown</a>
+  {{ post_button(stage_url, 'Write the draft again') }}
+  <a href="/research/{{ project.id }}">Back to {{ project.title }}</a>
+</div>
+{% include "research/_versions.html" %}
+{% else %}
+<p>No draft yet. The AI drafts a paper from your question, plan, notes and data facts. It cites only the numbered sources from stage 1, and the site checks every citation number afterwards.</p>
+<div class="actions">
+  {{ post_button(stage_url, 'Write a draft paper', 'primary') }}
+  <a href="/research/{{ project.id }}">Back to {{ project.title }}</a>
+</div>
+{% endif %}
+{% endblock %}

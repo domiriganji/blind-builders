@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% from "_macros.html" import post_button, sources_list %}
+{% block content %}
+<h1>{{ title }}</h1>
+{% if item %}
+<p class="panel">Written by the AI on {{ item.created_at[:10] }} from your question and the prior work. It is a plan for you to check, not a tested design. Pilot every survey and task with blind participants before the real study.</p>
+{% if not is_latest %}<p>This is an earlier version. <a href="{{ stage_url }}">Read the latest study plan</a>.</p>{% endif %}
+{% set unmatched = item.meta.citations.unmatched if item.meta.citations else [] %}
+{% if unmatched %}
+<h2>Citations the site could not match</h2>
+<p>The plan cites {% for n in unmatched %}[{{ n }}]{{ ', ' if not loop.last }}{% endfor %}, but there {{ 'is' if item.sources|length == 1 else 'are' }} only {{ item.sources|length }} numbered source{{ '' if item.sources|length == 1 else 's' }}. Treat those claims as unsupported.</p>
+{% endif %}
+<h2>The study plan</h2>
+{{ content_html }}
+{{ sources_list(item.sources, 2, 'Numbered sources from the prior work') }}
+<h2>What next</h2>
+<div class="actions">
+  <a class="button button-primary" href="/research/{{ project.id }}">Back to {{ project.title }}</a>
+  {{ post_button(stage_url, 'Write the plan again') }}
+  <a href="/research/{{ project.id }}/plan.md">Download the study plan as Markdown</a>
+</div>
+{% include "research/_versions.html" %}
+{% else %}
+<p>No study plan yet. The AI writes one from your question and the prior work, including how to recruit blind participants and make every survey and task usable with a screen reader.</p>
+<div class="actions">
+  {{ post_button(stage_url, 'Write a study plan', 'primary') }}
+  <a href="/research/{{ project.id }}">Back to {{ project.title }}</a>
+</div>
+{% endif %}
+{% endblock %}
