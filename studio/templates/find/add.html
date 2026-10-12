@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% from "_macros.html" import csrf_input, error_summary, field, textarea, select, checkbox %}
 {% block content %}
-<h1>Add a tool to the directory</h1>
+<h1>{{ title }}</h1>
 {{ error_summary(errors) }}
 <p class="lead">Add a tool, app or service so other members can find it and report whether it worked for them. If its web address is already in the directory, you will be taken to that entry instead.</p>
 <form method="post" action="/find/add" novalidate>

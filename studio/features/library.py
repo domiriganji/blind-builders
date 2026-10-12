@@ -7,8 +7,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from .. import db
 from ..web import checked_form, current_user, flash, redirect, render, require_user
-from .find import (CATEGORY_PAIRS, OUTCOMES, SECRET_MESSAGE, SIGHT_ONSETS, clean, find_by_url, insert_member_tool,
-                   looks_secret, report_defaults, report_summaries, reports_for, tool_or_404, validate_tool)
+from .find import (CATEGORY_PAIRS, KEEP, OUTCOMES, SECRET_MESSAGE, SIGHT_ONSETS, clean, find_by_url,
+                   insert_member_tool, long_message, looks_secret, report_defaults, report_summaries, reports_for,
+                   too_long, tool_or_404, validate_tool)
 
 router = APIRouter(prefix="/library")
 NAV = {"label": "Tool library", "url": "/library",
@@ -16,6 +17,7 @@ NAV = {"label": "Tool library", "url": "/library",
 SCHEMA = ""
 
 FILTERS = [("all", "All"), ("upkeep", "Need help after an update")]
+PROBLEM_MAX, AFTER_MAX, SKILLS_MAX = 3000, 200, 1000
 
 
 def _upkeep(tool_id: int) -> dict:
@@ -71,7 +73,8 @@ def index(request: Request, show: str = "all"):
             " FROM tools t WHERE t.made_by_blind = 1 ORDER BY t.name COLLATE NOCASE").fetchall()]
     counts = {"all": len(rows), "upkeep": sum(1 for r in rows if r["needs_upkeep"])}
     tools = [r for r in rows if show == "all" or r["needs_upkeep"]]
-    return render(request, "library/index.html", title=NAV["label"], tools=tools, show=show, filters=FILTERS,
+    title = NAV["label"] if show == "all" else "Tool library: tools that need help after an update"
+    return render(request, "library/index.html", title=title, tools=tools, show=show, filters=FILTERS,
                   counts=counts, summaries=report_summaries([t["id"] for t in tools]))
 
 
@@ -108,32 +111,68 @@ def tool_page(request: Request, tool_id: int):
     return other or render_library_tool(request, tool)
 
 
+def _back_to_tool(tool_id: int, anchor: str = ""):
+    """The forms on a tool page post to addresses under it. Someone whose session ran out signs in and lands
+    on one of those addresses; send them back to the tool page instead of an error."""
+    tool_or_404(tool_id)
+    return redirect(f"/library/tool/{tool_id}" + (f"#{anchor}" if anchor else ""))
+
+
+@router.get("/tool/{tool_id}/problem")
+def report_problem_get(tool_id: int):
+    return _back_to_tool(tool_id, "problem-form-title")
+
+
+@router.get("/tool/{tool_id}/problem/{problem_id}/resolve")
+def resolve_problem_get(tool_id: int, problem_id: int):
+    return _back_to_tool(tool_id, "problems-title")
+
+
+@router.get("/tool/{tool_id}/volunteer")
+def volunteer_get(tool_id: int):
+    return _back_to_tool(tool_id, "volunteer-form-title")
+
+
+@router.get("/tool/{tool_id}/volunteer/remove")
+def stop_volunteering_get(tool_id: int):
+    return _back_to_tool(tool_id, "volunteer-form-title")
+
+
 @router.post("/tool/{tool_id}/problem")
 async def report_problem(request: Request, tool_id: int, user: dict = Depends(require_user)):
     form = await checked_form(request)
     tool, other = _library_tool_or_redirect(tool_id)
     if other:
         raise HTTPException(status_code=404, detail="We could not find that tool in the Tool library.")
-    values = {"problem": clean(form, "problem", 3000), "after_update": clean(form, "after_update", 200)}
+    values = {"problem": clean(form, "problem", KEEP), "after_update": clean(form, "after_update", KEEP)}
     errors: dict[str, str] = {}
     if not values["problem"]:
         errors["problem"] = "Say what stopped working."
-    elif len(str(form.get("problem", ""))) > 3000:
-        errors["problem"] = "Keep it under 3,000 characters."
+    elif too_long(values, "problem", PROBLEM_MAX):
+        errors["problem"] = long_message(PROBLEM_MAX)
     elif looks_secret(values["problem"]):
         errors["problem"] = SECRET_MESSAGE
     if not values["after_update"]:
         errors["after_update"] = "Say which update it broke after, for example NVDA 2026.1 or iOS 27. Write 'not sure' if you do not know."
+    elif too_long(values, "after_update", AFTER_MAX):
+        errors["after_update"] = long_message(AFTER_MAX) + " The name and number of the update is enough."
     elif looks_secret(values["after_update"]):
         errors["after_update"] = SECRET_MESSAGE
     if errors:
         return render_library_tool(request, tool, problem_values=values, problem_errors=errors, status_code=400)
     with db.session() as conn:
-        conn.execute("INSERT INTO upkeep_requests (tool_id, user_id, problem, after_update, status, created_at)"
-                     " VALUES (?, ?, ?, ?, 'open', ?)",
-                     (tool_id, user["id"], values["problem"], values["after_update"], db.now()))
+        same = conn.execute(
+            "SELECT id FROM upkeep_requests WHERE tool_id = ? AND user_id = ? AND status = 'open' AND problem = ?"
+            " AND after_update = ?", (tool_id, user["id"], values["problem"], values["after_update"])).fetchone()
+        if same is None:
+            conn.execute("INSERT INTO upkeep_requests (tool_id, user_id, problem, after_update, status, created_at)"
+                         " VALUES (?, ?, ?, ?, 'open', ?)",
+                         (tool_id, user["id"], values["problem"], values["after_update"], db.now()))
         conn.execute("UPDATE tools SET needs_upkeep = 1 WHERE id = ?", (tool_id,))
-    flash(request, "Your problem report is saved. Members who volunteer for this tool can now see it.", "success")
+    if same is None:
+        flash(request, "Your problem report is saved. Members who volunteer for this tool can now see it.", "success")
+    else:
+        flash(request, "You already reported this problem. It is listed once.", "info")
     return redirect(f"/library/tool/{tool_id}#problems-title")
 
 
@@ -163,10 +202,12 @@ async def volunteer(request: Request, tool_id: int, user: dict = Depends(require
     tool, other = _library_tool_or_redirect(tool_id)
     if other:
         raise HTTPException(status_code=404, detail="We could not find that tool in the Tool library.")
-    values = {"skills": clean(form, "skills", 1000)}
+    values = {"skills": clean(form, "skills", KEEP)}
     errors: dict[str, str] = {}
     if not values["skills"]:
         errors["skills"] = "Say how you can help, for example: I test with JAWS on Windows 11, or I can write Python."
+    elif too_long(values, "skills", SKILLS_MAX):
+        errors["skills"] = long_message(SKILLS_MAX)
     elif looks_secret(values["skills"]):
         errors["skills"] = SECRET_MESSAGE
     if errors:
@@ -190,4 +231,6 @@ async def stop_volunteering(request: Request, tool_id: int, user: dict = Depends
         cur = conn.execute("DELETE FROM upkeep_volunteers WHERE tool_id = ? AND user_id = ?", (tool_id, user["id"]))
     if cur.rowcount:
         flash(request, "You are no longer on the list for this tool.", "success")
+    else:
+        flash(request, "You were not on the list for this tool, so nothing changed.", "info")
     return redirect(f"/library/tool/{tool_id}#volunteers-title")

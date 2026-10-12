@@ -32,7 +32,7 @@
  {
   "name": "Gemini CLI screen reader setting",
   "url": "https://github.com/google-gemini/gemini-cli/blob/main/docs/reference/configuration.md",
-  "description": "Google's coding agent for the terminal has a screen reader setting that shows plain text; a reported screen reader cursor bug was closed without a fix in May 2026.",
+  "description": "Google's coding agent for the terminal has a screen reader setting that shows plain text; a reported screen reader cursor bug was closed without a fix in May 2026, and since June 18, 2026 it no longer answers free, Google AI Pro or Ultra accounts (paid API keys still work).",
   "category": "AI coding",
   "made_by_blind": false,
   "maintainer": "Google",
@@ -52,7 +52,7 @@
  {
   "name": "Cursor",
   "url": "https://cursor.com/docs/release-notes",
-  "description": "An AI code editor; version 3.23 made screen readers announce the highlighted item in agent menus, but users report the agent panel is hard to use with NVDA and JAWS.",
+  "description": "An AI code editor; version 3.23 made screen readers announce the highlighted item in the agent's / and @ menus. Older forum posts from blind users, whose dates could not be confirmed, said the agent panel was very hard to use with NVDA and JAWS.",
   "category": "AI coding",
   "made_by_blind": false,
   "maintainer": "Anysphere",
@@ -82,10 +82,10 @@
  {
   "name": "Claude Code Reader",
   "url": "https://github.com/doubletaponair/claude-code-reader",
-  "description": "A desktop window around the Claude Code command-line tool, built with native controls; its makers tested it with VoiceOver.",
+  "description": "A desktop window around the Claude Code command-line tool, built with native controls; its README says it was tested with VoiceOver, NVDA and JAWS.",
   "category": "AI coding",
   "made_by_blind": false,
-  "maintainer": "Double Tap",
+  "maintainer": "doubletaponair",
   "license": "",
   "source": "research"
  },
@@ -112,7 +112,7 @@
  {
   "name": "Accessible Claude Code (Joseph Webber)",
   "url": "https://github.com/joseph-webber/accessible-claude-code",
-  "description": "A web client for Claude Code that speaks its activity through live regions, sounds and a voice; an early version built by a blind developer.",
+  "description": "A web client for Claude Code that speaks its activity through live regions, sounds and a voice; an early version built by a blind developer, so far tested only with VoiceOver on the author's Mac.",
   "category": "AI coding",
   "made_by_blind": true,
   "maintainer": "Joseph Webber",
@@ -342,7 +342,7 @@
  {
   "name": "Seeing AI",
   "url": "https://play.google.com/store/apps/details?id=com.microsoft.seeingai",
-  "description": "Microsoft's free camera app that reads text, describes scenes and recognises products; the 2026 Android version needs fewer TalkBack swipes.",
+  "description": "Microsoft's camera app that reads text, describes scenes and recognises products; the May 2026 Android version needs fewer TalkBack swipes.",
   "category": "Seeing and describing",
   "made_by_blind": false,
   "maintainer": "Microsoft",
@@ -352,7 +352,7 @@
  {
   "name": "Envision",
   "url": "https://www.letsenvision.com/blog/envision-arm-and-google-are-bringing-powerful-visual-ai-on-device",
-  "description": "An app and smart glasses that read text and describe scenes; Envision says it is moving scene description onto the phone itself.",
+  "description": "An app and smart glasses that read text and describe scenes; Envision says scene description now runs on the phone itself, while its partner Arm calls this a prototype.",
   "category": "Seeing and describing",
   "made_by_blind": false,
   "maintainer": "Envision",
@@ -362,7 +362,7 @@
  {
   "name": "PiccyBot",
   "url": "https://play.google.com/store/apps/details?id=com.sparklingapps.piccybot&hl=en",
-  "description": "An app that describes photos and videos, with a beta for smart glasses.",
+  "description": "An app that describes photos and videos. A podcast interview in April 2026 said smart-glasses support was in beta; the research could not confirm it is available.",
   "category": "Seeing and describing",
   "made_by_blind": false,
   "maintainer": "Sparkling Apps",
@@ -492,7 +492,7 @@
  {
   "name": "maidr-mcp",
   "url": "https://github.com/xability/maidr-mcp",
-  "description": "Shows accessible charts inside ChatGPT or Claude that you explore with arrow keys, speech, sound and braille; experimental.",
+  "description": "Meant to show accessible charts inside ChatGPT or Claude that you explore with arrow keys, speech, sound and braille; experimental, and its makers say it is not yet checked in claude.ai or ChatGPT.",
   "category": "Data and charts",
   "made_by_blind": false,
   "maintainer": "xability lab, University of Illinois",
@@ -702,7 +702,7 @@
  {
   "name": "acter",
   "url": "https://github.com/marlon-sousa/acter",
-  "description": "A Windows terminal where each command becomes a heading, so you move through a session like a web page; made by a blind software engineer.",
+  "description": "A Windows terminal where each command becomes a heading, so you move through a session like a web page; made by a blind software engineer. It is new: planning was finished and building had just started in 2026.",
   "category": "Other",
   "made_by_blind": true,
   "maintainer": "Marlon Sousa",
