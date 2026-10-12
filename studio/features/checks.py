@@ -6,7 +6,9 @@ an entry shows up when the record page recomputes the chain.
 
 Optional rewards are credits: the requester's total is held when the request is made, each checker
 is paid when they send their check, and whatever is not paid out comes back when the request closes.
-No staff are involved at any step.
+No staff are involved at any step. Every credit movement is written in the same database transaction
+as the change it pays for, so a crash or a second click can never hold, pay or return credits twice,
+and can never leave a request that pays rewards nobody paid for.
 """
 from __future__ import annotations
 
@@ -68,6 +70,7 @@ RESULT_WORDS = {"completed": "Could do the task", "partly": "Could do it partly"
 
 LIMITS = {"title": 150, "url": 2000, "what_to_try": 4000, "screen_reader": 80, "screen_reader_version": 40,
           "browser": 80, "device": 120, "heard_first": 4000, "problems": 8000}
+MAX_ID = 2 ** 63 - 1  # SQLite's largest integer; a bigger number in an address cannot be a request
 
 # Screen readers people use most, and the platform a screen reader implies when it runs on only one.
 KNOWN_SCREEN_READERS = [
@@ -117,15 +120,34 @@ def _secret_error(text: str) -> str | None:
     return None
 
 
+def _text(form: dict, name: str) -> str:
+    """One text value from the form. A field sent twice (only a crafted form does that) counts as empty."""
+    value = form.get(name, "")
+    return value.strip() if isinstance(value, str) else ""
+
+
 def valid_url(url: str) -> bool:
     """Only http and https addresses with a host name, and no spaces."""
     if not url or any(c.isspace() for c in url):
         return False
     try:
         parsed = urlparse(url)
+        host = parsed.hostname
     except ValueError:
         return False
-    return parsed.scheme.lower() in ("http", "https") and bool(parsed.netloc) and bool(parsed.hostname)
+    return parsed.scheme.lower() in ("http", "https") and bool(parsed.netloc) and bool(host)
+
+
+def _url_error(url: str) -> str | None:
+    if not valid_url(url):
+        return "Enter the full web address, starting with https:// or http://."
+    if len(url) > LIMITS["url"]:
+        return f"This web address is too long. Use {LIMITS['url']} characters or fewer."
+    parsed = urlparse(url)
+    if parsed.username or parsed.password or SECRET_RE.search(url):
+        return ("This address has a user name, a password or a code in it, and check records are public. "
+                "Remove that part and give the plain address.")
+    return None
 
 
 def _cents_words(cents: int) -> str:
@@ -169,9 +191,27 @@ def verify_chain(request_row: dict, reports: list[dict]) -> list[str]:
     return problems
 
 
+# ----- money -----------------------------------------------------------------------------------
+# These read and write the credit ledger on the caller's connection, inside its transaction, so a
+# credit change and the request or check it belongs to are saved together or not at all.
+# credits.add opens a connection of its own and cannot take part in a transaction already open.
+
+def _balance_in(conn, user_id: int) -> int:
+    row = conn.execute("SELECT COALESCE(SUM(delta_cents), 0) AS b FROM credit_ledger WHERE user_id = ?",
+                       (user_id,)).fetchone()
+    return int(row["b"])
+
+
+def _ledger(conn, user_id: int, delta_cents: int, reason: str, ref: str) -> None:
+    conn.execute("INSERT INTO credit_ledger (user_id, delta_cents, reason, ref, created_at) VALUES (?, ?, ?, ?, ?)",
+                 (user_id, int(delta_cents), reason, ref, db.now()))
+
+
 # ----- data helpers ----------------------------------------------------------------------------
 
 def _get_request(request_id: int) -> dict:
+    if not 0 < request_id <= MAX_ID:
+        raise HTTPException(status_code=404, detail="We could not find that check request.")
     with db.session() as conn:
         row = conn.execute(
             "SELECT r.*, (SELECT COUNT(*) FROM check_reports c WHERE c.request_id = r.id) AS done"
@@ -184,13 +224,18 @@ def _get_request(request_id: int) -> dict:
 def _reports(request_id: int) -> list[dict]:
     with db.session() as conn:
         rows = conn.execute(
-            "SELECT c.*, u.display_name, u.pseudonym FROM check_reports c JOIN users u ON u.id = c.checker_id"
+            "SELECT c.*, u.display_name, u.pseudonym, u.email FROM check_reports c JOIN users u ON u.id = c.checker_id"
             " WHERE c.request_id = ? ORDER BY c.id", (request_id,)).fetchall()
     out = []
     for r in rows:
         rep = dict(r)
-        rep["who"] = rep["display_name"] if rep["show_name"] else rep["pseudonym"]
-        rep["who_note"] = "their name, shown by their choice" if rep["show_name"] else "code name"
+        if rep.pop("email").endswith("@invalid"):
+            # A deleted account's name is gone. "Former member" is not the name they chose to show.
+            rep["who"], rep["who_note"] = rep["pseudonym"], "code name; this member has since left the site"
+        elif rep["show_name"]:
+            rep["who"], rep["who_note"] = rep["display_name"], "their name, shown by their choice"
+        else:
+            rep["who"], rep["who_note"] = rep["pseudonym"], "code name"
         out.append(rep)
     return out
 
@@ -280,6 +325,8 @@ def index(request: Request):
             "SELECT r.id, r.title, COUNT(c.id) AS done, MAX(c.id) AS last FROM check_requests r"
             " JOIN check_reports c ON c.request_id = r.id GROUP BY r.id ORDER BY last DESC LIMIT 10").fetchall()]
     return render(request, "checks/index.html", title="Peer checks", queue=queue, mine=mine,
+                  mine_open=[r for r in mine if r["status"] == "open"],
+                  mine_closed=[r for r in mine if r["status"] != "open"],
                   done_by_me=done_by_me, recent=recent, money=_cents_words)
 
 
@@ -300,20 +347,20 @@ def new_form(request: Request, url: str = "", title: str = "", user: dict = Depe
 @router.post("/new")
 async def create_request(request: Request, user: dict = Depends(require_user)):
     form = await checked_form(request)
-    values = {k: str(form.get(k, "")).strip() for k in ("title", "url", "what_to_try", "max_checks", "reward_cents")}
+    values = {k: _text(form, k) for k in ("title", "url", "what_to_try", "max_checks", "reward_cents")}
     errors: dict[str, str] = {}
     if not values["title"]:
         errors["title"] = "Enter a short name for what you want checked."
     elif len(values["title"]) > LIMITS["title"]:
-        errors["title"] = f"Use {LIMITS['title']} characters or fewer for the name."
-    if not valid_url(values["url"]):
-        errors["url"] = "Enter the full web address, starting with https:// or http://."
-    elif len(values["url"]) > LIMITS["url"]:
-        errors["url"] = "This web address is too long."
+        errors["title"] = (f"This name is {len(values['title'])} characters long. "
+                           f"Shorten it to {LIMITS['title']} characters or fewer.")
+    if problem := _url_error(values["url"]):
+        errors["url"] = problem
     if not values["what_to_try"]:
         errors["what_to_try"] = "Say what you want checkers to try, for example: find the opening hours and book a table."
     elif len(values["what_to_try"]) > LIMITS["what_to_try"]:
-        errors["what_to_try"] = f"Use {LIMITS['what_to_try']} characters or fewer."
+        errors["what_to_try"] = (f"This is {len(values['what_to_try'])} characters long. "
+                                 f"Shorten it to {LIMITS['what_to_try']} characters or fewer.")
     for name in ("title", "what_to_try"):
         if name not in errors and (problem := _secret_error(values[name])):
             errors[name] = problem
@@ -321,35 +368,45 @@ async def create_request(request: Request, user: dict = Depends(require_user)):
         errors["max_checks"] = "Choose how many checks you want, from 1 to 5."
     if values["reward_cents"] not in {v for v, _ in REWARD_OPTIONS}:
         errors["reward_cents"] = "Choose a reward from the list."
-    if not errors:
-        max_checks, reward = int(values["max_checks"]), int(values["reward_cents"])
-        total = max_checks * reward
-        have = credits.balance(user["id"])
-        if total > have:
-            errors["reward_cents"] = (f"You need {credits.format_cents(total)} in credits for this reward, and you have "
-                                      f"{credits.format_cents(have)}. Choose a smaller reward, fewer checks, or no reward.")
     if errors:
         return _new_form(request, user, values, errors, status_code=400)
 
+    max_checks, reward = int(values["max_checks"]), int(values["reward_cents"])
+    total = max_checks * reward
+    duplicate = short_of = request_id = None
     with db.session() as conn:
-        cur = conn.execute(
-            "INSERT INTO check_requests (requester_id, title, url, what_to_try, max_checks, reward_cents, status, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, 'open', ?)",
-            (user["id"], values["title"], values["url"], values["what_to_try"], max_checks, reward, db.now()))
-        request_id = cur.lastrowid
+        # One writer at a time: the duplicate check, the balance, the request and the hold are one unit.
+        conn.execute("BEGIN IMMEDIATE")
+        same = conn.execute(
+            "SELECT id FROM check_requests WHERE requester_id = ? AND status = 'open' AND title = ? AND url = ?"
+            " AND what_to_try = ? AND max_checks = ? AND reward_cents = ? ORDER BY id DESC LIMIT 1",
+            (user["id"], values["title"], values["url"], values["what_to_try"], max_checks, reward)).fetchone()
+        have = _balance_in(conn, user["id"])
+        if same:
+            duplicate = same["id"]  # the same form sent twice, for example after a double press
+        elif total > have:
+            short_of = have
+        else:
+            cur = conn.execute(
+                "INSERT INTO check_requests (requester_id, title, url, what_to_try, max_checks, reward_cents, status,"
+                " created_at) VALUES (?, ?, ?, ?, ?, ?, 'open', ?)",
+                (user["id"], values["title"], values["url"], values["what_to_try"], max_checks, reward, db.now()))
+            request_id = cur.lastrowid
+            if total > 0:
+                _ledger(conn, user["id"], -total, f"Held for peer checks: {values['title']}", f"check:{request_id}")
+    if duplicate:
+        flash(request, "You already asked for this check and it is open. It was saved once"
+                       + (", and credits were held once." if total else "."), "info")
+        return redirect(f"/checks/{duplicate}")
+    if short_of is not None:
+        errors["reward_cents"] = (f"You need {credits.format_cents(total)} in credits for this reward, and you have "
+                                  f"{credits.format_cents(short_of)}. Choose a smaller reward, fewer checks, or no reward.")
+        return _new_form(request, user, values, errors, status_code=400)
     if total > 0:
-        credits.add(user["id"], -total, f"Held for peer checks: {values['title']}", f"check:{request_id}")
-        if credits.balance(user["id"]) < 0:
-            # Another payment landed at the same moment. Undo this hold and the request, and say so.
-            credits.add(user["id"], total, f"Returned, not enough credits: {values['title']}", f"check:{request_id}")
-            with db.session() as conn:
-                conn.execute("DELETE FROM check_requests WHERE id = ?", (request_id,))
-            errors["reward_cents"] = "You do not have enough credits for this reward. Choose a smaller reward or no reward."
-            return _new_form(request, user, values, errors, status_code=400)
-        flash(request, f"Your request is open. {credits.format_cents(total)} is held from your credits to pay checkers.",
-              "success")
+        flash(request, f"Other members can now check it. {credits.format_cents(total)} is held from your credits "
+                       "to pay checkers.", "success")
     else:
-        flash(request, "Your request is open. Other members can now check it.", "success")
+        flash(request, "Other members can now check it.", "success")
     return redirect(f"/checks/{request_id}")
 
 
@@ -358,10 +415,16 @@ def request_page(request: Request, request_id: int, user: dict = Depends(require
     req = _get_request(request_id)
     reason = _why_not_eligible(req, user)
     is_owner = req["requester_id"] == user["id"]
-    refund = req["reward_cents"] * max(req["max_checks"] - req["done"], 0) if req["status"] == "open" else 0
-    return render(request, "checks/request.html", title=f"Check request: {req['title']}", req=req,
-                  eligible=reason is None, reason=reason, is_owner=is_owner, refund=credits.format_cents(refund),
-                  refund_cents=refund, money=_cents_words)
+    not_done = max(req["max_checks"] - req["done"], 0)
+    if is_owner:
+        # The h1 says the request's state, so right after asking or closing it says what just happened.
+        title = f"Your request is {'open' if req['status'] == 'open' else 'closed'}: {req['title']}"
+    else:
+        title = f"Check request: {req['title']}"
+    return render(request, "checks/request.html", title=title, req=req, eligible=reason is None, reason=reason,
+                  is_owner=is_owner, not_done_cents=req["reward_cents"] * not_done,
+                  not_done=credits.format_cents(req["reward_cents"] * not_done),
+                  paid=credits.format_cents(req["reward_cents"] * req["done"]), money=_cents_words)
 
 
 @router.post("/{request_id}/close")
@@ -371,6 +434,7 @@ async def close_request(request: Request, request_id: int, user: dict = Depends(
     if req["requester_id"] != user["id"]:
         raise HTTPException(status_code=404, detail="We could not find that check request.")
     with db.session() as conn:
+        # Closing and returning the credits are one unit, so the refund happens exactly once.
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute("SELECT status, max_checks, reward_cents,"
                            " (SELECT COUNT(*) FROM check_reports c WHERE c.request_id = r.id) AS done"
@@ -380,13 +444,15 @@ async def close_request(request: Request, request_id: int, user: dict = Depends(
         else:
             conn.execute("UPDATE check_requests SET status = 'closed', closed_at = ? WHERE id = ?", (db.now(), request_id))
             refund = row["reward_cents"] * max(row["max_checks"] - row["done"], 0)
+            if refund > 0:
+                _ledger(conn, user["id"], refund, f"Returned from peer checks: {req['title']}", f"check:{request_id}")
     if refund is None:
-        flash(request, "This request was already closed.", "info")
+        flash(request, "This request was already closed. Nothing changed.", "info")
     elif refund > 0:
-        credits.add(user["id"], refund, f"Returned from peer checks: {req['title']}", f"check:{request_id}")
-        flash(request, f"This request is closed. {credits.format_cents(refund)} came back to your credits.", "success")
+        flash(request, f"Nobody else can check it now. {credits.format_cents(refund)} came back to your credits.",
+              "success")
     else:
-        flash(request, "This request is closed.", "success")
+        flash(request, "Nobody else can check it now.", "success")
     return redirect(f"/checks/{request_id}")
 
 
@@ -394,13 +460,22 @@ def _report_form(request: Request, req: dict, values: dict, errors: dict, status
     title = f"Check this: {req['title']}"
     if errors:
         title += ": please fix the problems"
+    # The error summary links to the first answer, which can take focus; the group around them cannot.
+    summary_errors = {("task_result-1" if k == "task_result" else k): v for k, v in errors.items()}
     return render(request, "checks/report.html", title=title, req=req, values=values, errors=errors,
-                  result_options=RESULT_OPTIONS, money=_cents_words, status_code=status_code)
+                  summary_errors=summary_errors, result_options=RESULT_OPTIONS, money=_cents_words,
+                  status_code=status_code)
 
 
 def _refuse(request: Request, req: dict, reason: str):
     return render(request, "checks/refused.html", title=f"You cannot check this: {req['title']}", req=req,
                   reason=reason, status_code=403)
+
+
+def _already_saved(request: Request, request_id: int):
+    """The same check sent twice, for example after a double press: nothing new is saved or paid."""
+    flash(request, "You sent this check before. It is saved once in the record, and any reward was paid once.", "info")
+    return redirect(f"/checks/{request_id}/record?sent=1")
 
 
 @router.get("/{request_id}/report")
@@ -418,9 +493,11 @@ def report_form(request: Request, request_id: int, user: dict = Depends(require_
 async def save_report(request: Request, request_id: int, user: dict = Depends(require_user)):
     form = await checked_form(request)
     req = _get_request(request_id)
+    if _has_checked(request_id, user["id"]):
+        return _already_saved(request, request_id)
     if reason := _why_not_eligible(req, user):
         return _refuse(request, req, reason)
-    values: dict = {k: str(form.get(k, "")).strip() for k in
+    values: dict = {k: _text(form, k) for k in
                     ("screen_reader", "screen_reader_version", "browser", "device", "heard_first", "task_result", "problems")}
     values["show_name"] = form.get("show_name") == "yes"
     errors: dict[str, str] = {}
@@ -432,11 +509,11 @@ async def save_report(request: Request, request_id: int, user: dict = Depends(re
         if not values[name]:
             errors[name] = message
     if values["task_result"] not in RESULT_WORDS:
-        errors["task_result"] = "Choose whether you could do the task."
+        errors["task_result"] = "Choose whether you could do the task: yes, partly or no."
     for name, limit in LIMITS.items():
         if name in values and name not in errors and len(values[name]) > limit:
-            errors[name] = f"Use {limit} characters or fewer."
-    for name in ("screen_reader_version", "browser", "device", "heard_first", "problems"):
+            errors[name] = f"This is {len(values[name])} characters long. Shorten it to {limit} characters or fewer."
+    for name in ("screen_reader", "screen_reader_version", "browser", "device", "heard_first", "problems"):
         if name not in errors and (problem := _secret_error(values[name])):
             errors[name] = problem
     if errors:
@@ -444,15 +521,17 @@ async def save_report(request: Request, request_id: int, user: dict = Depends(re
 
     report = {**{k: values[k] for k in values if k != "show_name"}, "checker_id": user["id"],
               "show_name": 1 if values["show_name"] else 0, "created_at": db.now()}
-    refusal = None
+    refusal = already = None
     with db.session() as conn:
-        conn.execute("BEGIN IMMEDIATE")  # one writer at a time, so the chain and the count stay consistent
+        # One writer at a time, so the chain, the count and the reward stay consistent. The reward is
+        # written in this same transaction: the check and its payment are saved together or not at all.
+        conn.execute("BEGIN IMMEDIATE")
         fresh = dict(conn.execute("SELECT * FROM check_requests WHERE id = ?", (request_id,)).fetchone())
         done = conn.execute("SELECT COUNT(*) AS n FROM check_reports WHERE request_id = ?", (request_id,)).fetchone()["n"]
         already = conn.execute("SELECT 1 FROM check_reports WHERE request_id = ? AND checker_id = ?",
                                (request_id, user["id"])).fetchone()
         if already:
-            refusal = "You already checked this. Each member checks a request once."
+            pass
         elif fresh["status"] != "open" or done >= fresh["max_checks"]:
             refusal = "This request closed while you were writing. Your check was not saved, and no reward was paid."
         else:
@@ -467,26 +546,52 @@ async def save_report(request: Request, request_id: int, user: dict = Depends(re
                 (request_id, user["id"], report["screen_reader"], report["screen_reader_version"], report["browser"],
                  report["device"], report["heard_first"], report["task_result"], report["problems"],
                  report["show_name"], prev_hash, record_hash, report["created_at"]))
+            if fresh["reward_cents"] > 0:
+                _ledger(conn, user["id"], fresh["reward_cents"], f"Peer check reward: {fresh['title']}",
+                        f"check:{request_id}")
             if done + 1 >= fresh["max_checks"]:
                 conn.execute("UPDATE check_requests SET status = 'closed', closed_at = ? WHERE id = ?",
                              (db.now(), request_id))
+    if already:
+        return _already_saved(request, request_id)
     if refusal:
-        req = _get_request(request_id)
-        return _refuse(request, req, refusal)
+        return _refuse(request, _get_request(request_id), refusal)
     if fresh["reward_cents"] > 0:
-        credits.add(user["id"], fresh["reward_cents"], f"Peer check reward: {fresh['title']}", f"check:{request_id}")
-        flash(request, f"Thank you. Your check is saved in the public record, and "
-                       f"{credits.format_cents(fresh['reward_cents'])} was added to your credits.", "success")
+        flash(request, f"Thank you. {credits.format_cents(fresh['reward_cents'])} was added to your credits.", "success")
     else:
-        flash(request, "Thank you. Your check is saved in the public record.", "success")
-    return redirect(f"/checks/{request_id}/record")
+        flash(request, "Thank you for checking.", "success")
+    return redirect(f"/checks/{request_id}/record?sent=1")
 
 
 @router.get("/{request_id}/record")
-def record_page(request: Request, request_id: int):
+def record_page(request: Request, request_id: int, sent: str = ""):
     req = _get_request(request_id)
     reports = _reports(request_id)
     problems = verify_chain(req, reports)
-    return render(request, "checks/record.html", title=f"Check record: {req['title']}", req=req, reports=reports,
+    user = current_user(request)
+    if sent and user and any(r["checker_id"] == user["id"] for r in reports):
+        title = f"Your check is saved in the record: {req['title']}"  # just after sending: say what happened
+    else:
+        title = f"Check record: {req['title']}"
+    return render(request, "checks/record.html", title=title, req=req, reports=reports,
                   summary=_summary(reports), chain_problems=problems, not_checked=_not_checked(reports),
                   result_words=RESULT_WORDS)
+
+
+def forget_user(user_id: int) -> None:
+    """A member is deleting their account. Their checks stay in the public record under their code name.
+
+    Their open requests close, so nobody spends time checking for someone who has left. Credits held for
+    checks not done are returned in the same transaction, so the ledger still adds up.
+    """
+    with db.session() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        rows = conn.execute(
+            "SELECT r.id, r.title, r.max_checks, r.reward_cents,"
+            " (SELECT COUNT(*) FROM check_reports c WHERE c.request_id = r.id) AS done"
+            " FROM check_requests r WHERE r.requester_id = ? AND r.status = 'open'", (user_id,)).fetchall()
+        for row in rows:
+            conn.execute("UPDATE check_requests SET status = 'closed', closed_at = ? WHERE id = ?", (db.now(), row["id"]))
+            refund = row["reward_cents"] * max(row["max_checks"] - row["done"], 0)
+            if refund > 0:
+                _ledger(conn, user_id, refund, f"Returned from peer checks: {row['title']}", f"check:{row['id']}")

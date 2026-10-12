@@ -4,7 +4,7 @@
 {% block content %}
 <h1>{{ title }}</h1>
 <p>Open the page, try the task with your screen reader, then come back and fill in this form. Write what really happened. Your check goes into a public record and cannot be changed later.{% if req.reward_cents %} You get {{ money(req.reward_cents) }} in credits when you send it.{% endif %}</p>
-{{ error_summary(errors) }}
+{{ error_summary(summary_errors) }}
 <h2>The task</h2>
 <div class="panel">{{ literal(req.what_to_try) }}</div>
 <p><a href="{{ req.url }}" rel="noopener noreferrer">Open {{ req.title }} (the member's own page)</a></p>
