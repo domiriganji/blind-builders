@@ -1,6 +1,6 @@
 # The Blind Creators Conference: Full Transcript
 
-Exported 2026-10-12 18:18 UTC. Rounds fully closed: 1, 2, 3, 4. Still in progress: chair:open-r5.
+Exported 2026-10-12 18:25 UTC. Rounds fully closed: 1, 2, 3, 4. Still in progress: r5:scientist.
 
 The working record of a multi-agent conference convened to decide what website or application should be built to help blind people turn their ideas into reality with AI. Every speaker read the verified landscape brief in `docs/research/landscape-brief.md` first. Speeches before 15:00 UTC on October 12, 2026 ran on Claude Fable 5.1; later ones on Claude Opus 5.5; all at maximum reasoning effort. The decision and operating plan are in `decision-and-operating-plan.md`.
 
@@ -19,6 +19,7 @@ The working record of a multi-agent conference convened to decide what website o
 - [Round 3: Proposals](#round-3-proposals)
 - [Round 4: Cross-examination](#round-4-cross-examination)
 - [Judge panel](#judge-panel)
+- [Round 5: Convergence and operating plan](#round-5-convergence-and-operating-plan)
 
 ## Round 1: Powers and barriers
 
@@ -1538,5 +1539,117 @@ Build one product on one website: Countersign's receipt engine plus a blind-witn
 | What's Missing | 21.3 | 21 / 20 / 23 |
 | Upkeep | 16.0 | 15 / 15 / 18 |
 | Errand | 14.7 | 16 / 17 / 11 |
+
+---
+
+## Round 5: Convergence and operating plan
+
+### Chair: opening of round 5
+*Model: Opus 5.5.*
+
+Round five: the decision, then the plan to run it. The judges have scored. They advise; we decide.
+
+Where we stand. In round four all four of you named the same survivors: Ready, Countersign and Count Us. The judges split the top two by seven tenths of a point: Countersign 27.7, Ready 27.0, Count Us 24. That is a tie, not a verdict. Their notes say more than their scores. All three judges, like Yusuf's own rule, make Ready's build depend on Sam's October 30 catalog test. All three make Count Us a project, not a door. The blind-user judge read Yusuf's concession, that the receipt is "something I want for her", as the pattern that kills products, and would build around the paid witness network instead. They split on the door. The blind-user judge keeps Kemi's phone door as the only door, with Countersign behind it. The science judge adds a paste-a-URL door for developers. The venture judge makes Countersign the product and turns Ready's two sentences into checks on any URL, Gemini Canvas included.
+
+Still open. Independence has five answers and no decision:
+- Priya's two boards.
+- Lena's masked witnesses: two boards are "two governments, not two instruments".
+- Yusuf's rule: no money from signer to builder, plus a fifteen-percent banner.
+- The venture judge's "the signer never builds".
+- The science judge's one organisation with a banner.
+
+Priya has answered none of the objections to hers. On money, Yusuf barred Countersign's surplus from paying for Ready's builds, and in four rounds nobody has named one sponsor that sells no model. Ten developers at forty-nine dollars is a pilot. The science judge notes it buys twenty witness checks a month, which is nobody's living; set that against Yusuf's "witnesses will outnumber builders." From outside the brief, the judges named competitors we never faced: Fable's paid disabled testers, guidepup in CI and JAWS Inspect. Apart from Priya's CAPTCHA rule, nobody has said what this product refuses to build when asked, even though it hands a free page builder to anyone in a WhatsApp group.
+
+Format. Part A, at most four hundred words: one product, its name, its promise, the day-one user by onset, device, screen reader and language, five non-negotiable features, the nearest duplicate, what you concede and your dissent. If we do not converge, rank the judges' three shapes. Part B: your section in numbers, named roles, dates and costs. A principle without a number goes into the plan as a blank with your name on it.
+
+Order: Yusuf, Priya, Sam, then Lena, who audits everyone's arithmetic and sets the gates.
+
+Yusuf: is the witness network the product, and how many paid witnesses per hundred builds?
+Priya: choose one independence rule, say what it kills, then give the monthly bill at a hundred, a thousand and ten thousand builds.
+Sam: funders by name that pass our rule, a twelve-month budget, and your answer to Fable.
+Lena: which gates fire before April 30, and what does this product refuse to build?
+
+Yusuf, go.
+
+**The chair's questions**
+
+- **To Yusuf Adeyemi:** Yusuf, your decision first, then users and community operations.
+
+Decision. In round four you said Kemi "asked for a page, not for our product" and conceded the receipt is something you want for her. The blind-user judge calls that the pattern that kills products and would rebuild around the paid witness network. Is the witness network the product? If Sam's October 30 run shows a TalkBack seller finishing a WhatsApp catalog alone, what does Kemi's phone door still do on her first evening? Answer in one sentence she would say herself. Count Us: you and Sam still call it a door; Priya, Lena and all three judges call it a project. Concede or defend.
+
+Your section, in numbers, not principles:
+- Onboarding: the first-session script minute by minute, launch languages and devices, and the channels people find us through. Account for Sam's finding that Meta's terms bar an AI assistant as the primary function on WhatsApp.
+- Support desk: channels, and whether humans staff any WhatsApp line. Hours, languages, first-response and resolution targets, headcount, who staffs it at what pay, and the hand-off to Priya's on-call.
+- Witness network: checks per witness per week under Lena's thirty-minute session cap, and witnesses per hundred builds. Pay per check in naira and the wallet it lands in, and training hours before a first paid check. Say how your twenty witnesses of November 30 become the calibration set.
+- Witness demand: reconcile "witnesses will outnumber builders" with the science judge's twenty paid checks a month. Who buys the rest, and what do you tell a trained witness whose queue is empty?
+- Governance: council seats, how members are chosen, how often it meets, what it can veto, and whether a late-blind voice-note user holds a seat.
+
+Finally, settle Tolu with Priya: by default, does a witness line carry a name, a pseudonym, or only the screen reader and device?
+- **To Priya Natarajan:** Priya, your decision first, then product and technology operations and the team.
+
+Decision. You raised "Ready builds and our harness checks" yourself. Your answer, two keys, two budgets and two boards, drew four replies you have not answered:
+- Lena: "two governments, not two instruments", plus her masked witnesses on screen readers outside the harness matrix.
+- Yusuf: no money from signer to builder, plus his fifteen-percent dependence banner.
+- The venture judge: "the signer never builds", which ends Ready as a builder.
+- The science judge: one organisation with a banner, the nonprofit deferred.
+
+Choose one for version one and name what it kills. Two judges say the hardware security module, the Rekor entries and the nonprofit wait until ten developers pay. Accept that, or defend each with a cost and a date.
+
+Your section:
+- Cost per build: scale your round-four figures (fifteen cents a template build, about two dollars twenty an agent build, fifty cents a full receipt). Break each into model tokens, hosting, machine checks and witness pay, and give the monthly bill at a hundred, a thousand and ten thousand builds.
+- Models: the primary model provider, the second-opinion provider, and the fallback when either fails or changes its prices.
+- Incidents: when a page signed ready turns out broken or harmful, who is paged and within how many minutes the line is revoked. How Kemi hears about it, in which language, and who re-checks.
+- Release gate: which screen-reader checks, on which screen readers, block a release of our own product.
+- Team: headcount at launch, at six months and at twelve months, which roles blind people must hold, and hiring order.
+
+Then pay Lena's two debts. Seed a wrong price in every tester's "What I understood" on November 2. Count template trials separately from fills, so we know how many clean pages January actually needs.
+- **To Sam Reyes:** Sam, your decision first, then ecosystem, distribution and money.
+
+Decision. The venture judge wrote a thesis for you:
+- Countersign as the one product, with Canary as its free public bulletin.
+- Ready's two sentences as checks on any URL, Gemini Canvas included.
+- A January 15 gate: if agencies facing the European Accessibility Act will not pay cash for blind witness checks, declare it a grant-funded public good.
+
+Back it or beat it. Then define the October 30 result that decides Ready's build half: how many of your three testers, working alone, within how many minutes, on which screen readers, counts as "a TalkBack seller can make a catalog".
+
+Your section:
+- Funders: for four rounds you have declined to name a funder you have not read, and Yusuf's "telcos, foundations, disability funds" are categories, not names. Name funders, check each against our rule that no money comes from a company that sells or ships a model, and give a fallback if each says no.
+- Budget: twelve months by line, and the revenue lines that cover it. What an agency pays per witness check, any tier above Priya's forty-nine dollars, and what Kemi pays. The month we break even, or the grant that replaces break-even.
+- Distribution: your first ten partners by name, and what each gets from us.
+- Reuse versus build: by component and licence.
+- Competitors: the judges named three from their own knowledge, unchecked for 2026, and you never weighed them: Fable's paid disabled testers, guidepup in CI and JAWS Inspect. You listed guidepup-mcp as something to build on. Is it our component or our competitor?
+- Competitive response: what we do, and within how many days, if Google ships a screen-reader receipt inside Canvas.
+- Legal, Nigeria and the EU first: data protection, payouts to witnesses' mobile wallets, consumer protection, liability for a signed line that turns out wrong, and our exposure if a Count Us preprint names ten banks.
+- **To Dr. Lena Vasquez:** Lena, your decision first, then measurement, safety and ethics.
+
+Decision. You killed both your own concepts and backed three survivors, none of them yours. You speak last, so name the one product. If we have not converged, call the ranked vote over the judges' three shapes.
+
+Your section:
+- Headline metric: the judges disagree on what success is. The blind-user judge counts witnesses recruiting witnesses, and sellers editing without a sighted relative. The venture judge counts agency cash by January 15. Your answerability results arrive April 30, after both. Name the dashboard's single headline metric.
+- Gates before April 30: for each, the date, the threshold with its upper bound, the data source and the decision it triggers. Include the number that kills the product.
+- Countersign's metric: two judges caught it. Listening minutes per accepted change measures Sousa's code-review evening, but Countersign checks rendered pages. Redefine it or drop it.
+- Safety: in four rounds nobody has touched this beyond Priya's CAPTCHA rule. What does the product refuse to build when asked? For example, a page that imitates a bank, a fundraiser in a blind group's name, or a form that collects PINs or card numbers. Who rules on a borderline request, and within how many hours?
+- Consent and privacy: for builders, witnesses and Count Us participants. Include Yusuf's point that being known as blind costs some people work.
+- The product's own accessibility: the science judge says the November 2 plan has no braille-only tester and no typed-digit fallback when users repeat prices and phone numbers. Are these launch gates?
+- Reach: below what share of screened late-blind adults using any screen reader do we concede that Ready misses your median? What do we then do for the voice-note and zoom users Yusuf described?
+
+Finally, audit out loud the arithmetic Yusuf, Priya and Sam give before you.
+
+**Open disagreements going in**
+
+- Product shape: (1) Ready as the only phone door, with Countersign as its paid back end (blind-user judge); (2) one site with a phone door and a paste-a-URL door (science judge); or (3) Countersign alone, with Ready's two sentences as checks on any URL and Ready building only as a separately funded customer (venture judge). No product name has been chosen.
+- Core asset: the signed record (Priya, venture judge) or the paid blind-witness network (blind-user judge). This follows Yusuf's concession that the receipt is 'something I want for her' and that Kemi 'asked for a page, not for our product'.
+- Signer independence has five answers: Priya's two keys, budgets and boards; Lena's masked witnesses on screen readers outside the harness ('two governments, not two instruments'); Yusuf's no money from signer to builder plus a fifteen-percent dependence banner; the venture judge's 'the signer never builds'; and the science judge's one organisation with a banner. Priya has not replied to the objections.
+- Funding: nobody has said who pays for Ready's builds now that Countersign's surplus is barred from them, and in four rounds nobody has named a sponsor that sells no model. Also open: whether agencies under the European Accessibility Act will pay cash for blind witness checks by January 15 (the venture judge's gate), or the product is grant-funded.
+- Countersign's user and payer differ: the named user is a blind freelance developer, the named revenue is sighted agencies under the European Accessibility Act (Priya). The blind-user judge warns this drifts into compliance labour for sighted firms.
+- Witness economics: Yusuf's 'witnesses will outnumber builders' and 'scarce in Europe, not in Lagos', against Priya's pricing of witness minutes as the scarce input and the science judge's count of twenty paid checks a month at ten developers.
+- What waits for revenue: Priya puts the HSM, Rekor entries and the nonprofit board in version one. The blind-user judge says they wait until ten developers pay; the science judge defers the nonprofit.
+- Witness identity: Priya puts Tolu's name in Kemi's record. Yusuf would name only the screen reader and device, plus a name if the witness chooses. Sam allows no witness key in any public log.
+- Headline metric, five candidates: false-ready rate (Yusuf; January cannot prove one in twenty); answerability (Lena; results April 30); listening minutes per accepted change (Countersign; two judges say it measures code review, not rendered pages); witnesses recruiting witnesses and sellers editing without a sighted relative (blind-user judge); agency cash by January 15 (venture judge).
+- Count Us: a door (Sam, Yusuf) or a project (Priya, Lena, all three judges). Cash pay for 100 participants has no funder, and the exposure of naming ten banks is unexamined.
+- Safety: beyond Priya's 'CAPTCHAs never reach our paid network', there is no rule on what the product refuses to build for a user, though anyone in a WhatsApp group gets a free page builder.
+- Unserved and undated: voice-note and zoom users over fifty (Yusuf); braille-only users, absent from the November 2 test (science judge); native-Android Errand (a roadmap date per the blind-user judge, an open gap per the venture judge); publishing (an open gap).
+- Unanswered requests to Priya: Lena's seeded wrong price in each November 2 tester's 'What I understood', and template trials counted separately from fills. Also the science judge's fallback letting users type, not only say, the prices and phone numbers they must repeat.
+- Competitors the judges named from their own knowledge (unchecked for 2026) that the panel never weighed: Fable's paid disabled testers, guidepup in CI and JAWS Inspect. guidepup-mcp is on Sam's build-on list.
 
 ---
