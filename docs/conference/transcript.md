@@ -1,6 +1,6 @@
 # The Blind Creators Conference: Full Transcript
 
-Exported 2026-10-12 19:36 UTC. Rounds fully closed: 1, 2, 3, 4. Still in progress: r5:architect.
+Exported 2026-10-12 20:01 UTC. Rounds fully closed: 1, 2, 3, 4. Still in progress: chair:close-r5.
 
 The working record of a multi-agent conference convened to decide what website or application should be built to help blind people turn their ideas into reality with AI. Every speaker read the verified landscape brief in `docs/research/landscape-brief.md` first. Speeches before 15:00 UTC on October 12, 2026 ran on Claude Fable 5.1; later ones on Claude Opus 5.5; all at maximum reasoning effort. The decision and operating plan are in `decision-and-operating-plan.md`.
 
@@ -1988,5 +1988,123 @@ Tolu, settled. By default a witness line carries reader and version, phone, brow
 - Witness lines default to reader, device, browser, time and a per-record pseudonym, with two opt-in name switches that belong to the witness.
 - Under-18s may build with a guardian's consent but never witness; Sam checks model providers' terms for minors.
 - The desk belongs to the signer, and the builder buys desk hours at public prices so money flows one way. No referral bounties.
+
+### Priya Natarajan
+*Product and AI architect (web, mobile, LLM agents, accessibility). Model: Opus 5.5.*
+
+Part A.
+
+Countersign is one website, opened from a WhatsApp link, plus Yusuf's number, which a person answers. It has two doors, opened in order: Kemi's "Make my page" on January 4, and the paid paste-a-URL door on January 11. Count Us is a study, not a door. The promise: before you share a page, you hear who checked it, on which phone and reader, and what nobody checked. Anyone can verify the record is unaltered.
+
+Day one: Kemi, glaucoma at forty-one, now fifty-two. Tecno Spark, TalkBack. English on screen, Yoruba and Pidgin with customers. No card.
+
+Five engineering non-negotiables:
+1. No model call on the verdict path. A vendor swap changes how often we ask Kemi something, never what a record says.
+2. Every page works with JavaScript off, at 360 pixels, in Opera Mini and Phoenix, under sixty kilobytes. Nothing streams.
+3. Seeds go into witness queues, templates, read-backs and our release gate. A check that passes a seed blocks.
+4. Every machine step has a named human fallback.
+5. The builder can neither see nor steer what scores it.
+
+The fifth is Lena's rule: an instrument, not a government. The builder reaches the signer only through the public API every customer uses. drand, a public randomness beacon, picks masked pages, so nobody, us included, knows in advance. Witnesses use readers the harness never runs. Yusuf's witness lead holds the seeds, and the builder learns its score when the public does.
+
+It kills three things: my two boards (Lena's "two governments, not two instruments" is right), the venture judge's "the signer never builds," which leaves Kemi no builder if October 30 fails, and the nonprofit as a launch condition. Yusuf's one-way money rule stays, and his banner prints.
+
+The board waits. Rekor waits for the tenth paying developer, with free salted daily hashes until then. The hardware key doesn't. A non-exportable cloud key costs under five dollars a month, a stolen one voids every record, and it signs from December 18.
+
+Conceded: in January Kemi hears "checked," not "ready"; Lena caught me with my own sentence. Builds-for-checks dies, Sam. Lena's eighty deploys killed my twenty-nine-dollar surplus; Sam's cap restores it: $79 in, $45 out.
+
+Dissent, with Sam's fifth non-negotiable: two companies run by the same five engineers are Yusuf's "one company with two letterheads." Register them for liability; never print them as independence.
+
+Ballot: science, blind-user, venture.
+
+Part B.
+
+Architecture. Yusuf's rule governs who pays us, not whom we pay, and we take no startup credits from any cloud that ships a model, since Sam counts in-kind gifts. Two AWS accounts, in separate organisations, London region, about a hundred milliseconds from Lagos.
+
+The builder account holds the front door, server-rendered HTML that needs no JavaScript. It also holds spec extraction, the templates and the agent exception path, which runs in throwaway containers capped at ten minutes that can reach only the model API. Kemi's pages are static files on a Lagos CDN edge, with no order database.
+
+The signer account holds the harness: Playwright at 360, 768 and 1,280 pixels, JavaScript on and off, axe, geometry, and string-and-hash provenance. Lena's refusal list runs there as computed checks before anything publishes. It also holds the witness queue, wage ledger, drand selector, signing key, record pages, open verifier and Canary. So do the seeds, encrypted under a key only the queue service and witness lead can use. NVDA runs in a Windows VM and VoiceOver on a macOS runner, both through guidepup, which is MIT-licensed.
+
+The only hardware in Nigeria is a device lab in Yusuf's desk office: a Tecno Spark, an Itel, an Infinix and a Samsung A15, plus a mini PC, a UPS with an inverter, and MTN and Airtel SIMs, for $1,200 once. Sam found TalkBack's public source was last pushed April 1, so we automate the Play Store TalkBack on real phones. We offer Marlon Sousa $4,000 to build that bridge, in two milestones from Sam's upstream line, on condition of an open licence. My November 16 report becomes his spec.
+
+Models. The primary is Anthropic's Claude Sonnet 5.5, at two dollars in and ten out per million tokens, pinned by version. Low effort for extraction; the Agent SDK for the exception path. A small OpenAI model gives the second opinion, re-deriving Kemi's spec from her words alone without seeing Claude's output; any disagreement becomes a question to her. We request zero data retention from both. Until we have it, phone numbers and customer names are stripped before any model call, and her number enters only as digits she types. If a vendor fails health checks for ten minutes, the other takes over. If both fail, a desk agent types her spec into the same form, marked "entered by desk agent," so Yusuf's voice-note path is also my outage plan. A price rise over twenty-five percent, or a deprecation notice, triggers our frozen battery within seven days: two hundred consented dictations plus fifty seeded errors. We switch only if accuracy holds within one point.
+
+Cost, led by listening, as Lena asked. The wages are Yusuf's: two dollars for a phone check, three for a masked order, one for a sighted photo check, with seeds paid like checks. A template build costs fifteen cents of machine time: ten cents of tokens, one of checks, four of hosting and SMS. In the pilot, with every build witnessed, three in ten masked, seeds a tenth of the queue and four in ten with photos, wages add $3.59: $3.74 in all. Sam's $3.17 is the same build with a lighter sample. An agent build costs $1.15 of machine time, $1.05 of it tokens, plus two witness checks, one on TalkBack and one on Jieshuo: $6.96 in all. A paid-door receipt costs fifty cents, mostly macOS minutes, and twelve cents once a rented Mac mini pays off.
+
+Monthly bills, nine template builds in ten:
+- At 100 builds: wages $381, tokens $20, checks and hosting $6, fixed infrastructure $300. $706 in all, $7.06 a build, seven active witnesses.
+- At 1,000, if a Friday change that only edits values may carry machine lines, the exact diff and "TalkBack last heard Tuesday": wages $1,441, tokens $176, checks and hosting $54, fixed $650. $2,321, twenty-seven witnesses.
+- At 10,000: wages $10,889, tokens $1,665, checks and hosting $535, fixed $2,100. $15,189, $1.52 a build, about 210 witnesses.
+
+If every Friday change is witnessed, 10,000 builds cost $30,689. That decision is Lena's and Yusuf's. Tokens never pass eleven percent.
+
+Release gate. Our product ships on Tuesdays, through three tiers, and any failure blocks it.
+- Every merge runs automated checks: zero serious axe errors on fourteen core pages, an unchanged heading outline, five core tasks with JavaScript off, reflow at 320 CSS pixels (Lena's 400 percent), no default list over four items without a heading, and a text line behind every buzz.
+- Every release runs NVDA with Chrome and Firefox, and VoiceOver with Safari, through five scripted tasks: sign up, amend "What I understood," recall prices as typed digits, ask a record "why," and a witness typing what they heard. Speech is compared against approved transcripts. Before the gate counts, it must catch five regressions planted in a copy: an unlabeled Order button, focus lost after a reload, a missing turn heading, a hidden verdict and a seven-item list. If it misses one, the gate is broken and the release waits.
+- Within twenty-four hours, two TalkBack testers, one of them on Opera Mini or Phoenix, and one Jieshuo tester run the same tasks. A braille-only tester checks any release touching onboarding, records or alerts, and otherwise monthly. An iPhone VoiceOver user and a 400-percent zoom user test monthly. About $100 a month. The blind release lead decides, and only a security fix can override that decision, publicly.
+
+Incidents. The signer re-crawls every live page hourly, and any change no signed publish explains is tampering. Three engineers rotate on-call, with the primary paid ₦60,000 a week. They are paged by voice and SMS on two networks, because Lagos power and data fail. An unanswered page goes to the secondary at ten minutes and the engineering lead at twenty.
+
+Severity one is harm: orders reaching an unconfirmed number, content Kemi didn't approve, a refusal hit, money lost, or tampering. Machine detection pauses the page and signs the revocation within one minute. A human report pages on-call, who pauses and revokes within fifteen minutes, as Yusuf asked, with one button. One anonymous report never pauses a page automatically, or any competitor could take Kemi down. Two reports from different numbers within an hour can, and so can Yusuf's group admins. Kemi hears at once, in English or Pidgin, by SMS and in the top line of "What changed." A desk agent calls within thirty minutes in English, Pidgin or Yoruba, or when the desk next opens. A different witness re-checks, chosen at random on the reader the report names, and isn't told it's a dispute.
+
+Severity two, broken but harmless, gets a re-check within four hours. Severity three is a bad template or check class: every line it produced is revoked within an hour, and every affected page is re-checked within forty-eight. A personal-data breach goes to Nigeria's Data Protection Commission within seventy-two hours.
+
+Security and data. CI deploys with short-lived federated credentials, never stored keys. Model keys rotate every ninety days and whenever someone leaves. Changing the signing key's policy takes two people. Witness pseudonyms rotate per record; Yusuf's two name switches default off. Retention: raw dictation thirty days; specs and pages while live; records while live plus twelve months, Sam's liability window. Payout accounts sit under a separate key. Logs are redacted, and CI fails if a phone number reaches one. "Delete everything" takes a page offline within an hour and deletes its data within thirty days, and deleting the salt unlinks the published hash. Yusuf's late-payout rule is code: if any payout runs seven days late, sign-up closes itself. A penetration test runs before the paid door opens, at $4,000 from Sam's contingency.
+
+Team. At launch on January 4 there are five seats, three of them reserved for blind or low-vision screen-reader users. In hiring order:
+- Signer engineer, by November 2: $2,400 a month.
+- Accessibility release lead, a blind daily TalkBack and NVDA user, by November 9: $1,600.
+- Front-door engineer, a blind daily screen-reader user, by November 16: $2,400.
+- Half-time language designer, blind, late-blind preferred, by November 23: $600.
+- Platform and security engineer, who leads on-call, by December 7: $2,200.
+
+I lead unpaid until April 30, with no access to the seeds; then the signer engineer leads. With twelve percent employer costs and on-call pay, these seats, the template designer, and Yusuf's desk and witness lead come to $133,265 of Sam's $141,000. At six months there are still five seats. A mobile engineer joins the TalkBack lab on August 1, bringing that to $140,657, but only if Marlon's bridge works; otherwise the $7,392 buys 3,700 witness checks. At twelve months there are up to eight seats, adding a second signer engineer and a blind product manager, both behind Lena's March 31 money gate.
+
+Lena, your two debts. On November 2, each tester's "What I understood" carries three plants: a wrong price, a wrong delivery day and an invented item. Consent says plants exist, not where. Recall must catch the price, or January waits. Any approval of the other two extends recall to every line. November 16 repeats this with your two braille-only testers, one of them deafblind. Templates are counted apart from fills. Twenty templates are twenty trials, and each must pass the seed battery and three masked orders before first use. If they're clean, the line reads "at most one in seven." January's fifty clean fills read "at most one in seventeen." One in twenty needs fifty-nine clean, or ninety-three with one failure, on each line. "Ready" waits for both lines.
+
+**Key points**
+
+- Independence for version one is Lena's instrument, not a government: the builder reaches the signer only through the public API, drand picks the masked pages, witnesses use readers outside the harness, and the witness lead holds the seeds. This kills my two boards, 'the signer never builds', and the nonprofit as a launch condition.
+- The board and Rekor wait; Rekor starts at the tenth paying developer, with salted daily hashes until then. The hardware key ships now: it is a non-exportable cloud key costing under $5 a month, and it signs from December 18.
+- Cost is listening, not tokens. A template build is $3.74 in the pilot ($0.15 of it machine time) and an agent build is $6.96. Monthly bills are $706, $2,321 and $15,189 at 100, 1,000 and 10,000 builds, and tokens never exceed 11 percent. Witnessing every Friday change doubles the 10,000-build bill to $30,689.
+- Our own release gate has three tiers: automated checks on every merge; scripted NVDA and VoiceOver runs that must first catch five planted regressions; and human TalkBack, Jieshuo, braille-only, iPhone VoiceOver and zoom testing within 24 hours. The blind release lead makes the call.
+- Incidents: harm detected by a machine is paused and revoked within 1 minute, and a human report within 15. Kemi gets an SMS in English or Pidgin at once and a desk call in English, Pidgin or Yoruba within 30 minutes. A randomly chosen witness, not told it is a dispute, re-checks the page.
+- Team: five seats at launch, three reserved for blind or low-vision screen-reader users. With Yusuf's desk and witness lead they cost $133,265 of Sam's $141,000. A mobile engineer joins only if Marlon Sousa's TalkBack bridge works, and there are up to eight seats by 12 months, behind the March 31 money gate.
+
+**Agreed with**
+
+- Lena: adopted 'two governments, not two instruments'. Her masked-witness instrument is the version-one independence rule, and I withdrew my two boards.
+- Lena: conceded that Kemi hears 'checked' rather than 'ready' in January. She showed that 'ready' is 'good' in one word, which contradicts my own 'this ran, never good'.
+- Lena: took 'tokens are cents and listening is dollars' as the frame. The cost model leads with witness wages, and tokens stay under 11 percent of the bill.
+- Lena: conceded that her eighty-deploys arithmetic killed my $29 surplus. Sam's 40-receipt cap with 75-cent overage restores the margin ($79 in, $45 out).
+- Lena: accepted seeding the November 2 read-backs (wrong price, wrong delivery day, invented item), adding two braille-only testers by November 16, and counting templates apart from fills.
+- Sam: agreed that builds-for-checks dies and that guidepup (MIT) is our component with guidepup-mcp withdrawn. Because TalkBack's public source is stale since April 1, automation must run the Play Store TalkBack on real phones.
+- Sam: adopted paying Marlon Sousa to build the TalkBack bridge, and logging Rekor hashes under the signer's key, never a witness's.
+- Yusuf: adopted 'Make my page', the 15-minute pause, one-way money and the printed banner. Witness name switches default to off, and his late-payout rule becomes code that closes sign-up.
+- Yusuf: his desk agents typing specs for voice-note users double as the fallback when both model vendors fail.
+- Judges: accepted that the nonprofit board and Rekor wait until developers pay.
+
+**Disagreed with**
+
+- Sam's fifth non-negotiable: two registered organisations run by the same engineers are Yusuf's 'one company with two letterheads'. Register them for liability, but never present them as independence.
+- Venture judge's 'the signer never builds': rejected for version one, because if Sam's October 30 catalog test fails it leaves Kemi with no builder.
+- Two judges on deferring the HSM: rejected. The key is a non-exportable cloud key under $5 a month, a stolen key would void every record, so it ships and signs from December 18.
+- My own round-3 and round-4 answer of two boards, two keys and two budgets: withdrawn as an independence mechanism.
+- Sam's $3.17 per Ready build: the pilot's 30 percent masked rate and photo checks make it $3.74. His figure fits a lighter sample.
+
+**Proposals made**
+
+- Independence rule: the builder reaches the signer only through the public API; drand selects pages for masked orders; seeds are encrypted under a key only the queue service and witness lead can use; the builder learns its score when the public does.
+- Two AWS accounts in separate organisations in London, builder and signer split as specified. Kemi's pages are static on a Lagos CDN edge with no order database. No startup credits from any cloud that ships a model.
+- Lagos device lab costing $1,200 once (Tecno Spark, Itel, Infinix, Samsung A15, mini PC, UPS and inverter, MTN and Airtel SIMs) to automate the Play Store TalkBack on real phones.
+- Offer Marlon Sousa $4,000, in two milestones from Sam's upstream line, to build the TalkBack bridge, on condition of an open licence; my November 16 report becomes his spec.
+- Models: Claude Sonnet 5.5 as primary, pinned by version; a small OpenAI model as an independent second opinion. Request zero data retention and strip phone numbers and names before any call. Fail over after 10 minutes, fall back to the desk agent if both fail, and run a frozen 250-item battery on any price rise over 25 percent or deprecation.
+- Cost model at 100, 1,000 and 10,000 builds a month ($706, $2,321, $15,189), with the key decision flagged for Lena and Yusuf: whether value-only Friday changes need a witness.
+- Three-tier release gate that must catch five planted regressions before it counts; human testing about $100 a month; the blind release lead decides and only a security fix overrides, publicly.
+- Incident clocks: severity one paused and revoked within 1 minute by machine or 15 minutes by human; a single anonymous report never auto-pauses; Kemi gets an SMS at once and a call within 30 minutes; severity two re-checked in 4 hours; severity three revoked in 1 hour and re-checked in 48; breaches reported to Nigeria's Data Protection Commission within 72 hours.
+- Data: retention schedule as stated; 'Delete everything' takes a page offline in 1 hour and deletes data in 30 days; salted hashes become unlinkable when the salt is deleted; a $4,000 penetration test before the paid door opens.
+- Team and hiring order through December 7 at stated salaries; I lead unpaid to April 30 with no seed access; mobile engineer conditional from August 1; up to eight seats at 12 months, behind the March 31 money gate.
+- Paid paste-a-URL door opens January 11, so that ten developers can be paying by January 15.
+- Each record prints two denominators, templates and fills: 20 clean templates read 'at most one in seven', 50 clean fills read 'at most one in seventeen', and 'ready' needs 59 clean, or 93 with one failure, on each line.
 
 ---
