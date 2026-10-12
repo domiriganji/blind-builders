@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_input, error_summary, field, textarea %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p class="lead">Run a research project in four stages: find prior work with sources, plan a study that blind participants can take part in, describe your data, and draft a paper. Every result says who wrote it: the AI, or the site itself.</p>
+{{ error_summary(errors) }}
+{% if user %}
+<h2>Your research projects</h2>
+{% if projects %}
+<ul class="item-list">
+{% for p in projects %}
+  <li><a href="/research/{{ p.id }}">{{ p.title }}</a>: {{ p.done_count }} of 4 stages done. <span class="meta">Last changed {{ p.updated_at[:10] }}.</span></li>
+{% endfor %}
+</ul>
+{% else %}
+<p>You have no research projects yet. Start one below.</p>
+{% endif %}
+<h2>Start a research project</h2>
+<form method="post" action="/research" novalidate>
+  {{ csrf_input() }}
+  {{ field('title', 'Project name', values.title, required=true, hint='A short name, for example: Screen readers and online exams.', error=errors.title) }}
+  {{ textarea('question', 'Research question', values.question, rows=3, required=true, hint='One or two sentences. For example: Do blind students finish online exams faster when there is one question per page?', error=errors.question) }}
+  {{ field('field', 'Research field', values.field, hint='For example psychology, education or computer science.', error=errors.field) }}
+  {{ textarea('known', 'What do you already know or suspect?', values.known, rows=4, hint='Anything you have read, seen or expect. The AI uses this to focus its search.', error=errors.known) }}
+  <button type="submit" class="button button-primary">Start the project</button>
+</form>
+{% else %}
+<p><a href="/login?next=/research">Sign in</a> or <a href="/register?next=/research">create an account</a> to start a research project. Your projects are private: only you can see them.</p>
+{% endif %}
+<h2>Who wrote what</h2>
+<ul>
+  <li><strong>Written by the AI:</strong> the prior work summary, the study plan, the interpretation of your data and the draft paper. The AI can be wrong. Open the sources and check them.</li>
+  <li><strong>Computed by the site:</strong> the counts, averages, smallest and largest values in your data file, and the check that every citation number in the draft matches a source.</li>
+  <li><strong>Not checked by anyone:</strong> whether each source really says what the AI says it does. Only you, or a peer, can check that.</li>
+</ul>
+<p>Each AI step uses your own Claude API key or your credits. <a href="/pricing">Read how paying works</a>.</p>
+<h2>Why this section exists</h2>
+<p>In a 2026 study of 57 blind and low-vision researchers, nearly one in five could not do a literature review on their own with the tools they had. Source: Khan and Seo, "I Don't Trust Any Professional Research Tool", CHI 2026. <a href="https://doi.org/10.1145/3772318.3791242" rel="noopener noreferrer">Read the paper's page</a>.</p>
+{% endblock %}

@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_input, error_summary, field, textarea, post_button %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p class="lead">Keep notes here and upload a CSV file of your data. The site computes facts about the file itself. The AI can then describe patterns, labelled as its interpretation.</p>
+{{ error_summary(errors) }}
+<h2>Computed by the site</h2>
+{% if stats %}
+<p>From {{ meta.filename }}, uploaded {{ when(meta.uploaded_at) }}. The site counted and calculated these facts itself, exactly. They are not written by the AI. The file itself is not kept: only these facts and the first {{ sample_rows }} rows.</p>
+<ul>
+  <li>Rows of data, not counting the column names: {{ stats.rows }}</li>
+  <li>Columns: {{ stats.columns }}</li>
+  <li>Column names: {{ stats.column_names|join(', ') }}</li>
+  <li>Separator between cells: {{ stats.delimiter }}</li>
+  <li>Empty cells: {{ stats.empty_cells }}</li>
+  {% if stats.uneven_rows %}<li>Rows with a different number of cells than the first row: {{ stats.uneven_rows }}. Check these rows.</li>{% endif %}
+</ul>
+<h3>Each column</h3>
+{% if stats.columns_shown < stats.columns %}<p>Facts are shown for the first {{ stats.columns_shown }} of {{ stats.columns }} columns.</p>{% endif %}
+<ul class="item-list">
+{% for c in stats.column_stats %}
+  <li><strong>{{ c.name }}</strong>
+  {%- if c.kind == 'number' %} (numbers): {{ c.count }} value{{ '' if c.count == 1 else 's' }}, {{ c.empty }} empty. Mean {{ c.mean_text }}, smallest {{ c.min_text }}, largest {{ c.max_text }}.
+  {%- else %} (text): {{ c.filled }} filled, {{ c.empty }} empty, {{ c.distinct }} distinct value{{ '' if c.distinct == 1 else 's' }}.{% if c.top %} Most common: {% for t in c.top %}{{ t.value }} ({{ t.count }}){{ '; ' if not loop.last }}{% endfor %}.{% endif %}
+  {%- endif %}</li>
+{% endfor %}
+</ul>
+{% else %}
+<p>No data file yet. Upload a CSV file below and the site will count its rows and columns and work out averages.</p>
+{% endif %}
+<h2>The AI's interpretation</h2>
+{% if interpretation_html %}
+<p class="panel">Written by the AI on {{ item.created_at[:10] }}, from the computed facts, your notes and the first {{ sample_rows }} rows. It is an interpretation, not a result. It may be wrong. Test any pattern with a proper analysis before you report it.</p>
+{{ interpretation_html }}
+{% else %}
+<p>Nothing yet. When you have uploaded a file or saved notes, the AI can describe patterns and suggest analyses.</p>
+{% endif %}
+<div class="actions">
+  {{ post_button('/research/' ~ project.id ~ '/data/describe', 'Ask the AI again' if interpretation_html else 'Ask the AI to describe patterns') }}
+</div>
+<h2>Your notes</h2>
+<form method="post" action="/research/{{ project.id }}/notes" novalidate>
+  {{ csrf_input() }}
+  {{ textarea('notes', 'Notes', notes_value, rows=10, hint='Anything about your study: what you did, what you saw, results you already have. Saving replaces the previous notes.' ~ (' Last saved ' ~ when(notes.updated_at) ~ '.' if notes else ''), error=errors.notes) }}
+  <button type="submit" class="button button-primary">Save notes</button>
+</form>
+<h2>Upload a data file</h2>
+<form method="post" action="/research/{{ project.id }}/csv" enctype="multipart/form-data" novalidate>
+  {{ csrf_input() }}
+  {{ field('csv', 'CSV file', type='file', required=true, hint='A .csv file up to 200 KB, saved as UTF-8. The first row must be the column names. A new upload replaces the facts shown above.', error=errors.csv, extra='accept=".csv,text/csv"') }}
+  <button type="submit" class="button button-primary">Upload and compute the facts</button>
+</form>
+<p><a href="/research/{{ project.id }}">Back to {{ project.title }}</a></p>
+{% endblock %}
