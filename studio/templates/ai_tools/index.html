@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>AI tools report</h1>
+<p class="lead">Which AI building tools work with a screen reader right now, version by version, as reported by members. Read the reports before you start with a tool, and add your own after each update so problems show up within days.</p>
+<p>{{ recent_total }} member {{ 'report' if recent_total == 1 else 'reports' }} in the last {{ summary_days }} days, across {{ tools|length }} tools. Each tool's page also has what public sources said as of {{ research_as_of }}.</p>
+
+<h2>Tools and what members report</h2>
+<table>
+<caption>AI tools, with member verdicts from the last {{ summary_days }} days and the date of the latest report</caption>
+<thead>
+<tr><th scope="col">Tool and kind</th><th scope="col">Member verdict, last {{ summary_days }} days</th></tr>
+</thead>
+<tbody>
+{% for t in tools %}
+<tr>
+  <th scope="row"><a href="/ai-tools/{{ t.slug }}">{{ t.name }}</a><br><span class="meta">Kind: {{ t.kind }}</span></th>
+  <td>{{ t.verdict }}.<br><span class="meta">Latest report: {{ t.latest or 'none yet' }}</span></td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+
+<h2>The six checks members answer</h2>
+<p>Each report answers yes, no or not tested for these six things, then gives an overall verdict: usable, usable with workarounds, or not usable.</p>
+<ul>
+{% for key, question, statement, hint in checks %}
+  <li><strong>{{ statement }}.</strong> {{ hint }}</li>
+{% endfor %}
+</ul>
+
+<h2>How to add your report</h2>
+<p>Open a tool from the table and fill in "Report how it worked for you" at the end of its page. {% if not user %}You need to <a href="/login?next=/ai-tools">sign in</a> or <a href="/register?next=/ai-tools">create an account</a> first. {% endif %}Reports are public. Your member name (not your real name) is shown with them. If you report the same version again, your earlier report for that version is updated.</p>
+<p>Every tool's reports are also available as JSON at /ai-tools/<em>tool name</em>/reports.json, so other tools can use them.</p>
+{% endblock %}
