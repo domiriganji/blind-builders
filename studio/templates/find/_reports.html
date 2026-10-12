@@ -1,0 +1,38 @@
+{# Member reports and the "Did it work for you?" form. Needs: tool, reports, summary, values, errors, outcomes, sight_onsets, report_action, back. #}
+{% from "_macros.html" import csrf_input, field, textarea, select, radios %}
+<h2 id="reports-title">What members say ({{ reports|length }} {{ 'report' if reports|length == 1 else 'reports' }})</h2>
+<p>{{ summary }}.</p>
+{% if reports %}
+<ul class="item-list">
+{% for r in reports %}
+  <li>
+    <h3>{{ r.pseudonym }}: {{ r.outcome_text }}</h3>
+    <p class="meta">
+      {%- set bits = [] -%}
+      {%- if r.screen_reader %}{% set _ = bits.append('Screen reader: ' ~ r.screen_reader) %}{% endif -%}
+      {%- if r.device %}{% set _ = bits.append('Device: ' ~ r.device) %}{% endif -%}
+      {%- if r.sight_text %}{% set _ = bits.append('Sight: ' ~ r.sight_text) %}{% endif -%}
+      {%- if r.language %}{% set _ = bits.append('Language: ' ~ r.language) %}{% endif -%}
+      {% set _ = bits.append('Reported ' ~ r.date) %}{{ bits|join('. ') }}.</p>
+    {% if r.note %}{{ r.note|markdown|shift_headings(3) }}{% endif %}
+  </li>
+{% endfor %}
+</ul>
+{% endif %}
+<h2 id="report-form-title">Did it work for you?</h2>
+{% if user %}
+<p>Tell other members how it went. Your report shows your code name, {{ user.pseudonym }}, not your real name.</p>
+<form method="post" action="{{ report_action }}" novalidate>
+  {{ csrf_input() }}
+  <input type="hidden" name="back" value="{{ back }}">
+  {{ radios('outcome', 'How did it go?', outcomes, values.outcome, error=errors.outcome) }}
+  {{ field('screen_reader', 'Screen reader you used', values.screen_reader, hint='For example NVDA, JAWS, VoiceOver, TalkBack or none.', error=errors.screen_reader) }}
+  {{ field('device', 'Device you used', values.device, hint='For example a cheap Android phone, an iPhone or a Windows laptop.', error=errors.device) }}
+  {{ select('sight_onset', 'When did you become blind or low vision?', sight_onsets, values.sight_onset or 'prefer_not', hint='This helps people whose experience is like yours. You do not have to say.', error=errors.sight_onset) }}
+  {{ field('language', 'Language you used it in', values.language, hint='For example English, Arabic or Spanish.', error=errors.language) }}
+  {{ textarea('note', 'What happened', values.note, hint='What worked, what did not, and any tips for others.', error=errors.note, rows=5) }}
+  <button type="submit" class="button button-primary">Save my report</button>
+</form>
+{% else %}
+<p><a href="/login?next={{ request.url.path|urlencode }}">Sign in to tell others whether it worked for you</a>. Anyone can read reports without signing in.</p>
+{% endif %}

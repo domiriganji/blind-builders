@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_input, error_summary, field, textarea, select, checkbox %}
+{% block content %}
+<h1>Add a tool to the directory</h1>
+{{ error_summary(errors) }}
+<p class="lead">Add a tool, app or service so other members can find it and report whether it worked for them. If its web address is already in the directory, you will be taken to that entry instead.</p>
+<form method="post" action="/find/add" novalidate>
+  {{ csrf_input() }}
+  {{ field('name', "Tool's name", values.name, required=true, error=errors.name) }}
+  {{ field('url', 'Web address', values.url, type='url', required=true, hint="The tool's own page, starting with https://.", error=errors.url) }}
+  {{ textarea('description', 'What it does', values.description, hint='One plain sentence.', error=errors.description, rows=3, required=true) }}
+  {{ select('category', 'Category', category_pairs, values.category, error=errors.category, required=true) }}
+  {{ field('maintainer', 'Who makes it', values.maintainer, hint='A person, group or company, if you know.', error=errors.maintainer) }}
+  {{ checkbox('made_by_blind', 'A blind or low-vision person made this', values.made_by_blind, hint='Tick only if you know. Tools made by blind people also appear in the Tool library.') }}
+  <button type="submit" class="button button-primary">Add the tool</button>
+</form>
+<p><a href="/find">Back to Find before you build</a></p>
+{% endblock %}

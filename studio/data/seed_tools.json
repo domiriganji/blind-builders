@@ -1,0 +1,762 @@
+[
+ {
+  "name": "Claude Code screen reader mode",
+  "url": "https://code.claude.com/docs/en/accessibility",
+  "description": "A setting in Anthropic's Claude Code command-line tool that shows its work as plain labeled lines, numbered menus and yes-or-no prompts a screen reader can follow.",
+  "category": "AI coding",
+  "made_by_blind": false,
+  "maintainer": "Anthropic",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "GitHub Copilot CLI",
+  "url": "https://accessibility.github.com/documentation/guide/cli/",
+  "description": "GitHub's AI coding agent for the terminal; it detects a screen reader by itself, labels its icons, turns off animations and accepts dictation.",
+  "category": "AI coding",
+  "made_by_blind": false,
+  "maintainer": "GitHub",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "OpenAI Codex CLI",
+  "url": "https://github.com/openai/codex/pull/46040",
+  "description": "OpenAI's coding agent for the terminal; it detects a screen reader at start-up and turns off animations, but it has no plain-text mode.",
+  "category": "AI coding",
+  "made_by_blind": false,
+  "maintainer": "OpenAI",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "Gemini CLI screen reader setting",
+  "url": "https://github.com/google-gemini/gemini-cli/blob/main/docs/reference/configuration.md",
+  "description": "Google's coding agent for the terminal has a screen reader setting that shows plain text; a reported screen reader cursor bug was closed without a fix in May 2026.",
+  "category": "AI coding",
+  "made_by_blind": false,
+  "maintainer": "Google",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "Visual Studio Code",
+  "url": "https://raw.githubusercontent.com/microsoft/vscode-docs/main/release-notes/v1_131.md",
+  "description": "Microsoft's code editor; in 2026 it added offline dictation and a terminal accessible view, and its Agents window has accessibility help on Alt+F1.",
+  "category": "AI coding",
+  "made_by_blind": false,
+  "maintainer": "Microsoft",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "Cursor",
+  "url": "https://cursor.com/docs/release-notes",
+  "description": "An AI code editor; version 3.23 made screen readers announce the highlighted item in agent menus, but users report the agent panel is hard to use with NVDA and JAWS.",
+  "category": "AI coding",
+  "made_by_blind": false,
+  "maintainer": "Anysphere",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "Lovable",
+  "url": "https://lovable.dev/accessibility",
+  "description": "An AI website builder that published a 2026 accessibility statement aiming at WCAG 2.2 AA; it is not clear whether that covers the builder itself or only its website.",
+  "category": "AI coding",
+  "made_by_blind": false,
+  "maintainer": "Lovable",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "BlindPilot",
+  "url": "https://github.com/serrebidev/BlindPilot",
+  "description": "A desktop app that runs Claude Code, Codex, Gemini CLI and other coding agents and splits each answer into rows you move through with arrow keys; note that every agent runs with permission checks off by default.",
+  "category": "AI coding",
+  "made_by_blind": false,
+  "maintainer": "serrebidev",
+  "license": "MIT",
+  "source": "research"
+ },
+ {
+  "name": "Claude Code Reader",
+  "url": "https://github.com/doubletaponair/claude-code-reader",
+  "description": "A desktop window around the Claude Code command-line tool, built with native controls; its makers tested it with VoiceOver.",
+  "category": "AI coding",
+  "made_by_blind": false,
+  "maintainer": "Double Tap",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "Earshot for Claude Code",
+  "url": "https://github.com/unlocked-spark/claude-code-earshot",
+  "description": "A Claude Code plugin that detects your screen reader, gives each answer whole instead of streaming it, and says \"Still working\" every 10 seconds.",
+  "category": "AI coding",
+  "made_by_blind": false,
+  "maintainer": "Unlocked Spark Foundation",
+  "license": "Apache-2.0",
+  "source": "research"
+ },
+ {
+  "name": "Willow",
+  "url": "https://github.com/blindwikan/willow",
+  "description": "A narrator that speaks only checked facts while a coding agent works: files changed, tests passed or failed, and when it is waiting for your permission.",
+  "category": "AI coding",
+  "made_by_blind": false,
+  "maintainer": "blindwikan",
+  "license": "MIT",
+  "source": "research"
+ },
+ {
+  "name": "Accessible Claude Code (Joseph Webber)",
+  "url": "https://github.com/joseph-webber/accessible-claude-code",
+  "description": "A web client for Claude Code that speaks its activity through live regions, sounds and a voice; an early version built by a blind developer.",
+  "category": "AI coding",
+  "made_by_blind": true,
+  "maintainer": "Joseph Webber",
+  "license": "MIT",
+  "source": "research"
+ },
+ {
+  "name": "agentaloud",
+  "url": "https://github.com/lpintes/agentaloud",
+  "description": "A Windows app that runs Claude Code or Codex and shows the conversation as a read-only transcript with single-letter jumps, speaking through NVDA.",
+  "category": "AI coding",
+  "made_by_blind": false,
+  "maintainer": "lpintes",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "Claude Desktop stable feed",
+  "url": "https://github.com/thyhellcat/claude-desktop-stable-feed",
+  "description": "A workaround script that keeps the whole Claude Desktop conversation loaded so JAWS and NVDA stop jumping while you read; made by a blind JAWS user.",
+  "category": "AI coding",
+  "made_by_blind": true,
+  "maintainer": "thyhellcat",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "agent-ally",
+  "url": "https://github.com/mfmshazan/agent-ally",
+  "description": "Speaks a coding agent's permission prompts aloud and lets you answer them by keyboard or from your phone.",
+  "category": "AI coding",
+  "made_by_blind": false,
+  "maintainer": "mfmshazan",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "Orca-Voice",
+  "url": "https://github.com/goblin-red/Orca-Voice",
+  "description": "Dictate into Claude Code, Codex or OpenCode and hear the answers read aloud.",
+  "category": "AI coding",
+  "made_by_blind": false,
+  "maintainer": "goblin-red",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "screen-readers-mcp",
+  "url": "https://github.com/marlon-sousa/screen-readers-mcp",
+  "description": "Lets an AI agent press keys in a real NVDA, capture its speech and braille, and ask you when it is stuck, so add-ons are tested the way users hear them.",
+  "category": "AI coding",
+  "made_by_blind": true,
+  "maintainer": "Marlon Sousa",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "Accessibility Agents",
+  "url": "https://github.com/Community-Access/accessibility-agents",
+  "description": "A package of accessibility skills for Claude Code, Codex, Copilot, Gemini CLI and Antigravity that blocks edits to user-facing files until an accessibility review.",
+  "category": "AI coding",
+  "made_by_blind": true,
+  "maintainer": "Community Access (Taylor Arndt and Jeff Bishop)",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "claude-watch",
+  "url": "https://github.com/taylorarndt/claude-watch",
+  "description": "Tells you when a Claude Code session is waiting for you; made by a blind developer.",
+  "category": "AI coding",
+  "made_by_blind": true,
+  "maintainer": "Taylor Arndt",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "HomerDev",
+  "url": "https://github.com/jamalmazrui/HomerDev",
+  "description": "A kit of C# and Python parts and templates for keyboard-first Windows apps, written so you can point an AI at it.",
+  "category": "AI coding",
+  "made_by_blind": true,
+  "maintainer": "Jamal Mazrui",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "A11ySkills",
+  "url": "https://github.com/JamalMazrui/A11ySkills",
+  "description": "A collection of 175 accessibility skills for AI coding agents, gathered from 8 public collections.",
+  "category": "AI coding",
+  "made_by_blind": true,
+  "maintainer": "Jamal Mazrui",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "aria-first",
+  "url": "https://github.com/w9fyi/aria-first",
+  "description": "React components for five hard web patterns (accordion, tabs, live regions, dialog, combobox), documented with what screen readers actually announce; built by a blind software engineer.",
+  "category": "AI coding",
+  "made_by_blind": true,
+  "maintainer": "w9fyi",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "a11y-field-notes",
+  "url": "https://github.com/Engccer/a11y-field-notes",
+  "description": "A coding-agent skill listing web patterns that pass the rules but fail on real screen readers, checked by a blind VoiceOver user; not tested with TalkBack or NVDA.",
+  "category": "AI coding",
+  "made_by_blind": true,
+  "maintainer": "Engccer",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "NVDAStudio",
+  "url": "https://github.com/Blindex09/nvdastudio",
+  "description": "An NVDA add-on where an AI agent creates, tests and packages other NVDA add-ons, with an accessibility check; its instructions are in Portuguese.",
+  "category": "AI coding",
+  "made_by_blind": false,
+  "maintainer": "Blindex09",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "AI Content Describer",
+  "url": "https://github.com/cartertemm/AI-content-describer",
+  "description": "An NVDA add-on that describes the focused item, the whole screen or a camera picture with an AI model you choose, including a fully local option that needs no API key.",
+  "category": "Screen reader add-on",
+  "made_by_blind": false,
+  "maintainer": "Carter Temm",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "ChatGPT Companion",
+  "url": "https://github.com/zambonif/ChatGPTCompanion",
+  "description": "An NVDA add-on that reads new ChatGPT answers and progress updates without moving your focus.",
+  "category": "Screen reader add-on",
+  "made_by_blind": false,
+  "maintainer": "Fernando de Paula Zamboni",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "VisionMate",
+  "url": "https://github.com/athee06/VisionMate",
+  "description": "An NVDA add-on for image descriptions that works fully offline with no account or API key; it downloads about 1.5 GB of vision data.",
+  "category": "Screen reader add-on",
+  "made_by_blind": false,
+  "maintainer": "Athiban Vijay",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "Luma",
+  "url": "https://github.com/behofer/luma-nvda",
+  "description": "An NVDA add-on that connects to OpenAI, Anthropic, Gemini, OpenRouter or an on-device model.",
+  "category": "Screen reader add-on",
+  "made_by_blind": false,
+  "maintainer": "behofer",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "LIMA AI",
+  "url": "https://github.com/roscommonsystems/lima-ai-nvda-addon",
+  "description": "An NVDA add-on that describes the screen or an element on request and can click an element you describe.",
+  "category": "Screen reader add-on",
+  "made_by_blind": false,
+  "maintainer": "Roscommon Systems",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "Kindlead",
+  "url": "https://github.com/KatsutoshiTsuji/Kindlead",
+  "description": "An NVDA add-on that uses Gemini to turn Kindle books into accessible web pages with headings.",
+  "category": "Screen reader add-on",
+  "made_by_blind": false,
+  "maintainer": "Katsutoshi Tsuji",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "Learning Python with NVDA",
+  "url": "https://github.com/KevinVelasquezVargas/python_tutor",
+  "description": "An NVDA add-on with 40 chapters for learning Python, with optional help from Gemini.",
+  "category": "Screen reader add-on",
+  "made_by_blind": false,
+  "maintainer": "Kevin Velásquez Vargas",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "Padronix",
+  "url": "https://github.com/mpquemel/nvda-padronix-addon",
+  "description": "An NVDA add-on that formats citations in APA, MLA, IEEE, Vancouver or ABNT style using an AI model.",
+  "category": "Screen reader add-on",
+  "made_by_blind": false,
+  "maintainer": "Melhym Quemel",
+  "license": "GPL-3.0",
+  "source": "research"
+ },
+ {
+  "name": "VOCR",
+  "url": "https://github.com/chigkim/VOCR/releases",
+  "description": "A VoiceOver companion for Mac that reads screens with text recognition, describes images with an AI model you choose, and can let the AI operate apps for you.",
+  "category": "Seeing and describing",
+  "made_by_blind": false,
+  "maintainer": "Chi Kim",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "Be My Eyes",
+  "url": "https://www.bemyeyes.com/news/be-my-eyes-and-meta-launch-new-accessibility-functions/",
+  "description": "An app that connects you with sighted volunteers or AI to describe what your camera sees; it also works with Meta glasses.",
+  "category": "Seeing and describing",
+  "made_by_blind": false,
+  "maintainer": "Be My Eyes",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "Seeing AI",
+  "url": "https://play.google.com/store/apps/details?id=com.microsoft.seeingai",
+  "description": "Microsoft's free camera app that reads text, describes scenes and recognises products; the 2026 Android version needs fewer TalkBack swipes.",
+  "category": "Seeing and describing",
+  "made_by_blind": false,
+  "maintainer": "Microsoft",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "Envision",
+  "url": "https://www.letsenvision.com/blog/envision-arm-and-google-are-bringing-powerful-visual-ai-on-device",
+  "description": "An app and smart glasses that read text and describe scenes; Envision says it is moving scene description onto the phone itself.",
+  "category": "Seeing and describing",
+  "made_by_blind": false,
+  "maintainer": "Envision",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "PiccyBot",
+  "url": "https://play.google.com/store/apps/details?id=com.sparklingapps.piccybot&hl=en",
+  "description": "An app that describes photos and videos, with a beta for smart glasses.",
+  "category": "Seeing and describing",
+  "made_by_blind": false,
+  "maintainer": "Sparkling Apps",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "Aira Explorer",
+  "url": "https://play.google.com/store/apps/details?id=io.aira.explorer&hl=en_US",
+  "description": "Connects you to a trained human visual interpreter through your phone or Meta glasses; the Play listing mentions 60 free minutes.",
+  "category": "Seeing and describing",
+  "made_by_blind": false,
+  "maintainer": "Aira",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "Guided Vision in Gemini Live",
+  "url": "https://www.androidauthority.com/gemini-live-guided-vision-launch-3718122/",
+  "description": "Google's live camera descriptions in Gemini on Android, with spoken framing tips and follow-up questions; Google says it is not a mobility aid.",
+  "category": "Seeing and describing",
+  "made_by_blind": false,
+  "maintainer": "Google",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "ProgramAT",
+  "url": "https://github.com/program-at/ProgramAT-opensource",
+  "description": "Lets blind and low-vision people create their own camera-based tools by describing them in words; needs an iPhone 12 or newer, a GitHub Copilot subscription and a server.",
+  "category": "Seeing and describing",
+  "made_by_blind": true,
+  "maintainer": "Venkatesh Potluri and collaborators",
+  "license": "CC-BY-SA-4.0",
+  "source": "research"
+ },
+ {
+  "name": "STEM-ACCESS",
+  "url": "https://github.com/noah-Shaffer/pdf-reader-for-the-blind",
+  "description": "Turns a PDF into a screen-reader-friendly web page, with maths as MathML, charts as data tables and diagrams as descriptions written by Claude.",
+  "category": "Seeing and describing",
+  "made_by_blind": false,
+  "maintainer": "noah-Shaffer",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "Mubsir",
+  "url": "https://github.com/dusk-futile/mubsir",
+  "description": "A Windows assistant: hold a key and ask in Arabic or English, and it reads, explains and acts on the screen beside NVDA; it needs Anthropic and Google AI Studio keys.",
+  "category": "Everyday tasks",
+  "made_by_blind": false,
+  "maintainer": "dusk-futile",
+  "license": "MIT",
+  "source": "research"
+ },
+ {
+  "name": "QuickMail",
+  "url": "https://github.com/kellylford/QuickMail",
+  "description": "A screen-reader-first Windows email client for Gmail, Outlook, iCloud and IMAP, over 90 percent written with AI by a long-time screen reader user.",
+  "category": "Everyday tasks",
+  "made_by_blind": true,
+  "maintainer": "Kelly Ford",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "QUILL for All",
+  "url": "https://github.com/Community-Access/quill",
+  "description": "A family of screen-reader-first writing apps for Windows, with AI help from QUILL's own free AI, your ChatGPT subscription or your own Gemini key.",
+  "category": "Writing and publishing",
+  "made_by_blind": true,
+  "maintainer": "Community Access",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "DualPen",
+  "url": "https://github.com/TheGreatAthlon/DualPen",
+  "description": "A self-hosted editor where blind and sighted people write together, with sounds for who is typing where and a key to jump to a collaborator.",
+  "category": "Writing and publishing",
+  "made_by_blind": false,
+  "maintainer": "TheGreatAthlon",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "FastSMRW",
+  "url": "https://github.com/masonasons/FastSMRW",
+  "description": "A fast Mastodon and Bluesky client for blind users, rewritten in C++ for Windows.",
+  "category": "Writing and publishing",
+  "made_by_blind": false,
+  "maintainer": "Mason Armstrong",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "Skills for the blind",
+  "url": "https://github.com/Engccer/skills-for-the-blind",
+  "description": "Korean-first agent skills that help a screen reader user read, shorten, hear and dictate documents with Claude Code, Codex and Antigravity; made by a blind author.",
+  "category": "Writing and publishing",
+  "made_by_blind": true,
+  "maintainer": "Engccer",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "py-maidr",
+  "url": "https://pypi.org/project/maidr/",
+  "description": "A Python library that makes matplotlib, seaborn, Plotly and other charts explorable by keyboard, sound, braille and text.",
+  "category": "Data and charts",
+  "made_by_blind": false,
+  "maintainer": "xability lab, University of Illinois",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "maidr-skill",
+  "url": "https://github.com/xability/maidr-skill",
+  "description": "Teaches AI coding agents such as Claude Code, Codex and Copilot to make accessible MAIDR charts automatically.",
+  "category": "Data and charts",
+  "made_by_blind": false,
+  "maintainer": "xability lab, University of Illinois",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "maidr-mcp",
+  "url": "https://github.com/xability/maidr-mcp",
+  "description": "Shows accessible charts inside ChatGPT or Claude that you explore with arrow keys, speech, sound and braille; experimental.",
+  "category": "Data and charts",
+  "made_by_blind": false,
+  "maintainer": "xability lab, University of Illinois",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "tablefmt",
+  "url": "https://github.com/alekssamos/tablefmt",
+  "description": "Rewrites Linux table output, such as ps and df, as name and value pairs so a screen reader reads each value with its column name.",
+  "category": "Data and charts",
+  "made_by_blind": false,
+  "maintainer": "alekssamos",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "AccessCaster",
+  "url": "https://github.com/ShaunPreece/AccessCaster",
+  "description": "Controls a RODECaster Pro II or Duo from a keyboard-friendly web page instead of RODE's own app; built and used with NVDA by a blind podcaster.",
+  "category": "Audio and media",
+  "made_by_blind": true,
+  "maintainer": "Shaun Preece",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "ElevenLabs TTS Studio",
+  "url": "https://github.com/tonygeb23/eleven-tts-studio",
+  "description": "A desktop app for ElevenLabs text-to-speech with a searchable voice list, made for NVDA, JAWS and Narrator users by a blind developer.",
+  "category": "Audio and media",
+  "made_by_blind": true,
+  "maintainer": "Tony Gebhard",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "FFT Channel Vocoder",
+  "url": "https://github.com/lawrenceper/fft_channel_vocoder",
+  "description": "A command-line audio vocoder built by a blind programmer and musician.",
+  "category": "Audio and media",
+  "made_by_blind": true,
+  "maintainer": "Lawrence Perez",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "Omni Describer",
+  "url": "https://github.com/audioses/omni-describer",
+  "description": "A Windows app where Gemini writes audio descriptions for a video, you review and edit them, and the app mixes them into the video; in maintenance mode.",
+  "category": "Audio and media",
+  "made_by_blind": false,
+  "maintainer": "audioses",
+  "license": "MIT",
+  "source": "research"
+ },
+ {
+  "name": "Piper voice training guide",
+  "url": "https://github.com/jrnwilliams/piper-voice-training-guide",
+  "description": "A guide, also usable by an AI agent, for training your own Piper text-to-speech voice on an ordinary computer without a graphics card.",
+  "category": "Audio and media",
+  "made_by_blind": false,
+  "maintainer": "jrnwilliams",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "Plexible",
+  "url": "https://github.com/serrebidev/Plexible",
+  "description": "A desktop Plex media client for screen reader users, described by its author as vibe coded.",
+  "category": "Audio and media",
+  "made_by_blind": false,
+  "maintainer": "serrebidev",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "Voice of the Old Republic",
+  "url": "https://github.com/JeanStiletto/voice-of-the-old-republic",
+  "description": "A mod that makes Star Wars: Knights of the Old Republic playable with a screen reader, built by a blind developer with help from Claude.",
+  "category": "Games",
+  "made_by_blind": true,
+  "maintainer": "JeanStiletto",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "Civ V Access",
+  "url": "https://github.com/rashadnaqeeb/Civ-V-Access",
+  "description": "A mod that makes Civilization V playable with a screen reader; F2 speaks AI-written descriptions of the artwork.",
+  "category": "Games",
+  "made_by_blind": false,
+  "maintainer": "rashadnaqeeb",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "Blindfold for Balatro",
+  "url": "https://github.com/bradjrenshaw/Blindfold",
+  "description": "A screen reader mod for the card game Balatro.",
+  "category": "Games",
+  "made_by_blind": false,
+  "maintainer": "bradjrenshaw",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "FFVIII Accessibility Mod",
+  "url": "https://github.com/ampage87/FFVIII-Accessibility-Mod",
+  "description": "Makes the Steam edition of Final Fantasy VIII playable with speech; its 104 video descriptions were written by AI and not checked by people.",
+  "category": "Games",
+  "made_by_blind": false,
+  "maintainer": "ampage87",
+  "license": "MIT",
+  "source": "research"
+ },
+ {
+  "name": "SpeechBridge",
+  "url": "https://github.com/Doll-Eye/SpeechBridge",
+  "description": "Lets you play Windows games with a screen reader on a Mac; built by a blind developer and an AI.",
+  "category": "Games",
+  "made_by_blind": true,
+  "maintainer": "Doll-Eye",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "UnseenGodot",
+  "url": "https://github.com/EricRBomb/UnseenGodot",
+  "description": "Six add-ons that make the Godot game editor usable with a screen reader, with tutorials.",
+  "category": "Games",
+  "made_by_blind": false,
+  "maintainer": "EricRBomb",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "SkyrimCK-MCP",
+  "url": "https://github.com/Pyrhame/SkyrimCK-MCP",
+  "description": "Lets Claude Code read and write Skyrim mod files without opening the inaccessible Creation Kit; built for blind modders.",
+  "category": "Games",
+  "made_by_blind": false,
+  "maintainer": "Pyrhame",
+  "license": "MIT",
+  "source": "research"
+ },
+ {
+  "name": "AccessSlice",
+  "url": "https://github.com/Accessible3D-Edis/AccessSlice",
+  "description": "A 3D-printing slicer with labelled pages and spoken slice reports, tested with NVDA, that works without internet.",
+  "category": "Hardware",
+  "made_by_blind": false,
+  "maintainer": "Accessible3D-Edis",
+  "license": "GPL-3.0",
+  "source": "research"
+ },
+ {
+  "name": "OpenSCAD Assistive Forge",
+  "url": "https://github.com/BrennenJohnston/openscad-assistive-forge",
+  "description": "A browser tool for customising 3D models with screen reader support, including a braille card designer that translates on your own device.",
+  "category": "Hardware",
+  "made_by_blind": false,
+  "maintainer": "Brennen Johnston",
+  "license": "GPL-3.0",
+  "source": "research"
+ },
+ {
+  "name": "Blockly for LEGO",
+  "url": "https://github.com/bobdodd/Blockly-for-Lego",
+  "description": "A keyboard and screen reader block editor for LEGO SPIKE Prime; not yet tested on real hardware or by daily screen reader users.",
+  "category": "Hardware",
+  "made_by_blind": false,
+  "maintainer": "bobdodd",
+  "license": "Apache-2.0",
+  "source": "research"
+ },
+ {
+  "name": "Glide",
+  "url": "https://www.glidance.io/news",
+  "description": "A self-steering guide device for walking; pilot users began receiving units in 2026.",
+  "category": "Hardware",
+  "made_by_blind": false,
+  "maintainer": "Glidance",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "NVDA",
+  "url": "https://github.com/nvaccess/nvda/releases",
+  "description": "The free, open-source screen reader for Windows; version 2026.1 moved to 64-bit and broke older add-ons, and 2026.2 added a built-in magnifier.",
+  "category": "Other",
+  "made_by_blind": false,
+  "maintainer": "NV Access",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "Vox",
+  "url": "https://github.com/ChrisBrooksbank/Vox",
+  "description": "A new open-source screen reader for Windows 11, built with an AI agent workflow; still in testing.",
+  "category": "Other",
+  "made_by_blind": false,
+  "maintainer": "Chris Brooksbank",
+  "license": "MIT",
+  "source": "research"
+ },
+ {
+  "name": "acter",
+  "url": "https://github.com/marlon-sousa/acter",
+  "description": "A Windows terminal where each command becomes a heading, so you move through a session like a web page; made by a blind software engineer.",
+  "category": "Other",
+  "made_by_blind": true,
+  "maintainer": "Marlon Sousa",
+  "license": "MIT",
+  "source": "research"
+ },
+ {
+  "name": "NexusShell",
+  "url": "https://github.com/Mohammedkhaled96/NexusShell",
+  "description": "A Windows terminal that speaks the selected item in command-line menus for NVDA, JAWS and Narrator.",
+  "category": "Other",
+  "made_by_blind": false,
+  "maintainer": "Mohammed Khaled and Farid Mohammed",
+  "license": "BSL-1.0",
+  "source": "research"
+ },
+ {
+  "name": "term-a11y",
+  "url": "https://github.com/zaydea805/term-a11y",
+  "description": "Replacements for terminal spinners, progress bars and tables that print plain text when a screen reader is in use, plus a checker.",
+  "category": "Other",
+  "made_by_blind": false,
+  "maintainer": "zaydea805",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "rcdo",
+  "url": "https://github.com/afterdarksys/rcdo",
+  "description": "Screen reader and braille friendly summaries of Terraform, Ansible, AWS and gcloud output, written by a 90 percent blind operator.",
+  "category": "Other",
+  "made_by_blind": true,
+  "maintainer": "Ryan Coleman",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "Blind Vibe Coding directory",
+  "url": "https://github.com/jamalmazrui/BlindVibeCoding",
+  "description": "A link-checked list of tools, guides and communities for building software with AI without sight, with notes on the evidence for each.",
+  "category": "Other",
+  "made_by_blind": true,
+  "maintainer": "Jamal Mazrui",
+  "license": "",
+  "source": "research"
+ },
+ {
+  "name": "Blind Apps directory",
+  "url": "https://github.com/jamalmazrui/BlindApps",
+  "description": "A list of 97 apps made by 40 blind or low-vision developers, 18 of them built with AI help.",
+  "category": "Other",
+  "made_by_blind": true,
+  "maintainer": "Jamal Mazrui",
+  "license": "",
+  "source": "research"
+ }
+]

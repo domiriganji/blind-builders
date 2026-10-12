@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_input, error_summary, field, textarea, post_button %}
+{% block content %}
+<h1>{{ tool.name }}</h1>
+{{ error_summary(errors or problem_errors or volunteer_errors) }}
+<p><strong>Status:</strong> {% if upkeep.open %}needs help after an update. {{ upkeep.open|length }} open {{ 'problem' if upkeep.open|length == 1 else 'problems' }}{% else %}no open problems reported{% endif %}. {{ upkeep.volunteers|length }} {{ 'member is' if upkeep.volunteers|length == 1 else 'members are' }} helping keep it working.</p>
+{% include "find/_facts.html" %}
+
+<h2 id="problems-title">Open problems ({{ upkeep.open|length }})</h2>
+{% if upkeep.open %}
+<ul class="item-list">
+{% for p in upkeep.open %}
+  <li>
+    <h3>Problem {{ loop.index }}: after {{ p.after_update }}</h3>
+    {{ p.problem|markdown|shift_headings(3) }}
+    <p class="meta">Reported by {{ p.pseudonym }} on {{ p.date }}.</p>
+    {% if p.can_resolve %}{{ post_button('/library/tool/' ~ tool.id ~ '/problem/' ~ p.id ~ '/resolve', 'Mark problem ' ~ loop.index ~ ' as fixed') }}{% endif %}
+  </li>
+{% endfor %}
+</ul>
+<p>The member who reported a problem, or the member who added the tool, can mark it as fixed.</p>
+{% else %}
+<p>No member has reported a problem that is still open.</p>
+{% endif %}
+
+<h2 id="problem-form-title">Report a problem after an update</h2>
+{% if user %}
+<p>Did it stop working after your screen reader, phone, computer or an AI tool updated? Tell the members who help keep it working.</p>
+<form method="post" action="/library/tool/{{ tool.id }}/problem" novalidate>
+  {{ csrf_input() }}
+  {{ textarea('problem', 'What broke', problem_values.problem, hint='What you did, what you expected and what happened instead.', error=problem_errors.problem, rows=4, required=true) }}
+  {{ field('after_update', 'After which update', problem_values.after_update, hint="For example NVDA 2026.1, iOS 27, Android 17 or Claude Code 2.1.208. Write 'not sure' if you do not know.", error=problem_errors.after_update, required=true) }}
+  <button type="submit" class="button button-primary">Report the problem</button>
+</form>
+{% else %}
+<p><a href="/login?next={{ request.url.path|urlencode }}">Sign in to report a problem</a>.</p>
+{% endif %}
+
+<h2 id="volunteers-title">Members helping keep it working ({{ upkeep.volunteers|length }})</h2>
+{% if upkeep.volunteers %}
+<ul>
+{% for v in upkeep.volunteers %}<li>{{ v.pseudonym }}: {{ v.skills }}</li>{% endfor %}
+</ul>
+{% else %}
+<p>Nobody has volunteered yet. You could be the first.</p>
+{% endif %}
+
+<h2 id="volunteer-form-title">I can help keep this working</h2>
+{% if user %}
+{% if my_volunteer %}<p>You are on the list as {{ user.pseudonym }}. You can change what you said below.</p>{% endif %}
+<form method="post" action="/library/tool/{{ tool.id }}/volunteer" novalidate>
+  {{ csrf_input() }}
+  {{ textarea('skills', 'How you can help', volunteer_values.skills, hint='For example: I test with JAWS on Windows 11, I can write Python, or I can write the help text.', error=volunteer_errors.skills, rows=3, required=true) }}
+  <button type="submit" class="button button-primary">{{ 'Update how I can help' if my_volunteer else 'Add me to the list' }}</button>
+</form>
+{% if my_volunteer %}{{ post_button('/library/tool/' ~ tool.id ~ '/volunteer/remove', 'Take me off the list') }}{% endif %}
+<p>Other members see your code name, {{ user.pseudonym }}, and what you write here.</p>
+{% else %}
+<p><a href="/login?next={{ request.url.path|urlencode }}">Sign in to volunteer</a>.</p>
+{% endif %}
+
+{% if upkeep.resolved %}
+<h2>Fixed problems ({{ upkeep.resolved|length }})</h2>
+<ul>
+{% for p in upkeep.resolved %}<li>After {{ p.after_update }}: {{ p.problem|truncate(160) }} (reported by {{ p.pseudonym }} on {{ p.date }}, now marked fixed)</li>{% endfor %}
+</ul>
+{% endif %}
+
+{% set report_action = '/find/tool/' ~ tool.id ~ '/report' %}
+{% set back = 'library' %}
+{% include "find/_reports.html" %}
+
+<h2>More</h2>
+<ul>
+  <li><a href="/library">Back to the Tool library</a></li>
+  <li><a href="/find/tool/{{ tool.id }}">See {{ tool.name }} in Find before you build</a></li>
+</ul>
+{% endblock %}

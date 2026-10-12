@@ -1,0 +1,12 @@
+{# What we know about a tool. Needs: tool. #}
+<p class="lead">{{ tool.description }}</p>
+<p><a href="{{ tool.url }}" rel="noopener noreferrer">Visit {{ tool.name }}</a> (opens the tool's own website)</p>
+<ul>
+  <li>Category: {{ tool.category }}</li>
+  <li>Who makes it: {{ tool.maintainer or 'Not recorded' }}</li>
+  {% if tool.made_by_blind %}
+  <li>{% if tool.source == 'research' %}The site's research says a blind or low-vision person made this.{% else %}The member who added this says a blind or low-vision person made it.{% endif %}</li>
+  {% endif %}
+  {% if tool.license %}<li>License: {{ tool.license }}</li>{% endif %}
+  <li>{% if tool.source == 'research' %}Where this entry came from: the site's research into tools for blind people, April to October 2026. The site has not tested the tool itself.{% else %}Where this entry came from: added by {{ tool.added_by_name or 'a member' }} on {{ tool.created_at[:10] }}. The site has not tested the tool itself.{% endif %}</li>
+</ul>

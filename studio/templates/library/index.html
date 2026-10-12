@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Tool library</h1>
+<p class="lead">Tools that blind and low-vision people made for each other. When a screen reader, operating system or AI tool updates and one of them breaks, members report it here and volunteer to help fix it. There are no staff: the library keeps working because members help each other.</p>
+<p>{{ counts.all }} tools are in the library. {{ counts.upkeep }} {{ 'needs' if counts.upkeep == 1 else 'need' }} help after an update.</p>
+
+<nav aria-label="Show tools">
+  <ul>
+  {% for key, label in filters %}
+    <li><a href="/library{{ '' if key == 'all' else '?show=' ~ key }}"{% if key == show %} aria-current="page"{% endif %}>{{ label }} ({{ counts[key] }})</a></li>
+  {% endfor %}
+  </ul>
+</nav>
+
+<h2 id="tools-title">{{ 'All tools' if show == 'all' else 'Tools that need help after an update' }} ({{ tools|length }})</h2>
+{% if tools %}
+<ul class="item-list">
+{% for t in tools %}
+  <li>
+    <h3><a href="/library/tool/{{ t.id }}">{{ t.name }}</a></h3>
+    <p>{{ t.description }}</p>
+    <p class="meta">Maintainer: {{ t.maintainer or 'not recorded' }}.
+      Status: {% if t.needs_upkeep %}needs help after an update, {{ t.open_count }} open {{ 'problem' if t.open_count == 1 else 'problems' }}{% else %}no open problems reported{% endif %}.
+      {{ t.volunteer_count }} {{ 'member is' if t.volunteer_count == 1 else 'members are' }} helping keep it working.
+      {{ summaries[t.id] }}.</p>
+  </li>
+{% endfor %}
+</ul>
+{% elif show == 'upkeep' %}
+<p>No tool needs help right now. When a member reports a problem after an update, the tool appears here.</p>
+{% else %}
+<p>The library is empty. Add the first tool below.</p>
+{% endif %}
+
+<h2>Add to the library</h2>
+<ul>
+  <li><a href="/library/add">Add a tool a blind person made</a></li>
+  <li><a href="/find">Search every tool in Find before you build</a></li>
+</ul>
+{% endblock %}
