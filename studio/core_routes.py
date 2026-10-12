@@ -14,7 +14,7 @@ router = APIRouter()
 
 @router.get("/")
 def home(request: Request):
-    return render(request, "home.html", title="Home")
+    return render(request, "home.html", title="Build your ideas with AI, without needing to see the screen")
 
 
 @router.get("/about")

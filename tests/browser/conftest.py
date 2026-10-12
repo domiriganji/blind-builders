@@ -140,3 +140,42 @@ def crawl(page, base: str, start: str = "/", limit: int = 250, per_kind: int = 2
             if link not in seen:
                 queue.append(link)
     return visited
+
+
+def check_page(page, label: str = "") -> list[str]:
+    """Everything a page must pass, in plain lines. Use it on every page a journey reaches.
+
+    - axe-core: no serious or critical WCAG 2.2 A/AA or best-practice violations
+    - exactly one h1, and the <title> (before the site name) says the same thing
+    - a main landmark
+    - no sideways scrolling at the current viewport width
+    """
+    where = label or page.url
+    problems = []
+    for v in run_axe(page):
+        if v["impact"] in ("serious", "critical"):
+            problems.append(f"{where}: axe [{v['impact']}] {v['id']}: {v['help']} | {' || '.join(v['nodes'])}")
+    h1s = page.locator("h1")
+    if h1s.count() != 1:
+        problems.append(f"{where}: {h1s.count()} h1 elements")
+    else:
+        h1 = " ".join(h1s.first.inner_text().split())
+        title = " ".join(page.title().split(" – ")[0].split())
+        if h1 != title:
+            problems.append(f"{where}: title {title!r} does not match h1 {h1!r}")
+    if page.locator("main").count() != 1:
+        problems.append(f"{where}: no single main element")
+    overflow = page.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth")
+    if overflow > 2:
+        problems.append(f"{where}: scrolls sideways by {overflow}px at width {page.viewport_size['width']}")
+    return problems
+
+
+def check_page_narrow(page, label: str = "") -> list[str]:
+    """check_page at 320 pixels wide (400 percent zoom), then back to the original width."""
+    original = page.viewport_size
+    page.set_viewport_size({"width": 320, "height": 800})
+    try:
+        return check_page(page, (label or page.url) + " @320px")
+    finally:
+        page.set_viewport_size(original)
