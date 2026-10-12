@@ -67,7 +67,7 @@ Other things to know:
 
 - Many of these agents work by looking at screenshots, and do not tell you what they are doing as they do it. Claude Code's computer use, for example, sees the screen only through screenshots ([Anthropic's documentation](https://code.claude.com/docs/en/computer-use)).
 - Research also found that AI support advice can describe buttons and menus that do not exist, which is costly to disprove with a screen reader ([Kodandaram and others, CHI 2026](https://dl.acm.org/doi/10.1145/3772318.3790956)). If the AI tells you to press a button you cannot find, it may not be there.
-- Tools built by blind developers that act for you add safety rails: they ask before anything that cannot be undone, switch the AI off on bank pages, and never send passwords or one-time codes to the cloud ([Mubsir](https://github.com/dusk-futile/mubsir)). Look for the same rails in any agent you use.
+- Some tools made for blind users that act for you add safety rails: they ask before anything that cannot be undone, switch the AI off on bank pages, and never send passwords or one-time codes to the cloud ([Mubsir](https://github.com/dusk-futile/mubsir)). Look for the same rails in any agent you use.
 
 So an agent can save you time, but you must check its work, and it should never be the one that presses Pay or Send.
 

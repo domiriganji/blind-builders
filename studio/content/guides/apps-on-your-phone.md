@@ -64,7 +64,7 @@ The usual route for a web app is a **Trusted Web Activity**: a small Android app
      A command-line tool can suit a terminal and screen reader well. It may offer to download the Java and Android tools it needs.
    - **PWABuilder**, a website from Microsoft that packages a web app for Google Play and other stores ([pwabuilder.com](https://www.pwabuilder.com)). We have not checked how well its pages work with screen readers.
 3. **Prove you own the website.** Put a file at `/.well-known/assetlinks.json` on your site with your app's package name and its signing key fingerprint. Bubblewrap and PWABuilder tell you what to put in it. Without it, Android shows a browser address bar at the top of your app.
-4. **Create a Google Play developer account** (needs an account and a one-time registration fee, plus identity checks). New personal accounts must run a closed test with a group of testers for about two weeks before they can publish to everyone. Check the current rules and fee in [Play Console Help](https://support.google.com/googleplay/android-developer/), because they change.
+4. **Create a Google Play developer account** (needs an account and a registration fee). Before you start, read the current fee, identity checks and any testing rules for new accounts in [Play Console Help](https://support.google.com/googleplay/android-developer/). They change, and the research behind this guide did not check them.
 5. **Upload the app bundle** that Bubblewrap or PWABuilder made (a `.aab` file), fill in the store listing, and send it for review (needs the developer account).
 
 Keep the signing key file and its password somewhere safe and private. You need them for every update, and you should never share them with anyone, including the AI.

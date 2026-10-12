@@ -8,8 +8,8 @@
   {{ csrf_input() }}
   {{ field('title', 'Title', values.title, required=true, hint='One short sentence, for example: My screen reader does not read the preview of my website.', error=errors.title) }}
   {{ textarea('body', 'Your question', values.body, required=true, rows=10, hint='Never post passwords or codes. Say what you tried and what happened, including any message you heard.', error=errors.body) }}
-  {{ field('screen_reader', 'Screen reader', values.screen_reader, hint='Filled in from your account. Change it if this question is about a different screen reader.', error=errors.screen_reader) }}
-  {{ field('device', 'Device', values.device, hint='Filled in from your account. For example an Android phone, an iPhone or a Windows laptop.', error=errors.device) }}
+  {{ field('screen_reader', 'Screen reader', values.screen_reader, hint='For example NVDA, JAWS, VoiceOver or TalkBack, with its version if you know it. If your account says which one you use, it is filled in. Change it if this question is about a different one.', error=errors.screen_reader) }}
+  {{ field('device', 'Device', values.device, hint='For example an Android phone, an iPhone or a Windows laptop. If your account says which one you use, it is filled in.', error=errors.device) }}
   <button type="submit" class="button button-primary">Post your question</button>
 </form>
 <p><a href="/help">Back to Ask the community</a></p>

@@ -1,6 +1,6 @@
 """Learn and help: guides, and Ask the community with member answers and one labelled AI answer."""
 import re
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import pytest
 from fastapi.testclient import TestClient
@@ -30,7 +30,7 @@ def ask(client, title="NVDA does not read my preview", body="When I open the pre
     data.update(extra)
     r = post(client, "/help/ask", data, follow_redirects=False)
     assert r.status_code == 303, r.text
-    return int(r.headers["location"].rsplit("/", 1)[1])
+    return int(urlparse(r.headers["location"]).path.rsplit("/", 1)[1])
 
 
 def switch_user(client, email, name):
@@ -333,7 +333,7 @@ def test_only_one_ai_answer_even_if_saved_twice(user_client, fake_ai):
         with pytest.raises(Exception):
             conn.execute("INSERT INTO help_answers (question_id, user_id, body, is_ai, created_at)"
                          " VALUES (?, ?, 'Two', 1, 'now')", (qid, user_id()))
-    assert learn._write_ai_answer(Ctx(), fake_ai, qid, user_id(), "s", "p") == f"/help/q/{qid}#answers"
+    assert learn._write_ai_answer(Ctx(), fake_ai, qid, user_id(), "s", "p") == f"/help/q/{qid}?done=ai#answers"
     assert len(answers_for(qid)) == 1 and len(fake_ai.calls) == 1
 
 
@@ -385,8 +385,8 @@ def test_help_lists_questions_with_counts_and_filters(client):
     r = client.get("/help")
     assert h1s(r.text) == ["Ask the community"] and page_title(r.text) == "Ask the community"
     assert 'href="/help/ask"' in r.text and ">Ask a question<" in r.text
-    assert '<a href="/help" aria-current="page">Newest</a>' in r.text
-    assert 'href="/help?show=open"' in r.text and "Not answered yet</a>" in r.text
+    assert '<a href="/help" aria-current="page">Newest questions</a>' in r.text
+    assert 'href="/help?show=open"' in r.text and "Questions not answered yet</a>" in r.text
     assert r.text.index("Second question") < r.text.index("First question")
     assert "1 answer from members. Answered." in r.text
     assert "0 answers from members. Not answered yet." in r.text
@@ -414,7 +414,15 @@ def test_help_pages_through_older_questions(user_client):
 
 def test_empty_help_pages(client):
     assert "No questions yet" in client.get("/help").text
-    assert "Every question has been marked as answered" in client.get("/help?show=open").text
+    # with no questions at all, the "not answered yet" list must not claim every question is answered
+    r = client.get("/help?show=open")
+    assert "No questions yet" in r.text and "Every question has been marked as answered" not in r.text
+
+
+def test_open_list_says_when_every_question_is_answered(user_client):
+    qid = ask(user_client)
+    post(user_client, f"/help/q/{qid}/answered")
+    assert "Every question has been marked as answered" in user_client.get("/help?show=open").text
 
 
 def test_signed_out_visitors_can_read_but_not_post(client, fake_ai):
@@ -454,3 +462,208 @@ def test_the_askers_own_replies_are_not_counted_as_answers(user_client):
     assert "Reply from Amina, who asked" in r.text
     assert "Not answered yet. 0 answers from members." in r.text
     assert "0 answers from members. Not answered yet." in user_client.get("/help").text
+
+
+# ----- audit regressions -------------------------------------------------------------------------------
+
+def test_very_large_numbers_in_the_address_are_not_found_not_a_crash(user_client):
+    qid = ask(user_client)
+    huge = "9" * 30
+    assert user_client.get(f"/help/q/{huge}").status_code == 404
+    assert user_client.get("/help/q/0").status_code == 404
+    assert post(user_client, f"/help/q/{huge}/answer", {"body": "Hello"}).status_code == 404
+    assert post(user_client, f"/help/q/{qid}/answers/{huge}/helpful").status_code == 404
+    assert post(user_client, f"/help/q/{huge}/answered").status_code == 404
+
+
+def test_after_each_action_the_heading_says_what_happened(client, fake_ai):
+    fake_ai.on("help.ai_answer", "Try browse mode.")
+    register(client, "a@example.com", "Amina")
+    r = post(client, "/help/ask", {"title": "Where is the preview", "body": "I cannot find it."})
+    assert h1s(r.text) == ["Your question is posted: Where is the preview"]
+    assert page_title(r.text) == h1s(r.text)[0]
+    qid = int(urlparse(str(r.url)).path.rsplit("/", 1)[1])
+    r = post(client, f"/help/q/{qid}/ai")
+    assert h1s(r.text) == ["The AI&#39;s suggested answer is ready: Where is the preview"]
+    r = post(client, f"/help/q/{qid}/answered")
+    assert h1s(r.text) == ["Marked as answered: Where is the preview"]
+    assert "<h2>If you still need help</h2>" in r.text and "While you wait" not in r.text
+    r = post(client, f"/help/q/{qid}/reopen")
+    assert h1s(r.text) == ["Marked as not answered yet: Where is the preview"]
+    switch_user(client, "b@example.com", "Bo")
+    r = post(client, f"/help/q/{qid}/answer", {"body": "It is on the result page."})
+    assert h1s(r.text) == ["Your answer is posted: Where is the preview"]
+    answer_id = [a for a in answers_for(qid) if not a["is_ai"]][0]["id"]
+    switch_user(client, "c@example.com", "Cy")
+    r = post(client, f"/help/q/{qid}/answers/{answer_id}/helpful")
+    assert h1s(r.text) == ["You marked an answer as helpful: Where is the preview"]
+    # Only the site's own words can appear: anything else in ?done= is ignored.
+    r = client.get(f"/help/q/{qid}?done=%3Cscript%3EYou%20won")
+    assert h1s(r.text) == ["Where is the preview"] and "<script>You won" not in r.text
+
+
+def test_without_ai_the_heading_says_no_answer_was_written(no_ai_app):
+    client = TestClient(no_ai_app)
+    register(client)
+    qid = ask(client)
+    r = post(client, f"/help/q/{qid}/ai")
+    assert h1s(r.text) == ["The AI could not write an answer: NVDA does not read my preview"]
+
+
+def test_a_question_sent_twice_is_posted_once(user_client):
+    first = ask(user_client)
+    r = post(user_client, "/help/ask", {"title": "NVDA does not read my preview",
+                                        "body": "When I open the preview, NVDA says nothing."}, follow_redirects=False)
+    assert r.status_code == 303 and urlparse(r.headers["location"]).path == f"/help/q/{first}"
+    r = user_client.get(r.headers["location"])
+    assert "You already posted this question, so it was not posted again." in r.text
+    with db.session() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM help_questions").fetchone()[0] == 1
+    # a different question from the same member is posted as normal
+    ask(user_client, body="Something else happened.")
+    with db.session() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM help_questions").fetchone()[0] == 2
+
+
+def test_an_answer_sent_twice_is_posted_once(client):
+    register(client, "a@example.com", "A")
+    qid = ask(client)
+    switch_user(client, "b@example.com", "B")
+    post(client, f"/help/q/{qid}/answer", {"body": "Press Insert+Space."})
+    r = post(client, f"/help/q/{qid}/answer", {"body": "Press Insert+Space."})
+    assert "You already posted this answer, so it was not posted again." in r.text
+    assert len(answers_for(qid)) == 1
+
+
+def test_member_headings_nest_under_the_page_and_never_skip():
+    html = str(learn.render_text("# Big\n\ntext\n\n### Small", base=3))
+    assert "<h3>Big</h3>" in html and "<h4>Small</h4>" in html and "<h1>" not in html and "<h5>" not in html
+    html = str(learn.render_text("### Only\n\n###### Deep", base=4))
+    assert "<h4>Only</h4>" in html and "<h5>Deep</h5>" in html
+    assert "<h6>A</h6>" in str(learn.render_text("# A", base=7))
+    # raw heading tags typed by a member are escaped text, never headings
+    assert "&lt;h1&gt;" in str(learn.render_text("<h1>x</h1>", base=3))
+
+
+def test_question_and_answer_headings_sit_under_the_page_headings(client):
+    register(client, "a@example.com", "A")
+    qid = ask(client, body="# My problem\n\nIt fails.")
+    switch_user(client, "b@example.com", "B")
+    r = post(client, f"/help/q/{qid}/answer", {"body": "# Fix\n\nDo this."})
+    assert "<h3>My problem</h3>" in r.text  # under "The question" (h2)
+    assert "<h4>Fix</h4>" in r.text  # under "Answer from B" (h3)
+    assert len(h1s(r.text)) == 1
+    assert not [f for f in check_html(r.text).warnings if f.rule == "heading-order"]
+
+
+def test_pictures_in_member_text_become_links_not_images(user_client):
+    html = str(learn.render_text('![A screenshot of the error](https://example.com/shot.png "x") ![](/local.png)'))
+    assert "<img" not in html
+    assert '<a href="https://example.com/shot.png" rel="noopener noreferrer">Picture: A screenshot of the error</a>' in html
+    assert "[Picture with no description]" in html
+    # a picture inside a link stays text, so there is never a link inside a link
+    html = str(learn.render_text("[![logo](https://a.example/l.png)](https://b.example)"))
+    assert html.count("<a ") == 1 and "[Picture: logo]</a>" in html
+    qid = ask(user_client, body='See ![my "screen"](https://example.com/a.png)')
+    r = user_client.get(f"/help/q/{qid}")
+    assert "<img" not in r.text and "Picture: my &quot;screen&quot;" in r.text
+    assert not check_html(r.text).errors
+
+
+def test_a_page_past_the_end_shows_the_last_page(user_client):
+    uid = user_id()
+    with db.session() as conn:
+        for i in range(learn.PAGE_SIZE + 2):
+            conn.execute("INSERT INTO help_questions (user_id, title, body, created_at) VALUES (?, ?, 'b', ?)",
+                         (uid, f"Question number {i}", db.now()))
+    r = user_client.get("/help?page=99")
+    assert r.status_code == 200 and "Question number 0<" in r.text and "No questions yet" not in r.text
+    assert "Page 2 of 2." in r.text and "Newer questions (page 1 of 2)" in r.text
+    assert user_client.get("/help?page=-5").status_code == 200
+
+
+def test_ai_answer_of_the_wrong_type_is_an_error_and_saves_nothing(user_client, fake_ai):
+    qid = ask(user_client)
+    for bad in (None, {"text": "hi"}, ["hi"], 42):
+        fake_ai.on("help.ai_answer", lambda **kw: bad)
+        r = post(user_client, f"/help/q/{qid}/ai")
+        assert "This did not finish" in r.text and "The AI did not write an answer" in r.text
+    assert answers_for(qid) == []
+
+
+def test_a_very_long_ai_answer_says_it_was_cut_short(user_client, fake_ai):
+    fake_ai.on("help.ai_answer", "word " * 10_000)
+    qid = ask(user_client)
+    post(user_client, f"/help/q/{qid}/ai")
+    body = answers_for(qid)[0]["body"]
+    assert body.endswith(learn.TRUNCATED_NOTE.strip()) and len(body) <= learn.MAX_BODY * 2 + len(learn.TRUNCATED_NOTE)
+    assert "too long, so the site cut it short" in user_client.get(f"/help/q/{qid}").text
+
+
+def test_pressing_the_ai_button_twice_goes_to_the_running_work(user_client, fake_ai):
+    fake_ai.on("help.ai_answer", "Answer")
+    q1 = ask(user_client, title="Same title", body="First body")
+    q2 = ask(user_client, title="Same title", body="Second body")
+    with db.session() as conn:
+        conn.execute("INSERT INTO jobs (id, user_id, kind, title, status, created_at) VALUES (?, ?, ?, ?, 'running', ?)",
+                     ("running1", user_id(), f"help.ai_answer.q{q1}", "Writing a suggested answer to: Same title",
+                      db.now()))
+    r = post(user_client, f"/help/q/{q1}/ai", follow_redirects=False)
+    assert r.headers["location"] == "/jobs/running1" and fake_ai.calls == []
+    # another question with the same title is not mixed up with it
+    r = post(user_client, f"/help/q/{q2}/ai")
+    assert len(fake_ai.calls) == 1 and [a["question_id"] for a in answers_for(q2)] == [q2]
+
+
+def test_a_lost_ai_job_does_not_block_asking_again(user_client, fake_ai):
+    fake_ai.on("help.ai_answer", "Answer")
+    qid = ask(user_client)
+    with db.session() as conn:  # a job left "running" by a restart an hour ago
+        conn.execute("INSERT INTO jobs (id, user_id, kind, title, status, created_at) VALUES (?, ?, ?, 't', 'running', ?)",
+                     ("lost1", user_id(), f"help.ai_answer.q{qid}", "2020-01-01T00:00:00+00:00"))
+    r = post(user_client, f"/help/q/{qid}/ai")
+    assert r.url.path == f"/help/q/{qid}" and len(answers_for(qid)) == 1
+
+
+def test_each_helpful_button_says_which_answer_it_is_for(client, fake_ai):
+    fake_ai.on("help.ai_answer", "Try browse mode.")
+    register(client, "a@example.com", "Amina")
+    qid = ask(client)
+    post(client, f"/help/q/{qid}/ai")
+    for email, name in (("b@example.com", "Bo"), ("c@example.com", "Cy")):
+        switch_user(client, email, name)
+        post(client, f"/help/q/{qid}/answer", {"body": f"Advice from {name}."})
+    switch_user(client, "d@example.com", "Di")
+    r = client.get(f"/help/q/{qid}")
+    names = [re.sub(r"<[^>]+>", "", b).strip() for b in re.findall(r"<button[^>]*>(This helped me.*?)</button>", r.text, re.S)]
+    assert names == ["This helped me (answer 1, from Bo)", "This helped me (answer 2, from Cy)",
+                     "This helped me (the suggested answer from the AI)"]
+
+
+GUIDE_CLAIMS_REMOVED = {
+    # claims the research does not support, or that it corrects
+    "ai-coding-in-the-terminal": ["accessibility.github.com", "tested with VoiceOver, NVDA and JAWS",
+                                  "A blind user wrote", "Blind users wrote", "Blind developers have built"],
+    "publishing-papers": ["introduce ltx-talk", "JAWS, NVDA and Narrator", "Most of these issues were still open"],
+    "safe-web-tasks": ["Tools built by blind developers"],
+    "first-website": ["reads back the change before making it", "Blind developers who test AI-made apps",
+                      "Make the contact form"],
+    "start-here": ["Before the AI builds or does anything, it reads back"],
+    "apps-on-your-phone": ["about two weeks"],
+}
+
+
+@pytest.mark.parametrize("slug", sorted(GUIDE_CLAIMS_REMOVED))
+def test_guides_do_not_repeat_unsupported_claims(slug):
+    body = learn.get_guide(slug).body
+    for claim in GUIDE_CLAIMS_REMOVED[slug]:
+        assert claim not in body, f"{slug}: {claim!r}"
+
+
+def test_guides_keep_the_corrected_facts():
+    terminal = learn.get_guide("ai-coding-in-the-terminal").body
+    assert "Win32 accessibility" in terminal  # claude-code-reader was tested with VoiceOver, not directly with NVDA/JAWS
+    papers = learn.get_guide("publishing-papers").body
+    assert "to write" in papers  # the ltx-talk section of the draft is still a placeholder
+    website = learn.get_guide("first-website").body
+    assert "no server" in website

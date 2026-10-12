@@ -19,6 +19,7 @@ from __future__ import annotations
 import re
 import sqlite3
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
 
@@ -69,6 +70,21 @@ AI_LABEL = "Suggested by the AI. Not checked by a member."
 MAX_TITLE = 200
 MAX_BODY = 10_000
 MAX_SHORT = 100
+MAX_ID = 2**63 - 1  # SQLite's largest integer; a bigger number in an address is simply not found
+REPEAT_MINUTES = 10  # the same question or answer sent again this soon is a double submission
+AI_JOB_STALE_MINUTES = 15  # an AI job still "running" after this long was lost (for example, a restart)
+TRUNCATED_NOTE = "\n\n(The AI's answer was too long, so the site cut it short here.)"
+
+# What just happened, for the question page's heading after an action. Only these words are ever shown.
+DONE = {
+    "asked": "Your question is posted",
+    "answer": "Your answer is posted",
+    "helpful": "You marked an answer as helpful",
+    "answered": "Marked as answered",
+    "reopened": "Marked as not answered yet",
+    "ai": "The AI's suggested answer is ready",
+    "no-ai": "The AI could not write an answer",
+}
 
 MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
           "November", "December"]
@@ -156,11 +172,43 @@ def get_guide(slug: str) -> Guide | None:
 
 
 
-def render_text(text: str, shift: int = 0) -> Markup:
+_HEADING_TAG_RE = re.compile(r"<(/?)h([1-6])>")
+_IMG_RE = re.compile(r'<img src="([^"]*)" alt="([^"]*)"(?: title="[^"]*")? />')
+
+
+def _image_as_link(match: re.Match) -> str:
+    """Pictures in member or AI text become a link (or plain text). An image from another site would be
+    blocked by the site's Content-Security-Policy and show as broken, and the site shows no pictures that
+    carry no information. Both groups are already HTML-escaped by the Markdown renderer."""
+    src, alt = match.group(1), match.group(2).strip()
+    label = f"Picture: {alt}" if alt else "Picture with no description"
+    before = match.string[:match.start()]
+    inside_link = before.count("<a ") > before.count("</a>")  # a link inside a link is not allowed
+    if src.startswith(("http://", "https://")) and not inside_link:
+        return f'<a href="{src}" rel="noopener noreferrer">{label}</a>'
+    return f"[{label}]"
+
+
+def nest_headings(html: str, base: int) -> str:
+    """Make the headings in rendered Markdown start at level `base` and never skip a level, so a member's
+    "# Title" cannot pose as a heading of the page itself, and "### Step" alone does not jump two levels.
+    Rendered Markdown has only bare <hN> tags: raw HTML in the text is escaped, so this cannot be fooled."""
+    levels = sorted({int(m.group(2)) for m in _HEADING_TAG_RE.finditer(html)})
+    if not levels:
+        return html
+    new_level = {level: min(base + i, 6) for i, level in enumerate(levels)}
+    return _HEADING_TAG_RE.sub(lambda m: f"<{m.group(1)}h{new_level[int(m.group(2))]}>", html)
+
+
+def render_text(text: str, shift: int = 0, *, base: int | None = None) -> Markup:
     """Markdown to safe HTML (raw HTML escaped by the shared filter), with external links marked
-    rel="noopener noreferrer", table headers scoped, and headings pushed under the page's own."""
+    rel="noopener noreferrer", table headers scoped, pictures turned into links, and headings pushed
+    under the page's own: by `shift` levels, or (for member and AI text) nested to start at `base`."""
     html = str(markdown(text))  # the shared filter adds rel to external links and scope to headers
-    if shift:
+    html = _IMG_RE.sub(_image_as_link, html)
+    if base is not None:
+        html = nest_headings(html, base)
+    elif shift:
         html = str(shift_headings(html, shift))
     return Markup(html)
 
@@ -219,6 +267,8 @@ SECRET_MESSAGE = ("This looks like it contains a password, a code, a card number
 # ----- data helpers --------------------------------------------------------------------------------
 
 def _question(question_id: int) -> dict:
+    if not 0 < question_id <= MAX_ID:
+        raise HTTPException(status_code=404, detail="We could not find that question. It may have the wrong number.")
     with db.session() as conn:
         row = conn.execute(
             "SELECT q.*, u.display_name AS asker_name FROM help_questions q JOIN users u ON u.id = q.user_id"
@@ -247,7 +297,7 @@ def _answers(question_id: int, asker_id: int, viewer_id: int | None) -> list[dic
     answers = []
     for r in rows:
         a = dict(r)
-        a["body_html"] = render_text(a["body"], shift=2)
+        a["body_html"] = render_text(a["body"], base=4)  # under the answer's own h3
         a["is_own"] = viewer_id is not None and a["user_id"] == viewer_id and not a["is_ai"]
         a["by_asker"] = not a["is_ai"] and a["user_id"] == asker_id
         answers.append(a)
@@ -256,6 +306,15 @@ def _answers(question_id: int, asker_id: int, viewer_id: int | None) -> list[dic
 
 def _date(iso: str) -> str:
     return (iso or "")[:10]
+
+
+def _minutes_ago(minutes: int) -> str:
+    """An ISO time to compare with stored db.now() values, which sort as text."""
+    return (datetime.now(timezone.utc) - timedelta(minutes=minutes)).replace(microsecond=0).isoformat()
+
+
+def _question_url(question_id: int, done: str = "", anchor: str = "") -> str:
+    return f"/help/q/{question_id}" + (f"?done={done}" if done else "") + (f"#{anchor}" if anchor else "")
 
 
 def _clean(form: dict, key: str) -> str:
@@ -336,19 +395,22 @@ def _has_ai_answer(question_id: int) -> bool:
 
 def _write_ai_answer(ctx, ai, question_id: int, asker_id: int, system: str, prompt: str) -> str:
     """Background job: ask the AI once, save its answer, and send the asker back to the question."""
-    url = f"/help/q/{question_id}#answers"
+    url = _question_url(question_id, "ai", "answers")
     if _has_ai_answer(question_id):
         return url
     ctx.progress("Reading your question")
     text = ai.text(system=system, prompt=prompt, purpose="help.ai_answer")
-    if not text or not text.strip():
+    if not isinstance(text, str) or not text.strip():
         raise AIError("The AI did not write an answer. Please try again.")
+    text = text.strip()
+    if len(text) > MAX_BODY * 2:  # never cut silently: say where and why
+        text = text[:MAX_BODY * 2].rstrip() + TRUNCATED_NOTE
     ctx.progress("Saving the suggested answer")
     try:
         with db.session() as conn:
             conn.execute(
                 "INSERT INTO help_answers (question_id, user_id, body, is_ai, created_at) VALUES (?, ?, ?, 1, ?)",
-                (question_id, asker_id, text.strip()[:MAX_BODY * 2], db.now()))
+                (question_id, asker_id, text, db.now()))
     except sqlite3.IntegrityError:
         pass  # another request saved one first; there is at most one AI answer per question
     return url
@@ -375,10 +437,13 @@ def guide_page(request: Request, slug: str):
 @router.get("/help")
 def help_index(request: Request, show: str = "newest", page: int = 1):
     show = "open" if show == "open" else "newest"
-    page = max(1, min(page, 10_000))
     where = "WHERE q.status = 'open'" if show == "open" else ""
     with db.session() as conn:
         total = conn.execute(f"SELECT COUNT(*) AS n FROM help_questions q {where}").fetchone()["n"]
+        total_all = (total if show == "newest" else
+                     conn.execute("SELECT COUNT(*) AS n FROM help_questions").fetchone()["n"])
+        pages = max(1, -(-total // PAGE_SIZE))
+        page = max(1, min(page, pages))  # a page past the end shows the last page, never an empty list
         rows = conn.execute(
             "SELECT q.id, q.title, q.status, q.screen_reader, q.device, q.created_at, u.display_name AS asker_name,"
             " (SELECT COUNT(*) FROM help_answers a WHERE a.question_id = q.id AND a.is_ai = 0"
@@ -390,7 +455,7 @@ def help_index(request: Request, show: str = "newest", page: int = 1):
     questions = [dict(r, date=_date(r["created_at"])) for r in rows]
     base = "/help?show=open&" if show == "open" else "/help?"
     return render(request, "learn/help.html", title="Ask the community", questions=questions, show=show,
-                  page=page, total=total,
+                  page=page, pages=pages, total=total, total_all=total_all,
                   newer_url=(f"{base}page={page - 1}" if page > 1 else None),
                   older_url=(f"{base}page={page + 1}" if page * PAGE_SIZE < total else None))
 
@@ -433,32 +498,46 @@ async def ask(request: Request, user: dict = Depends(require_user)):
     if errors:
         return _ask_form(request, values, errors)
     with db.session() as conn:
+        repeat = conn.execute(
+            "SELECT id FROM help_questions WHERE user_id = ? AND title = ? AND body = ? AND created_at >= ?"
+            " ORDER BY id DESC LIMIT 1",
+            (user["id"], values["title"], values["body"], _minutes_ago(REPEAT_MINUTES))).fetchone()
+    if repeat:  # the form was sent twice, for example by pressing Enter again on a slow connection
+        flash(request, "You already posted this question, so it was not posted again.", "info")
+        return redirect(_question_url(repeat["id"]))
+    with db.session() as conn:
         cur = conn.execute(
             "INSERT INTO help_questions (user_id, title, body, screen_reader, device, status, created_at)"
             " VALUES (?, ?, ?, ?, ?, 'open', ?)",
             (user["id"], values["title"], values["body"], values["screen_reader"], values["device"], db.now()))
         question_id = cur.lastrowid
-    flash(request, "Your question is posted. Members can now answer it.", "success")
-    return redirect(f"/help/q/{question_id}")
+    flash(request, "Members can now read and answer it.", "success")
+    return redirect(_question_url(question_id, "asked"))
 
 
-def _question_page(request: Request, question: dict, *, answer_value: str = "", errors: dict | None = None):
+def _question_page(request: Request, question: dict, *, answer_value: str = "", errors: dict | None = None,
+                   done: str = ""):
     user = current_user(request)
     answers = _answers(question["id"], question["user_id"], user["id"] if user else None)
     is_asker = bool(user) and user["id"] == question["user_id"]
     errors = errors or {}
-    title = question["title"] + (": please fix the problems" if errors else "")
+    if errors:
+        title = question["title"] + ": please fix the problems"
+    elif done in DONE:  # after an action, the heading says what happened, then which question
+        title = f"{DONE[done]}: {question['title']}"
+    else:
+        title = question["title"]
     return render(
         request, "learn/question.html", title=title, question=question,
-        question_html=render_text(question["body"], shift=1), date=_date(question["created_at"]),
+        question_html=render_text(question["body"], base=3), date=_date(question["created_at"]),
         answers=answers, member_count=sum(1 for a in answers if not a["is_ai"] and not a["by_asker"]),
         has_ai=any(a["is_ai"] for a in answers), is_asker=is_asker, ai_label=AI_LABEL,
         answer_value=answer_value, errors=errors, status_code=400 if errors else 200)
 
 
 @router.get("/help/q/{question_id}")
-def question_page(request: Request, question_id: int):
-    return _question_page(request, _question(question_id))
+def question_page(request: Request, question_id: int, done: str = ""):
+    return _question_page(request, _question(question_id), done=done)
 
 
 @router.post("/help/q/{question_id}/answer")
@@ -476,18 +555,28 @@ async def answer(request: Request, question_id: int, user: dict = Depends(requir
     if error:
         return _question_page(request, question, answer_value=body, errors={"body": error})
     with db.session() as conn:
+        repeat = conn.execute(
+            "SELECT id FROM help_answers WHERE question_id = ? AND user_id = ? AND is_ai = 0 AND body = ?"
+            " AND created_at >= ? ORDER BY id DESC LIMIT 1",
+            (question_id, user["id"], body, _minutes_ago(REPEAT_MINUTES))).fetchone()
+    if repeat:  # the same answer sent twice
+        flash(request, "You already posted this answer, so it was not posted again.", "info")
+        return redirect(_question_url(question_id, anchor=f"answer-{repeat['id']}"))
+    with db.session() as conn:
         cur = conn.execute(
             "INSERT INTO help_answers (question_id, user_id, body, is_ai, created_at) VALUES (?, ?, ?, 0, ?)",
             (question_id, user["id"], body, db.now()))
         answer_id = cur.lastrowid
-    flash(request, "Your answer is posted. Thank you for helping.", "success")
-    return redirect(f"/help/q/{question_id}#answer-{answer_id}")
+    flash(request, "Thank you for helping.", "success")
+    return redirect(_question_url(question_id, "answer", f"answer-{answer_id}"))
 
 
 @router.post("/help/q/{question_id}/answers/{answer_id}/helpful")
 async def helpful(request: Request, question_id: int, answer_id: int, user: dict = Depends(require_user)):
     await checked_form(request)
     _question(question_id)
+    if not 0 < answer_id <= MAX_ID:
+        raise HTTPException(status_code=404, detail="We could not find that answer.")
     with db.session() as conn:
         row = conn.execute("SELECT * FROM help_answers WHERE id = ? AND question_id = ?",
                            (answer_id, question_id)).fetchone()
@@ -501,10 +590,10 @@ async def helpful(request: Request, question_id: int, answer_id: int, user: dict
         if added:
             conn.execute("UPDATE help_answers SET helpful_count = helpful_count + 1 WHERE id = ?", (answer_id,))
     if added:
-        flash(request, "Thank you. You marked this answer as helpful.", "success")
-    else:
-        flash(request, "You already marked this answer as helpful.", "info")
-    return redirect(f"/help/q/{question_id}#answer-{answer_id}")
+        flash(request, "Thank you for letting other members know.", "success")
+        return redirect(_question_url(question_id, "helpful", f"answer-{answer_id}"))
+    flash(request, "You already marked this answer as helpful.", "info")
+    return redirect(_question_url(question_id, anchor=f"answer-{answer_id}"))
 
 
 @router.post("/help/q/{question_id}/answered")
@@ -514,7 +603,7 @@ async def mark_answered(request: Request, question_id: int, user: dict = Depends
     with db.session() as conn:
         conn.execute("UPDATE help_questions SET status = 'answered' WHERE id = ?", (question_id,))
     flash(request, "Your question is marked as answered. Members can still add answers.", "success")
-    return redirect(f"/help/q/{question_id}")
+    return redirect(_question_url(question_id, "answered"))
 
 
 @router.post("/help/q/{question_id}/reopen")
@@ -524,7 +613,7 @@ async def reopen(request: Request, question_id: int, user: dict = Depends(requir
     with db.session() as conn:
         conn.execute("UPDATE help_questions SET status = 'open' WHERE id = ?", (question_id,))
     flash(request, "Your question is marked as not answered yet. It is back in the list of questions that need answers.", "success")
-    return redirect(f"/help/q/{question_id}")
+    return redirect(_question_url(question_id, "reopened"))
 
 
 @router.post("/help/q/{question_id}/ai")
@@ -533,21 +622,21 @@ async def ask_ai(request: Request, question_id: int, user: dict = Depends(requir
     question = _own_question(question_id, user)
     if _has_ai_answer(question_id):
         flash(request, "This question already has a suggested answer from the AI. Each question gets one.", "info")
-        return redirect(f"/help/q/{question_id}#answers")
-    title = _ai_job_title(question)
+        return redirect(_question_url(question_id, anchor="answers"))
+    kind = f"help.ai_answer.q{question_id}"  # one kind per question, so two questions with one title never mix
     with db.session() as conn:
-        running = conn.execute(
-            "SELECT id FROM jobs WHERE user_id = ? AND kind = 'help.ai_answer' AND title = ?"
-            " AND status IN ('queued', 'running') ORDER BY created_at DESC LIMIT 1",
-            (user["id"], title)).fetchone()
-    if running:
+        running = conn.execute(  # a job lost in a restart stays "running"; after a while, start a new one
+            "SELECT id FROM jobs WHERE user_id = ? AND kind = ? AND status IN ('queued', 'running')"
+            " AND created_at >= ? ORDER BY created_at DESC LIMIT 1",
+            (user["id"], kind, _minutes_ago(AI_JOB_STALE_MINUTES))).fetchone()
+    if running:  # the button was pressed twice: show the work already under way
         return redirect(jobs.job_url(running["id"]))
     try:
         ai = get_ai(request, user)
     except AINotAvailable as exc:
         flash(request, exc.user_message + " Members can still answer your question.", "error")
-        return redirect(f"/help/q/{question_id}")
+        return redirect(_question_url(question_id, "no-ai"))
     system = _ai_system(request.app.state.settings.site_name, question, _section_list(request), load_guides())
-    job_id = jobs.submit(user["id"], "help.ai_answer", title, _write_ai_answer, ai, question_id, user["id"],
-                         system, _ai_prompt(question))
+    job_id = jobs.submit(user["id"], kind, _ai_job_title(question), _write_ai_answer, ai, question_id,
+                         user["id"], system, _ai_prompt(question))
     return redirect(jobs.job_url(job_id))

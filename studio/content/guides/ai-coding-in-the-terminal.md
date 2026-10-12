@@ -11,7 +11,7 @@ order: 3
 - **GitHub Copilot CLI** turns its screen reader support on by itself when it detects a screen reader, and has a `--screen-reader` flag.
 - **OpenAI Codex CLI** has no screen reader mode. It turns its animations off when it detects a screen reader.
 - **Gemini CLI** has a `--screen-reader` flag, but since June 18, 2026 Google no longer serves free, Google AI Pro or Ultra users through it. Its replacement, Antigravity CLI, has no screen reader mode.
-- Blind developers have built add-ons that fill the gaps. They are small projects and can break after updates.
+- People in the community have built add-ons that fill the gaps. They are small projects and can break after updates.
 
 These tools change every week. Each fact below links to its source, and this guide was last checked in October 2026.
 
@@ -67,7 +67,7 @@ From Anthropic's documentation and from issues blind users filed:
 - Some multiple-choice question pickers are hard to use with NVDA ([issue 88839](https://github.com/anthropics/claude-code/issues/88839)).
 - There is no built-in speech, no earcons, and no option to hold speech until the turn is done ([issue 87978](https://github.com/anthropics/claude-code/issues/87978); [issue 70425](https://github.com/anthropics/claude-code/issues/70425)).
 
-A blind user wrote in July 2026: "While nearly unusable to me only a couple of weeks ago, the new sr mode has enabled me to be in the CLI on a very regular basis." ([issue 11002](https://github.com/anthropics/claude-code/issues/11002))
+A user wrote in July 2026, on the request that led to this mode: "While nearly unusable to me only a couple of weeks ago, the new sr mode has enabled me to be in the CLI on a very regular basis." ([issue 11002](https://github.com/anthropics/claude-code/issues/11002))
 
 ### Claude Code in VS Code and in the desktop app
 
@@ -80,7 +80,6 @@ The desktop app is harder to use today. Known problems include the conversation 
 - Copilot CLI has had a `--screen-reader` mode since October 2025, and can remember the choice in its settings ([Copilot CLI changelog](https://raw.githubusercontent.com/github/copilot-cli/main/changelog.md)).
 - Its redesigned terminal interface, generally available since June 23, 2026, turns screen reader support on automatically when it detects a screen reader. Icons are labelled and animations switch themselves off. The `/theme` command offers high-contrast and colorblind themes ([GitHub changelog, June 23, 2026](https://github.blog/changelog/2026-06-23-copilot-cli-new-terminal-interface-is-generally-available/)).
 - Version 1.0.71 (July 2026) announces the focused row in pickers. Version 1.0.81 (August 27, 2026) added Ctrl+Space to turn voice dictation on and off.
-- GitHub publishes a guide to using Git, GitHub CLI and Copilot CLI with a screen reader ([GitHub accessibility guide](https://accessibility.github.com/documentation/guide/cli/)).
 
 Known problem: the status bar is announced on every key press ([issue 1642](https://github.com/github/copilot-cli/issues/1642), open with no reply from GitHub).
 
@@ -99,17 +98,17 @@ Known problem: the status bar is announced on every key press ([issue 1642](http
   ui.accessibility.screenReader
   ```
 - On June 18, 2026, Gemini CLI stopped serving free, Google AI Pro and Ultra requests, in favour of Antigravity CLI. Paid API keys and Code Assist Standard and Enterprise were not affected ([Google's announcement](https://github.com/google-gemini/gemini-cli/discussions/27274)).
-- Antigravity CLI has no screen reader mode. The request to restore it has been open since May 19, 2026. Blind users wrote that they could not get past the setup, and that it is "impossible for some tasks!" ([issue 6](https://github.com/google-antigravity/antigravity-cli/issues/6)).
+- Antigravity CLI has no screen reader mode. The request to restore it has been open since May 19, 2026. A blind VoiceOver user wrote that they could not get past the setup, and another user called it "impossible for some tasks!" ([issue 6](https://github.com/google-antigravity/antigravity-cli/issues/6)).
 
 ## Community add-ons
 
-Blind developers and others built tools around these agents. All are small, mostly maintained by one person, and may break when the agent updates. Read each project's own page before you install it.
+People in the community built tools around these agents, several of them with blind users in mind. All are small, mostly maintained by one person, and may break when the agent updates. Read each project's own page before you install it.
 
 - **earshot** for Claude Code: detects VoiceOver, NVDA or JAWS and offers to turn on screen reader mode, delivers each answer whole instead of streaming it, speaks short progress lines such as "Starting work." and "Still working, 10 seconds.", and rings a bell when the answer lands. Needs Claude Code 2.1.292 or later. Created in October 2026 and not yet tested by its planned blind testers ([claude-code-earshot](https://github.com/unlocked-spark/claude-code-earshot)).
 - **BlindPilot**: a desktop app with native controls that runs Claude Code, Codex, Gemini CLI and other agents, and splits each answer into rows you move through with the arrow keys. Warning: its README says every agent runs in bypass permissions mode by default, which means the agent acts without asking you first. Change that before you use it on anything important ([BlindPilot](https://github.com/serrebidev/BlindPilot)).
-- **claude-code-reader**: a desktop wrapper around Claude Code with native controls. Its author says it was tested with VoiceOver, NVDA and JAWS. The builds are not signed ([claude-code-reader](https://github.com/doubletaponair/claude-code-reader)).
+- **claude-code-reader**: a desktop wrapper around Claude Code with native controls. Its README says it was tested with VoiceOver, and with the Win32 accessibility interfaces that NVDA and JAWS use, rather than directly with NVDA and JAWS. The builds are not signed ([claude-code-reader](https://github.com/doubletaponair/claude-code-reader)).
 - **claude-code-audio-recap**: for Mac only. After each turn, it speaks a short summary written by a smaller Claude model ([claude-code-audio-recap](https://github.com/leonidb/claude-code-audio-recap)).
-- **agentaloud**: shows Claude Code and Codex answers as structured content for NVDA ([agentaloud](https://github.com/lpintes/agentaloud)).
+- **agentaloud**: a Windows app that shows Claude Code and Codex answers as structured content for NVDA ([agentaloud](https://github.com/lpintes/agentaloud)).
 
 ## Habits that help
 

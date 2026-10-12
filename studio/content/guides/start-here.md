@@ -10,7 +10,7 @@ order: 1
 - Every page has one main heading that says where you are or what just happened. Jump to it first.
 - Each page puts the summary first and the details after, under headings.
 - Slow AI work happens on a job page. It has a "Check again" link. If JavaScript is on, it checks by itself and plays three short taps when the work is done.
-- Before the AI builds or does anything, it reads back what it understood. You correct it or tell it to go ahead.
+- Before the AI builds something new or does a task for you, it reads back what it understood. You correct it or tell it to go ahead.
 - The AI is paid for with your own Claude API key or with credits.
 - There is no phone line. Help comes from other members in [Ask the community](/help).
 
@@ -50,10 +50,12 @@ If the work fails, the heading starts with "This did not finish", followed by th
 
 ## Read-backs: the AI checks with you first
 
-Before the AI builds something or does something for you, it tells you what it understood: a read-back. Listen to it carefully.
+Before the AI builds something new or does a task for you, it tells you what it understood: a read-back. Listen to it carefully.
 
 - If it is right, tell it to go ahead.
 - If something is wrong or missing, correct it in your own words. It reads back again.
+
+When you ask for a change to something already built, there is no read-back: the AI makes the change, and the result page tells you what changed.
 
 The AI never silently changes your words. When it suggests a change to something you wrote, it shows the text before and after, and you accept or reject each change.
 
@@ -63,7 +65,7 @@ Every result also says what was checked, how it was checked, and what nobody has
 
 There are two ways to pay for the AI's work.
 
-- **Your own Claude API key.** Connect it on [your account page](/account). The AI then runs on your key and you pay Anthropic directly. This site charges nothing for it. The site stores your key encrypted and never shows it again.
+- **Your own Claude API key.** Connect it on [your account page](/account). The AI then runs on your key and you pay Anthropic directly. This site charges nothing for it. The site stores your key encrypted and never shows it again in full: only its last 4 characters, so you can tell which key it is.
 - **Credits.** If the site has its own key turned on, you can buy credits instead. Each piece of AI work costs what the AI used, plus a markup. [How paying works](/pricing) explains the details.
 
 If you have neither, the page tells you plainly. Nothing is faked.
