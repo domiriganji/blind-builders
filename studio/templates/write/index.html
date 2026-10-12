@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% from "_macros.html" import error_summary %}
+{% block content %}
+<h1>{{ title }}</h1>
+{% if user %}
+<p class="lead">{% if docs %}You have {{ docs|length }} document{{ '' if docs|length == 1 else 's' }}. The most recently saved is first.{% else %}You have no documents yet. Start one below.{% endif %}</p>
+<p>Write or paste your text. When you ask, the AI suggests changes one at a time, shown as before and after. Nothing changes until you accept it, and every saved change is kept as a version.</p>
+{% if docs %}
+<h2>Your documents</h2>
+<table>
+  <thead><tr><th scope="col">Title</th><th scope="col">Kind</th><th scope="col">Words</th><th scope="col">Last saved</th></tr></thead>
+  <tbody>
+  {% for d in docs %}
+  <tr><td><a href="/write/{{ d.id }}">{{ d.title }}</a></td><td>{{ d.kind_name }}</td><td>{{ d.words }}</td><td>{{ d.updated }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+<h2>Start a new document</h2>
+{{ error_summary(errors) }}
+{% include "write/_new_form.html" %}
+{% else %}
+<p class="lead">Write articles, papers, letters and stories, and get them ready to publish.</p>
+<h2>What you can do here</h2>
+<ul>
+  <li>Write or paste your text in a plain text box that works with screen readers and braille displays.</li>
+  <li>Ask the AI for suggestions: spelling and grammar, clearer wording, structure, a shorter version, or fitting a publication. Each one is shown as "was" and "now" with a reason, and you accept or reject it. The AI never changes your words by itself.</li>
+  <li>Every change is saved as a version, so you can go back to any earlier text.</li>
+  <li>Export to Word, Markdown, plain text, a web page or LaTeX.</li>
+  <li>Ask the AI to search the web for journals, magazines or preprint servers, with their rules, fees and what is known about their submission systems.</li>
+  <li>Get a first draft of a cover letter for the publication you choose.</li>
+</ul>
+<h2>Get started</h2>
+<p>Your documents are private to you. <a href="/login?next=/write">Sign in to write</a> or <a href="/register?next=/write">create a free account</a>.</p>
+{% endif %}
+{% endblock %}
