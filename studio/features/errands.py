@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlparse
 
@@ -22,7 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from markupsafe import Markup
 
 from .. import db, jobs
-from ..ai import AINotAvailable
+from ..ai import AIError, AINotAvailable
 from ..web import checked_form, flash, get_ai, markdown, redirect, render, require_user
 
 router = APIRouter(prefix="/do")
@@ -55,6 +56,7 @@ KINDS = [
 REQUEST_HINT = "Say what you need, as you would to a friend. Do not include passwords, card numbers or codes."
 MAX_REQUEST = 4000
 MAX_NOTE = 4000
+MAX_NOTES = 20  # corrections and answers kept for one errand
 
 # Status of an errand:
 #   new         saved; the AI has not read it back yet (a job may be running, or it failed)
@@ -90,6 +92,16 @@ _SECRET_IS = re.compile(rf"\b{_SECRET_WORD}\s+(?:is|was)\s+(?:[\"'\u2018\u201c](
 _SECRET_VALUE_CHARS = re.compile(r"[\d!@#$%^&*()+=?<>{}\[\]|\\/~`_:;]")
 # "PIN 4821", "my pin number 123456"
 _PIN_DIGITS = re.compile(r"\bpin(?:\s*(?:code|number))?\s*(?:-\s*)?\d{4,8}\b", re.IGNORECASE)
+# "my password Sunflower77": a secret word straight before a word with both letters and digits
+_SECRET_BARE = re.compile(rf"\b{_SECRET_WORD}\s+(?=\S*[^\W\d_])(?=\S*\d)\S{{4,}}", re.IGNORECASE)
+# "the code they sent me is 482913", "they texted me a code: 4829"
+_SENT_CODE = re.compile(
+    r"\bcode\b[^.\n]{0,40}?\b(?:sent|texted|emailed|got|received)\b[^.\n]{0,30}?\b\d{4,8}\b"
+    r"|\b(?:sent|texted|emailed|got|received)\b[^.\n]{0,30}?\bcode\b[^.\n]{0,30}?\b\d{4,8}\b", re.IGNORECASE)
+# Codes that are not secrets: "discount code 1234", "zip code 90210", "tracking code ..."
+_HARMLESS_CODE = re.compile(
+    r"\b(?:discount|promo|promotion|voucher|coupon|gift|zip|post|area|dialling|dialing|country|tracking|"
+    r"reference|product|error|tax|course|booking|order|sort)\s+code\b", re.IGNORECASE)
 # "verification code 482913", "security code: 123", "text code is 12 34 56"
 _ONE_TIME = re.compile(
     r"\b(?:one[- ]time|verification|security|authentication|authenticator|auth|login|log-in|sign-in|sms|text|access)"
@@ -131,7 +143,7 @@ def find_secret(text: str) -> str | None:
     """A plain message if the text looks like it holds a password, a one-time code or a card number."""
     if not text:
         return None
-    if _SECRET_ASSIGN.search(text) or _PIN_DIGITS.search(text):
+    if _SECRET_ASSIGN.search(text) or _PIN_DIGITS.search(text) or _SECRET_BARE.search(text):
         return ("This looks like it includes a password or PIN. Please take it out. "
                 "This site never needs your passwords, and the AI must not see them.")
     for m in _SECRET_IS.finditer(text):
@@ -139,7 +151,8 @@ def find_secret(text: str) -> str | None:
         if m.group("quoted") or _SECRET_VALUE_CHARS.search(value):
             return ("This looks like it includes a password or PIN. Please take it out. "
                     "This site never needs your passwords, and the AI must not see them.")
-    if _ONE_TIME.search(text) or _OTP_WORD.search(text):
+    if (_ONE_TIME.search(text) or _OTP_WORD.search(text)
+            or (_SENT_CODE.search(text) and not _HARMLESS_CODE.search(text))):
         return ("This looks like it includes a one-time code or security code. Please take it out. "
                 "This site never needs your codes, and the AI must not see them.")
     if _has_card_number(text):
@@ -159,13 +172,28 @@ def _short(text: str, limit: int = 80) -> str:
 
 
 def _str(value: Any, limit: int = 2000) -> str:
-    return " ".join(str(value).split())[:limit] if isinstance(value, (str, int, float)) else ""
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        return ""
+    return " ".join(str(value).split())[:limit]
+
+
+def _list(value: Any) -> list:
+    """The value if the AI gave a list, otherwise an empty list (never a string or a number to loop over)."""
+    return value if isinstance(value, list) else []
 
 
 def _str_list(value: Any, limit: int = 30) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return [s for s in (_str(v) for v in value) if s][:limit]
+    return [s for s in (_str(v) for v in _list(value)) if s][:limit]
+
+
+def _form_text(form: dict, name: str) -> str:
+    """One text field from a checked form: the first value if it was sent twice, line endings made plain."""
+    value = form.get(name)
+    if isinstance(value, list):
+        value = value[0] if value else ""
+    if not isinstance(value, str):
+        return ""
+    return value.replace("\r\n", "\n").replace("\r", "\n").strip()
 
 
 def _web_url(url: Any) -> str:
@@ -185,15 +213,34 @@ def _loads(text: str, default: Any) -> Any:
 _HEADING_TAG = re.compile(r"<(/?)h([1-6])>")
 
 
-def answer_html(md: str) -> Markup:
-    """Render AI Markdown (raw HTML escaped) with its top heading level moved to h2, under the page's h1."""
+def answer_html(md: str, top: int = 3) -> Markup:
+    """Render AI Markdown (raw HTML escaped) with its headings moved under the page's own headings.
+
+    The AI's top heading level becomes `top`, and no heading skips a level (an h2 followed by an h4
+    becomes h3 then h4), so people moving by headings never land in a gap.
+    """
     html = str(markdown(md))
     levels = [int(m.group(2)) for m in _HEADING_TAG.finditer(html) if not m.group(1)]
     if not levels:
         return Markup(html)
-    shift = 2 - min(levels)
-    return Markup(_HEADING_TAG.sub(
-        lambda m: f"<{m.group(1)}h{min(max(int(m.group(2)) + shift, 2), 6)}>", html))
+    shift = top - min(levels)
+    state = {"prev": top - 1, "open": top}
+
+    def fix(m: re.Match) -> str:
+        if m.group(1):
+            return f"</h{state['open']}>"
+        level = min(max(int(m.group(2)) + shift, top), state["prev"] + 1, 6)
+        state["prev"] = state["open"] = level
+        return f"<h{level}>"
+
+    return Markup(_HEADING_TAG.sub(fix, html))
+
+
+# The site never asks for these, so a read-back question or request for them is dropped.
+_ASKS_FOR_SECRET = re.compile(
+    r"\b(passwords?|passcodes?|passphrases?|pins?|pin (?:code|number)|cvv|cvc|(?:credit|debit|bank|payment) cards?|"
+    r"card details|card security|bank details|bank account|sort code|routing number|iban|"
+    r"one[- ]time|verification code|security code|login code|sign-in code|otp|2fa)\b", re.IGNORECASE)
 
 
 def normalize_contract(raw: Any) -> dict:
@@ -204,8 +251,9 @@ def normalize_contract(raw: Any) -> dict:
         "steps": _str_list(raw.get("steps")),
         "will_not_do": SITE_RULES + ai_will_not,
         "done_when": _str(raw.get("done_when"), 1000),
-        "questions": _str_list(raw.get("questions")),
-        "information_needed_from_you": _str_list(raw.get("information_needed_from_you")),
+        "questions": [q for q in _str_list(raw.get("questions")) if not _ASKS_FOR_SECRET.search(q)],
+        "information_needed_from_you": [i for i in _str_list(raw.get("information_needed_from_you"))
+                                        if not _ASKS_FOR_SECRET.search(i)],
     }
 
 
@@ -218,15 +266,16 @@ def normalize_prepared(raw: Any) -> dict:
     raw = raw if isinstance(raw, dict) else {}
     where = raw.get("where_to_go") if isinstance(raw.get("where_to_go"), dict) else {}
     steps = []
-    for s in raw.get("steps") or []:
+    for s in _list(raw.get("steps")):
         if isinstance(s, dict) and _str(s.get("instruction")):
             steps.append({"instruction": _str(s.get("instruction")), "screen_reader_tip": _str(s.get("screen_reader_tip"))})
     answers = []
-    for a in raw.get("prepared_answers") or []:
+    for a in _list(raw.get("prepared_answers")):
         if not isinstance(a, dict) or not _str(a.get("field_label")):
             continue
         label = _str(a.get("field_label"), 200)
-        answer = str(a.get("suggested_answer") or "").strip()[:2000]
+        value = a.get("suggested_answer")
+        answer = (str(value) if isinstance(value, (str, int, float)) and not isinstance(value, bool) else "").strip()[:2000]
         note = _str(a.get("note"), 1000)
         # Never show a secret as a prepared answer, whatever the AI wrote.
         if _SENSITIVE_FIELD.search(label) or find_secret(answer):
@@ -290,11 +339,40 @@ def _create(user_id: int, kind: str, request_text: str, parent_id: int | None = 
         return int(cur.lastrowid)
 
 
+DUPLICATE_SECONDS = 120
+
+
+def _recent_duplicate(user_id: int, kind: str, request_text: str, parent_id: int | None = None) -> int | None:
+    """An errand with the same words sent in the last two minutes (a double press of the button), if any."""
+    since = (datetime.now(timezone.utc) - timedelta(seconds=DUPLICATE_SECONDS)).replace(microsecond=0).isoformat()
+    with db.session() as conn:
+        row = conn.execute(
+            "SELECT id FROM errands WHERE user_id = ? AND kind = ? AND request = ? AND parent_id IS ?"
+            " AND status IN ('new', 'understood') AND created_at >= ? ORDER BY id DESC LIMIT 1",
+            (user_id, kind, request_text, parent_id, since),
+        ).fetchone()
+    return int(row["id"]) if row else None
+
+
 def _list_for(user_id: int) -> list[dict]:
     with db.session() as conn:
         rows = conn.execute("SELECT * FROM errands WHERE user_id = ? ORDER BY updated_at DESC, id DESC",
                             (user_id,)).fetchall()
     return [_view(dict(r)) for r in rows]
+
+
+STALE_JOB_MINUTES = 30
+
+
+def _job_is_stale(job: dict) -> bool:
+    """True if a job still says queued or running long after any AI call could take."""
+    try:
+        started = datetime.fromisoformat(job["created_at"])
+    except (TypeError, ValueError, KeyError):
+        return False
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - started > timedelta(minutes=STALE_JOB_MINUTES)
 
 
 def _view(errand: dict) -> dict:
@@ -303,7 +381,11 @@ def _view(errand: dict) -> dict:
     errand["contract"] = _loads(errand["contract_json"], None)
     errand["prepared"] = _loads(errand["prepared_json"], None)
     errand["sources"] = _loads(errand["sources_json"], [])
-    errand["notes"] = _loads(errand["notes_json"], [])
+    errand["notes"] = [n for n in _list(_loads(errand["notes_json"], [])) if isinstance(n, dict)]
+    if errand["status"] == "understood" and not isinstance(errand["contract"], dict):
+        errand["status"] = "new"  # the read-back is missing: offer to read it back again
+    if errand["status"] == "done" and errand["kind"] == "task" and not isinstance(errand["prepared"], dict):
+        errand["prepared"] = normalize_prepared({})
     goal = (errand["contract"] or {}).get("goal") or ""
     errand["label"] = _short(goal or errand["request"])
     errand["kind_words"] = "Find information" if errand["kind"] == "find" else "Task on a website"
@@ -311,7 +393,12 @@ def _view(errand: dict) -> dict:
     job = jobs.get(errand["job_id"]) if errand["job_id"] else None
     errand["job"] = job
     errand["job_failed"] = bool(job and job["status"] == "failed")
+    errand["job_error"] = job["error"] if errand["job_failed"] else ""
     errand["job_active"] = bool(job and job["status"] in ("queued", "running"))
+    if errand["job_active"] and _job_is_stale(job):
+        # The server restarted or the work hung: say so and offer to try again, instead of waiting forever.
+        errand["job_active"], errand["job_failed"] = False, True
+        errand["job_error"] = "It may have been stopped by a restart of the site. Nothing was lost: your request is saved."
     if errand["status"] in ("new", "working") and not errand["job_active"]:
         errand["status_words"] = ("Not read back yet" if errand["status"] == "new" else "Not finished yet")
     return errand
@@ -485,25 +572,37 @@ def _run(ctx, ai, errand_id: int, profile: dict) -> str:
     if errand["kind"] == "find":
         ctx.progress("Searching the web and reading sources")
         result = ai.research(system=FIND_SYSTEM, prompt=context, purpose="errands.find")
+        text = (result.text or "").strip() if isinstance(result.text, str) else ""
+        if not text:
+            # Never show an empty page that says "Found". The job page explains, and the errand offers Try again.
+            raise AIError("The AI searched but did not write an answer. Press Try again, or reword your request.")
         if _row(errand_id) is None:
             return "/do"
-        _update(errand_id, result_md=result.text, sources_json=json.dumps(_clean_sources(result.sources)),
+        _update(errand_id, result_md=text, sources_json=json.dumps(_clean_sources(result.sources)),
                 status="done")
         return f"/do/{errand_id}"
-    ctx.progress("Finding the official website and its instructions")
-    research = ai.research(system=TASK_RESEARCH_SYSTEM, prompt=context, purpose="errands.task_research")
-    sources = _clean_sources(research.sources)
+    if errand["result_md"].strip():
+        # An earlier try finished the web research but stopped while preparing: use it, do not pay for it twice.
+        research_text = errand["result_md"]
+        sources = _loads(errand["sources_json"], [])
+    else:
+        ctx.progress("Finding the official website and its instructions")
+        research = ai.research(system=TASK_RESEARCH_SYSTEM, prompt=context, purpose="errands.task_research")
+        research_text = (research.text or "").strip() if isinstance(research.text, str) else ""
+        sources = _clean_sources(research.sources)
+        if _row(errand_id) is None:
+            return "/do"
+        _update(errand_id, result_md=research_text, sources_json=json.dumps(sources))
     ctx.progress("Preparing the steps and your answers")
     source_lines = "\n".join(f"- {s['title']}: {s['url']}" for s in sources)
-    prompt = (context + "\n\nResearch notes (written by the AI from web search):\n" + research.text
+    prompt = (context + "\n\nResearch notes (written by the AI from web search):\n" + (research_text or "(none)")
               + "\n\nSources found:\n" + (source_lines or "(none)"))
     raw = ai.structured(system=TASK_PREPARE_SYSTEM, prompt=prompt, schema=PREPARE_SCHEMA,
                         purpose="errands.task_prepare")
     prepared = normalize_prepared(raw)
     if _row(errand_id) is None:
         return "/do"
-    _update(errand_id, result_md=research.text, sources_json=json.dumps(sources),
-            prepared_json=json.dumps(prepared), status="done")
+    _update(errand_id, prepared_json=json.dumps(prepared), status="done")
     return f"/do/{errand_id}"
 
 
@@ -519,12 +618,13 @@ def _start(request: Request, user: dict, errand_id: int, step: str):
     except AINotAvailable as exc:
         flash(request, exc.user_message, "error")
         return None
+    errand = _view(_row(errand_id))
+    # The title names the errand, so the list in "Your recent work" says which errand each line is about.
     if step == "understand":
-        job_id = jobs.submit(user["id"], "errands.understand", "Reading back your request", _understand,
-                             ai, errand_id, _profile(user))
+        title = f"Reading back your request: {_short(errand['request'], 60)}"
+        job_id = jobs.submit(user["id"], "errands.understand", title, _understand, ai, errand_id, _profile(user))
     else:
-        errand = _row(errand_id)
-        title = "Finding the information" if errand and errand["kind"] == "find" else "Preparing your task"
+        title = ("Finding the information: " if errand["kind"] == "find" else "Preparing your task: ") + errand["label"]
         job_id = jobs.submit(user["id"], "errands.run", title, _run, ai, errand_id, _profile(user))
     _update(errand_id, job_id=job_id)
     return redirect(jobs.job_url(job_id))
@@ -538,29 +638,57 @@ def _add_note(errand: dict, text: str) -> None:
 
 # ----- pages -------------------------------------------------------------------------------------
 
+# Errands on the index are grouped under headings, so a long list can be skipped through by heading.
+GROUPS = [
+    ("waiting", "Waiting for you to check what I understood"),
+    ("working", "Being worked on or not finished"),
+    ("done", "Done"),
+]
+
+
+def _group(errand: dict) -> str:
+    if errand["status"] == "understood":
+        return "waiting"
+    return "done" if errand["status"] == "done" else "working"
+
+
 def _index_page(request: Request, user: dict, *, values: dict | None = None, errors: dict | None = None,
-                status_code: int = 200):
-    title = "Do this for me" + (": please fix the problems" if errors else "")
+                status_code: int = 200, title: str = "Do this for me"):
+    title = title + (": please fix the problems" if errors else "")
+    errands = _list_for(user["id"])
+    groups = [(heading, [e for e in errands if _group(e) == key]) for key, heading in GROUPS]
     return render(request, "errands/index.html", title=title, kinds=KINDS, hint=REQUEST_HINT,
                   values=values or {"kind": "find", "request": ""}, errors=errors or {},
-                  errands=_list_for(user["id"]), status_code=status_code)
+                  errands=errands, groups=[g for g in groups if g[1]], status_code=status_code)
 
 
 @router.get("")
 def index(request: Request, user: dict = Depends(require_user)):
+    deleted = request.session.pop("errands_deleted", None)
+    if isinstance(deleted, str) and deleted:
+        # The h1 says what just happened.
+        return _index_page(request, user, title=f"Errand deleted: {deleted}")
     return _index_page(request, user)
+
+
+@router.get("/new")
+def new_errand_get(request: Request, user: dict = Depends(require_user)):
+    """Someone reloaded or bookmarked the address of the form: show the form."""
+    return redirect("/do")
 
 
 @router.post("/new")
 async def new_errand(request: Request, user: dict = Depends(require_user)):
     form = await checked_form(request)
-    kind = str(form.get("kind") or "").strip()
-    text = str(form.get("request") or "").strip()
+    kind = _form_text(form, "kind")
+    text = _form_text(form, "request")
     errors: dict[str, str] = {}
     if kind not in ("find", "task"):
-        errors["kind"] = "Choose whether to find information or to get help with a task on a website."
+        errors["kind"] = ("Choose what you want: find information and bring it back, "
+                          "or help with a task on a website.")
     if not text:
-        errors["request"] = "Say what you need."
+        errors["request"] = ("Write what you need in the box. For example: "
+                             "find the opening hours of the central library in Leeds.")
     elif len(text) > MAX_REQUEST:
         errors["request"] = f"Make your request shorter: at most {MAX_REQUEST:,} characters. It has {len(text):,}."
     else:
@@ -569,8 +697,21 @@ async def new_errand(request: Request, user: dict = Depends(require_user)):
             errors["request"] = secret
     if errors:
         return _index_page(request, user, values={"kind": kind, "request": text}, errors=errors, status_code=400)
+    duplicate = _recent_duplicate(user["id"], kind, text)
+    if duplicate:
+        # The button was pressed twice, or the same request was sent again after a failed try:
+        # do not make (or pay for) the same errand twice.
+        return _resume(request, user, duplicate)
     errand_id = _create(user["id"], kind, text)
     return _start(request, user, errand_id, "understand") or redirect(f"/do/{errand_id}")
+
+
+def _resume(request: Request, user: dict, errand_id: int):
+    """Go to an errand that was just made; if its read-back stopped, try it again."""
+    errand = _view(_owned(errand_id, user))
+    if errand["status"] == "new" and not errand["job_active"]:
+        return _start(request, user, errand_id, "understand") or redirect(f"/do/{errand_id}")
+    return redirect(f"/do/{errand_id}")
 
 
 def _understood_title(errand: dict) -> str:
@@ -613,8 +754,8 @@ async def respond(request: Request, errand_id: int, user: dict = Depends(require
     if errand["status"] != "understood":
         flash(request, "This errand is not waiting for an answer from you right now.", "info")
         return redirect(f"/do/{errand_id}")
-    action = str(form.get("action") or "")
-    text = str(form.get("answer") or "").strip()
+    action = _form_text(form, "action")
+    text = _form_text(form, "answer")
     error = ""
     if action not in ("update", "go"):
         error = "Press Update to have me read it back again, or Go ahead to start."
@@ -622,6 +763,9 @@ async def respond(request: Request, errand_id: int, user: dict = Depends(require
         error = "Write your corrections or answers, then press Update. If everything is right, press Go ahead."
     elif len(text) > MAX_NOTE:
         error = f"Make this shorter: at most {MAX_NOTE:,} characters. It has {len(text):,}."
+    elif text and len(errand["notes"]) >= MAX_NOTES:
+        error = (f"This errand already has {MAX_NOTES} corrections, which is the most it can hold. "
+                 "Empty this box and press Go ahead, or start a new errand with everything in one request.")
     elif text:
         error = find_secret(text) or ""
     if error:
@@ -660,16 +804,19 @@ async def follow_up(request: Request, errand_id: int, user: dict = Depends(requi
     if errand["status"] != "done" or errand["kind"] != "find":
         flash(request, "You can ask a follow-up question once an answer has been found.", "info")
         return redirect(f"/do/{errand_id}")
-    text = str(form.get("question") or "").strip()
+    text = _form_text(form, "question")
     error = ""
     if not text:
-        error = "Write your follow-up question."
+        error = "Write your follow-up question in the box, then press Ask the follow-up."
     elif len(text) > MAX_REQUEST:
         error = f"Make your question shorter: at most {MAX_REQUEST:,} characters. It has {len(text):,}."
     else:
         error = find_secret(text) or ""
     if error:
         return _errand_page(request, errand, values={"question": text}, errors={"question": error}, status_code=400)
+    duplicate = _recent_duplicate(user["id"], "find", text, parent_id=errand_id)
+    if duplicate:
+        return _resume(request, user, duplicate)
     new_id = _create(user["id"], "find", text, parent_id=errand_id)
     return _start(request, user, new_id, "understand") or redirect(f"/do/{new_id}")
 
@@ -686,9 +833,17 @@ async def delete(request: Request, errand_id: int, user: dict = Depends(require_
     errand = _owned(errand_id, user)
     with db.session() as conn:
         conn.execute("DELETE FROM errands WHERE id = ? AND user_id = ?", (errand["id"], user["id"]))
-    flash(request, "The errand is deleted.", "success")
+    request.session["errands_deleted"] = _view(errand)["label"]
     return redirect("/do")
 
+
+@router.get("/{errand_id}/respond")
+@router.get("/{errand_id}/retry")
+@router.get("/{errand_id}/follow-up")
+def form_address_get(request: Request, errand_id: int, user: dict = Depends(require_user)):
+    """Someone reloaded or bookmarked the address a form was sent to: take them to the errand."""
+    _owned(errand_id, user)
+    return redirect(f"/do/{errand_id}")
 
 
 def forget_user(user_id: int) -> None:

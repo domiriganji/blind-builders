@@ -3,7 +3,8 @@
 {% block content %}
 <h1>{{ title }}</h1>
 {{ error_summary(errors) }}
-<p class="lead">The AI found this on the web and wrote this answer. Nobody at the site has checked it. Check important facts, like dates, prices and rules, at the sources before you rely on them.</p>
+<p class="lead">The AI searched the web and wrote this answer. Nobody at the site has checked it. Check important facts, like dates, prices and rules, at the sources before you rely on them.</p>
+<h2>Answer written by the AI</h2>
 <div>
 {{ answer }}
 </div>
@@ -13,6 +14,10 @@
 <h2>Sources the AI used</h2>
 <p>The AI did not give any sources for this answer. Treat it with care and check it somewhere you trust.</p>
 {% endif %}
+
+<h2>What was checked</h2>
+<p>Checked by the site: every source link is an ordinary web address. Links of other kinds were left out.</p>
+<p>Not checked: the site did not open the sources, and nobody checked that they say what the AI says or that they are up to date. The AI was asked to end its answer with what it could not confirm.</p>
 
 <h2>Ask a follow-up question</h2>
 <form method="post" action="/do/{{ errand.id }}/follow-up" novalidate>

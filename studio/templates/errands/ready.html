@@ -3,14 +3,14 @@
 {% block content %}
 <h1>{{ title }}</h1>
 {% set p = errand.prepared %}
-<p class="lead">Here is where to go, what to have ready, the steps and the answers I prepared. This site does not log in, pay or send anything for you. You do the task yourself, when you are ready.</p>
+<p class="lead">The AI wrote this plan from web pages it found: where to go, what to have ready, the steps and answers for the form. Nobody at the site has tried it. This site does not log in, pay or send anything for you. You do the task yourself, when you are ready.</p>
 
 <h2>Where to go</h2>
 {% if p.where_to_go.url %}
 <p><a href="{{ p.where_to_go.url }}" rel="noopener noreferrer">{{ p.where_to_go.title or p.where_to_go.url }}</a></p>
 <p class="meta">Web address: {{ p.where_to_go.url }}</p>
 {% else %}
-<p>The AI did not find an official web address{% if p.where_to_go.title %} for {{ p.where_to_go.title }}{% endif %}. Look at the sources below, and be careful with websites that charge a fee for something the official site does for free.</p>
+<p>The AI did not find an official web address{% if p.where_to_go.title %} for {{ p.where_to_go.title }}{% endif %}. Look at the sources under "What was checked", and be careful with websites that charge a fee for something the official site does for free.</p>
 {% endif %}
 
 <h2>Before you start</h2>
@@ -28,7 +28,7 @@
 {% endfor %}
 </ol>
 {% else %}
-<p>The AI could not work out the steps. Use the sources below.</p>
+<p>The AI could not work out the steps. Use the sources under "What was checked".</p>
 {% endif %}
 
 <h2>Prepared answers</h2>
@@ -55,7 +55,8 @@
 <p>{{ p.what_happens_after or 'The AI did not find what happens after you send it. Look for a confirmation message or email when you finish.' }}</p>
 
 <h2>What was checked</h2>
-<p>The AI wrote these steps and tips from the web pages listed under sources. Nobody at the site has tried them, and the website may have changed. If a step does not match what you hear, trust the website itself over this page.</p>
+<p>Checked by the site: the "Where to go" link and every source link are ordinary web addresses, and the site looked for passwords, PINs, card numbers and codes in the prepared answers and replaced any it found with a gap for you to fill in.</p>
+<p>Not checked: the AI wrote these steps and tips from the web pages listed under sources. Nobody at the site has tried them, and the website may have changed. If a step does not match what you hear, trust the website itself over this page.</p>
 {% if errand.sources %}
 {{ sources_list(errand.sources, 2, 'Sources the AI used') }}
 {% else %}
