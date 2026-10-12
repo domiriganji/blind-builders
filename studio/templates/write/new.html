@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% from "_macros.html" import error_summary %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p>Give your document a title and say what kind of writing it is. You write the text on the next page.</p>
+{{ error_summary(errors) }}
+{% include "write/_new_form.html" %}
+<p><a href="/write">Back to your documents</a></p>
+{% endblock %}

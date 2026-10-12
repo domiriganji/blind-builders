@@ -1,0 +1,8 @@
+{% from "_macros.html" import csrf_input, field, radios %}
+<form method="post" action="/write/new" novalidate>
+  {{ csrf_input() }}
+  {{ field('title', 'Title', values.title, required=true, error=errors.title, hint='You can change it later.') }}
+  {{ radios('kind', 'What kind of writing is it?', kinds, values.kind, error=errors.kind) }}
+  {{ field('target', 'Publication you are aiming for', values.target, error=errors.target, hint='For example a journal, magazine or website. Leave it empty if you do not know yet.') }}
+  <button type="submit" class="button button-primary">Start the document</button>
+</form>

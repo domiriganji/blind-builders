@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% from "_macros.html" import post_button %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p class="lead">Saved {{ version.when }}: {{ version.note }}. {{ version.words }} word{{ '' if version.words == 1 else 's' }}.
+{% if same_as_current %}This is the same as your current text.{% else %}This is different from your current text, which has {{ doc.words }} word{{ '' if doc.words == 1 else 's' }}.{% endif %}</p>
+{% if not same_as_current %}
+<p>Restoring makes this version your current text. Your current text is kept in the versions list first, so you can always come back to it.</p>
+{{ post_button('/write/' ~ doc.id ~ '/versions/' ~ version.id ~ '/restore', 'Restore this version', 'primary') }}
+{% endif %}
+<h2>The text of version {{ version.number }}</h2>
+{% if version.body %}
+<pre>{{ version.body }}</pre>
+{% else %}
+<p>This version is empty.</p>
+{% endif %}
+<p><a href="/write/{{ doc.id }}/versions">Back to all versions</a></p>
+<p><a href="/write/{{ doc.id }}">Back to {{ doc.title }}</a></p>
+{% endblock %}

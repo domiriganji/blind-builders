@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% from "_macros.html" import sources_list %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p class="lead">The AI searched the web on {{ research.when }} and wrote what follows. The site has not checked it. Rules, fees and deadlines change, so check each one on the publisher's own website before you submit.</p>
+{% if sources %}
+<p>The AI used {{ sources|length }} source{{ '' if sources|length == 1 else 's' }}, listed at the end.</p>
+{% else %}
+<p>The AI did not list any sources for this answer, so treat it with extra care.</p>
+{% endif %}
+<p class="meta">Written by the AI.</p>
+{{ research.content_md|markdown|shift_headings(1) }}
+{{ sources_list(sources) }}
+<p><a href="/write/{{ doc.id }}">Back to {{ doc.title }}</a></p>
+{% endblock %}

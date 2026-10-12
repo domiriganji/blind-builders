@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_input, error_summary, field, textarea, select, post_button %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p class="lead">{{ doc.kind_name }}. {{ doc.words }} word{{ '' if doc.words == 1 else 's' }}.
+{% if last_version %}Last saved {{ last_version.when }}: {{ last_version.note }}.{% else %}Nothing saved yet.{% endif %}
+{% if doc.target %}Aiming for: {{ doc.target }}.{% endif %}</p>
+{% if last_version and last_version.note == 'Drafted by the AI' %}
+<p class="panel">The AI wrote this draft. Nobody has checked it. Read it carefully, fill in everything in square brackets, and change anything that is not true before you send it.</p>
+{% endif %}
+{{ error_summary(errors) }}
+<nav aria-label="On this page">
+<ul>
+  <li><a href="#edit-title">Edit your text</a></li>
+  <li><a href="#suggest-title">Get suggestions from the AI</a></li>
+  <li><a href="#versions-title">Versions</a></li>
+  <li><a href="#export-title">Export</a></li>
+  <li><a href="#publish-title">Find where to publish</a></li>
+  <li><a href="#cover-title">Draft a cover letter</a></li>
+</ul>
+</nav>
+
+<section aria-labelledby="edit-title">
+<h2 id="edit-title">Edit your text</h2>
+<form method="post" action="/write/{{ doc.id }}/save" novalidate>
+  {{ csrf_input() }}
+  {{ textarea('body', 'Your text', values.body, rows=20, error=errors.body, hint='Start a line with # to make it a heading, ## for a smaller heading. Each save keeps a version you can go back to.') }}
+  {{ field('target', 'Publication you are aiming for', values.target, error=errors.target, hint='Needed for a cover letter and for preparing the text for a publication.') }}
+  {{ field('title', 'Title', values.title, required=true, error=errors.title) }}
+  <button type="submit" class="button button-primary">Save</button>
+</form>
+</section>
+
+<section aria-labelledby="suggest-title">
+<h2 id="suggest-title">Get suggestions from the AI</h2>
+<p>The AI reads the text you last saved, so save first. Each suggestion is shown as what your text was and what it would be, with a reason. Nothing changes until you accept it.</p>
+<form method="post" action="/write/{{ doc.id }}/suggest" novalidate>
+  {{ csrf_input() }}
+  {{ select('goal', 'What should the AI look for?', goals, values.goal, required=true, error=errors.goal) }}
+  {{ textarea('instructions', 'Anything else the AI should know', values.instructions, rows=3, error=errors.instructions, hint='For example: keep British spelling, or the readers are teachers.') }}
+  <button type="submit" class="button button-primary">Get suggestions</button>
+</form>
+{% if batches %}
+<h3>Earlier suggestions</h3>
+<ul class="item-list">
+{% for b in batches %}
+  <li><a href="/write/{{ doc.id }}/suggestions/{{ b.id }}">Suggestions from {{ b.when }}: {{ b.goal_name }}</a> ({{ b.total }} in all, {{ b.waiting }} waiting for your decision)</li>
+{% endfor %}
+</ul>
+{% endif %}
+</section>
+
+<section aria-labelledby="versions-title">
+<h2 id="versions-title">Versions</h2>
+{% if versions %}
+<p>{{ versions|length }} version{{ '' if versions|length == 1 else 's' }} saved. <a href="/write/{{ doc.id }}/versions">See all versions and restore an earlier one</a>.</p>
+{% else %}
+<p>No versions yet. Each time you save, or accept a suggestion, a version is kept. <a href="/write/{{ doc.id }}/versions">See the versions page</a>.</p>
+{% endif %}
+</section>
+
+<section aria-labelledby="export-title">
+<h2 id="export-title">Export</h2>
+<p>Download your text as a Word document, Markdown, plain text, a web page or LaTeX. <a href="/write/{{ doc.id }}/export">Choose a format to export</a>.</p>
+</section>
+
+<section aria-labelledby="publish-title">
+<h2 id="publish-title">Find where to publish</h2>
+<p>The AI searches the web for journals, magazines or preprint servers that suit your text. It looks for their submission rules, any fees, and anything published about how well their submission systems work with screen readers. It lists its sources. The site does not check what it finds.</p>
+{{ post_button('/write/' ~ doc.id ~ '/venues', 'Find where to publish', 'primary') }}
+{% if research %}
+<h3>Earlier searches</h3>
+<ul class="item-list">
+{% for r in research %}
+  <li><a href="/write/{{ doc.id }}/publish/{{ r.id }}">Places to publish, found {{ r.when }}</a></li>
+{% endfor %}
+</ul>
+{% endif %}
+</section>
+
+<section aria-labelledby="cover-title">
+<h2 id="cover-title">Draft a cover letter</h2>
+{% if doc.target %}
+<p>The AI drafts a letter to the editor of {{ doc.target }}, using only what is in your text. It becomes a new document that you edit before sending. Anything it does not know is left in square brackets.</p>
+<form method="post" action="/write/{{ doc.id }}/cover-letter" novalidate>
+  {{ csrf_input() }}
+  {{ textarea('notes', 'Anything the letter should mention', values.notes, rows=3, error=errors.notes, hint='For example: your name, your role, or why you wrote this.') }}
+  <button type="submit" class="button button-primary">Draft a cover letter for {{ doc.target }}</button>
+</form>
+{% else %}
+{% if errors.notes %}<p class="field-error" id="field-notes">{{ errors.notes }}</p>{% endif %}
+<p>To draft a cover letter, first fill in "Publication you are aiming for" in the edit form above and save.</p>
+{% endif %}
+</section>
+
+<section aria-labelledby="delete-title">
+<h2 id="delete-title">Delete this document</h2>
+<p><a href="/write/{{ doc.id }}/delete">Delete {{ doc.title }}</a>. You are asked to confirm first.</p>
+</section>
+<p><a href="/write">Back to your documents</a></p>
+{% endblock %}
