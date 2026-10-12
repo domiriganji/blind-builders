@@ -1,0 +1,18 @@
+{# How this member pays for AI. Needs `status` from account.ai_status(). #}
+{% if status.mode == 'own_key' %}
+<p>You use your own Claude API key ending in <strong>{{ status.last4 }}</strong>. Anthropic bills you directly and this site charges nothing for AI.</p>
+{% elif status.mode == 'credits' %}
+<p>You use credits. Balance: <strong>{{ status.balance_text }}</strong>.</p>
+{% else %}
+<p><strong>The AI is not set up for you yet.</strong>{% if status.key_unreadable %} Your saved Claude API key can no longer be read, so connect it again.{% endif %} There are two ways to fix it:</p>
+<ol>
+  <li><a href="/account/ai-key">Connect your own Claude API key</a>. You pay Anthropic directly and this site charges nothing.</li>
+  {% if status.can_buy %}
+  <li><a href="/account/credits/buy">Buy credits</a> to use the site's AI. Your balance is {{ status.balance_text }}.</li>
+  {% elif status.site_has_key %}
+  <li>Use credits. Your balance is {{ status.balance_text }}. Buying credits is not set up on this site yet, so for now connecting your own key is the way to start.</li>
+  {% else %}
+  <li>Use credits. This site does not offer credits yet, so for now connecting your own key is the way to start.</li>
+  {% endif %}
+</ol>
+{% endif %}

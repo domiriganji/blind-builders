@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_input, error_summary, field %}
+{% block content %}
+<h1>{{ title }}</h1>
+<ul class="panel">
+  <li>Members: {{ counts.members }} (plus {{ counts.deleted }} deleted accounts)</li>
+  <li>Members with their own Claude API key: {{ counts.with_key }}</li>
+  <li>AI jobs: {{ counts.jobs }}, of which {{ counts.jobs_failed }} did not finish</li>
+  <li>AI calls: {{ counts.ai_calls }}. Paid with credits: {{ counts.ai_credits_cents_text }}. On members' own keys: about {{ counts.ai_own_key_cents_text }}.</li>
+  <li>Credit purchases: {{ counts.paid_count }}, totalling {{ counts.paid_cents_text }}</li>
+</ul>
+<h2>Give credits to a member</h2>
+{% if not site_has_key %}
+<p><strong>Note:</strong> this site has no Claude API key of its own, so credits cannot be spent until you set ANTHROPIC_API_KEY.</p>
+{% endif %}
+{{ error_summary(errors) }}
+<form method="post" action="/account/admin" novalidate>
+  {{ csrf_input() }}
+  {{ field('email', "Member's email address", values.email, type='email', required=true, autocomplete='off', error=errors.email) }}
+  {{ field('amount', 'Amount in US dollars', values.amount, required=true, hint='For example 5 or 2.50. At most $1000.00 at a time.', error=errors.amount, extra='inputmode="decimal"') }}
+  {{ field('reason', 'Reason', values.reason, required=true, hint='The member sees this in their credit history.', error=errors.reason) }}
+  <button type="submit" class="button button-primary">Give credits</button>
+</form>
+<p>From the command line you can also run: <code>python -m studio.manage grant-credits EMAIL CENTS REASON</code> and <code>python -m studio.manage make-admin EMAIL</code>.</p>
+<p><a href="/account">Back to your account</a></p>
+{% endblock %}

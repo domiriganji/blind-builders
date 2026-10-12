@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_input, error_summary, field, post_button %}
+{% block content %}
+<h1>{{ title }}</h1>
+{% if last4 %}
+<p>Your own Claude API key ending in <strong>{{ last4 }}</strong> is connected. The AI uses it for everything you do here. Anthropic bills you directly and this site charges nothing for AI.</p>
+{% elif has_saved %}
+<p>A key is saved, but it can no longer be read because the site's secret changed. Connect your key again below.</p>
+{% else %}
+<p>No key is connected. With your own key, you pay Anthropic directly for the AI and this site charges nothing.</p>
+{% endif %}
+{{ error_summary(errors) }}
+<h2>{{ 'Replace your key' if last4 else 'Connect your key' }}</h2>
+<p>To get a key: sign in at <a href="https://console.anthropic.com/" rel="noopener noreferrer">the Anthropic Console (console.anthropic.com)</a>, add billing there, then create a key under API keys and copy it.</p>
+<form method="post" action="/account/ai-key" novalidate>
+  {{ csrf_input() }}
+  {{ field('api_key', 'Claude API key', '', type='password', required=true, autocomplete='off', hint='It starts with sk-ant-. Get one at console.anthropic.com. We check it with Anthropic, store it encrypted and never show it again: you will only see its last 4 characters.', error=errors.api_key, extra='spellcheck="false" autocapitalize="off"') }}
+  <button type="submit" class="button button-primary">Check and save my key</button>
+</form>
+<p>Anyone who has your key can spend your money. Never paste it into Help, a peer check or a project.</p>
+{% if has_saved %}
+<h2>Remove your key</h2>
+<p>After you remove it, the AI uses credits if this site offers them and you have some.</p>
+<div class="actions">{{ post_button('/account/ai-key/remove', 'Remove my key') }}</div>
+{% endif %}
+<p><a href="/account">Back to your account</a></p>
+{% endblock %}
