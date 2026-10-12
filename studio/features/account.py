@@ -1,19 +1,717 @@
-"""Account, pricing and credits. Placeholder until this section is built."""
-from fastapi import APIRouter, Request
+"""Your account and How paying works.
 
-from ..web import render
+- /account: who you are and how you pay for AI, summary first.
+- /account/profile: name, screen reader, device, language, sight onset, answer style, peer-check name.
+- /account/ai-key: connect or remove your own Claude API key (stored encrypted, only the last 4 shown).
+- /account/credits: balance, credit history and AI usage history.
+- /account/credits/buy: buy credits through Stripe Checkout, only when the site owner has set up payments.
+- /payments/stripe/webhook: Stripe tells the site a payment went through (signed, no CSRF, JSON).
+- /account/admin: site owner tools (members with is_admin = 1 only).
+- /account/delete: anonymise the account.
+- /pricing: how paying works, with rough costs worked out from the site's own price list.
+"""
+from __future__ import annotations
 
+import hashlib
+import hmac
+import json
+import logging
+import re
+import secrets
+import sqlite3
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+import anthropic
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import JSONResponse
+
+from .. import credits, db
+from ..ai import PRICES, WEB_SEARCH_DOLLARS, cost_cents
+from ..security import decrypt_secret, encrypt_secret, hash_password
+from ..web import checked_form, flash, redirect, render, require_user
+
+log = logging.getLogger("studio.account")
 router = APIRouter()
 NAV = None
-SCHEMA = ""
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS payments (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    provider TEXT NOT NULL,
+    provider_ref TEXT NOT NULL UNIQUE,
+    amount_cents INTEGER NOT NULL,
+    currency TEXT NOT NULL,
+    credits_cents INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id);
+"""
 
+# ----- choices for the profile form -------------------------------------------------------------
+
+SIGHT_ONSET = [
+    ("birth", "From birth or early childhood"),
+    ("later", "Later in life"),
+    ("low_vision", "I have low vision"),
+    ("prefer_not", "Prefer not to say"),
+]
+VERBOSITY = [
+    ("summary_first", "Summary first, then details"),
+    ("full", "Full detail"),
+]
+LANGUAGES = [
+    ("en", "English"),
+    ("ar", "Arabic"),
+    ("bn", "Bengali"),
+    ("zh", "Chinese"),
+    ("nl", "Dutch"),
+    ("fr", "French"),
+    ("de", "German"),
+    ("ha", "Hausa"),
+    ("hi", "Hindi"),
+    ("ig", "Igbo"),
+    ("id", "Indonesian"),
+    ("it", "Italian"),
+    ("ja", "Japanese"),
+    ("ko", "Korean"),
+    ("fa", "Persian"),
+    ("pl", "Polish"),
+    ("pt", "Portuguese"),
+    ("ru", "Russian"),
+    ("es", "Spanish"),
+    ("sw", "Swahili"),
+    ("tr", "Turkish"),
+    ("uk", "Ukrainian"),
+    ("ur", "Urdu"),
+    ("vi", "Vietnamese"),
+    ("yo", "Yoruba"),
+    ("other", "Another language"),
+]
+
+# Section names for the AI usage history ("build.understand" -> "Build: understand").
+SECTION_LABELS = {
+    "build": "Build",
+    "errands": "Do this for me",
+    "write": "Write and publish",
+    "find": "Find before you build",
+    "research": "Research",
+    "checks": "Peer checks",
+    "ai_tools": "AI tools report",
+    "library": "Tool library",
+    "learn": "Learn and help",
+    "help": "Ask the community",
+    "account": "Your account",
+}
+
+# Credit packs in US cents. One cent of credit pays for one cent of AI cost including the markup.
+PACKS = [500, 1000, 2000]
+MAX_GRANT_CENTS = 100_000
+KEY_RE = re.compile(r"^sk-ant-[A-Za-z0-9_\-]+$")
+KEY_MIN, KEY_MAX = 40, 300
+STRIPE_CHECKOUT_URL = "https://api.stripe.com/v1/checkout/sessions"
+STRIPE_TOLERANCE_SECONDS = 300
+
+# Rough sizes of typical actions, used only for the estimates on the pricing page.
+# (what you do, input tokens, output tokens, web searches)
+ESTIMATES = [
+    ("Understanding an idea and reading it back to you", 3_000, 1_500, 0),
+    ("A short answer or summary", 2_000, 800, 0),
+    ("Checking a 2,000-word piece of writing", 6_000, 6_000, 0),
+    ("Building a small website (one version)", 15_000, 20_000, 0),
+    ("A web search errand or research question", 30_000, 4_000, 5),
+]
+
+
+# ----- helpers ----------------------------------------------------------------------------------
+
+def _settings(request: Request):
+    return request.app.state.settings
+
+
+def _key_last4(settings, user: dict) -> str | None:
+    """The last 4 characters of the member's saved key, or None if there is no readable key."""
+    if not user.get("own_api_key_enc"):
+        return None
+    key = decrypt_secret(settings.secret_key, user["own_api_key_enc"])
+    return key[-4:] if key else None
+
+
+def payments_ready(settings) -> bool:
+    """Credits can be bought only when Stripe is set up and the site has its own Claude key to spend them on."""
+    return bool(settings.stripe_secret_key and settings.anthropic_api_key)
+
+
+def ai_status(settings, user: dict) -> dict:
+    """How this member pays for AI, worked out the same way studio.ai.default_factory does."""
+    balance = credits.balance(user["id"])
+    status = {
+        "balance": balance,
+        "balance_text": credits.format_cents(balance),
+        "site_has_key": bool(settings.anthropic_api_key),
+        "can_buy": payments_ready(settings),
+        "key_unreadable": False,
+    }
+    if user.get("own_api_key_enc"):
+        last4 = _key_last4(settings, user)
+        if last4:
+            return {**status, "mode": "own_key", "last4": last4}
+        status["key_unreadable"] = True
+    if settings.anthropic_api_key and balance > 0:
+        return {**status, "mode": "credits"}
+    return {**status, "mode": "none"}
+
+
+def _purpose_label(purpose: str) -> str:
+    section, _, step = purpose.partition(".")
+    label = SECTION_LABELS.get(section, section.replace("_", " ").capitalize())
+    step = step.replace("_", " ").replace(".", ", ")
+    return f"{label}: {step}" if step else label
+
+
+def _reason_text(reason: str) -> str:
+    """studio.ai records AI charges as "AI: <purpose>"; show the purpose in words."""
+    if reason.startswith("AI: "):
+        return "AI: " + _purpose_label(reason[4:])
+    return reason
+
+
+def _date(text: str) -> str:
+    return (text or "")[:10]
+
+
+def _require_admin(user: dict) -> None:
+    if not user.get("is_admin"):
+        raise HTTPException(status_code=404)
+
+
+def _clean(form: dict, name: str, limit: int) -> str:
+    value = form.get(name, "")
+    if isinstance(value, list):
+        value = value[0] if value else ""
+    return str(value).strip()[:limit]
+
+
+def _parse_dollars(text: str) -> int | None:
+    text = text.strip().lstrip("$").strip()
+    if not re.fullmatch(r"\d{1,6}(\.\d{1,2})?", text):
+        return None
+    whole, _, frac = text.partition(".")
+    return int(whole) * 100 + int((frac + "00")[:2])
+
+
+# ----- account summary --------------------------------------------------------------------------
 
 @router.get("/account")
-def index(request: Request):
-    return render(request, "placeholder.html", title="Your account", section={"label": "Your account", "description": ""})
+def index(request: Request, user: dict = Depends(require_user)):
+    settings = _settings(request)
+    return render(request, "account/index.html", title="Your account", status=ai_status(settings, user),
+                  sight=dict(SIGHT_ONSET), verbosity=dict(VERBOSITY))
+
+
+# ----- profile ----------------------------------------------------------------------------------
+
+def _profile_values(user: dict) -> dict:
+    return {
+        "display_name": user["display_name"],
+        "screen_reader": user["screen_reader"],
+        "device": user["device"],
+        "language": user["language"],
+        "sight_onset": user["sight_onset"],
+        "verbosity": user["verbosity"],
+        "show_name_on_checks": bool(user["show_name_on_checks"]),
+    }
+
+
+def _render_profile(request: Request, user: dict, values: dict, errors: dict, status_code: int = 200):
+    title = "Your profile and preferences" + (": please fix the problems" if errors else "")
+    return render(request, "account/profile.html", title=title, values=values, errors=errors,
+                  pseudonym=user["pseudonym"], languages=LANGUAGES, sight_options=SIGHT_ONSET,
+                  verbosity_options=VERBOSITY, status_code=status_code)
+
+
+@router.get("/account/profile")
+def profile_form(request: Request, user: dict = Depends(require_user)):
+    return _render_profile(request, user, _profile_values(user), {})
+
+
+@router.post("/account/profile")
+async def profile_save(request: Request, user: dict = Depends(require_user)):
+    form = await checked_form(request)
+    values = {
+        "display_name": _clean(form, "display_name", 200),
+        "screen_reader": _clean(form, "screen_reader", 200),
+        "device": _clean(form, "device", 200),
+        "language": _clean(form, "language", 20),
+        "sight_onset": _clean(form, "sight_onset", 20),
+        "verbosity": _clean(form, "verbosity", 20),
+        "show_name_on_checks": form.get("show_name_on_checks") == "yes",
+    }
+    errors: dict[str, str] = {}
+    if not values["display_name"]:
+        errors["display_name"] = "Enter the name you want other members to see."
+    elif len(values["display_name"]) > 80:
+        errors["display_name"] = "Use 80 characters or fewer for your name."
+    if len(values["screen_reader"]) > 100:
+        errors["screen_reader"] = "Use 100 characters or fewer for your screen reader."
+    if len(values["device"]) > 100:
+        errors["device"] = "Use 100 characters or fewer for your device."
+    if values["language"] not in dict(LANGUAGES):
+        errors["language"] = "Choose a language from the list."
+    if values["sight_onset"] not in dict(SIGHT_ONSET):
+        errors["sight_onset"] = "Choose one of the options, or Prefer not to say."
+    if values["verbosity"] not in dict(VERBOSITY):
+        errors["verbosity"] = "Choose how you want answers: summary first, or full detail."
+    if errors:
+        return _render_profile(request, user, values, errors, status_code=400)
+    with db.session() as conn:
+        conn.execute(
+            "UPDATE users SET display_name = ?, screen_reader = ?, device = ?, language = ?, sight_onset = ?,"
+            " verbosity = ?, show_name_on_checks = ? WHERE id = ?",
+            (values["display_name"], values["screen_reader"], values["device"], values["language"],
+             values["sight_onset"], values["verbosity"], 1 if values["show_name_on_checks"] else 0, user["id"]),
+        )
+    flash(request, "Your profile is saved.", "success")
+    return redirect("/account")
+
+
+# ----- own Claude API key -----------------------------------------------------------------------
+
+def check_key_format(key: str) -> str | None:
+    """A plain message if the text cannot be a Claude API key, otherwise None."""
+    if not key:
+        return "Paste your Claude API key."
+    if any(ch.isspace() for ch in key):
+        return "The key has a space or line break in it. Copy it again, without spaces."
+    if not key.startswith("sk-ant-"):
+        return "A Claude API key starts with sk-ant-. Check you copied the whole key."
+    if len(key) < KEY_MIN:
+        return "This key is too short. Check you copied the whole key."
+    if len(key) > KEY_MAX:
+        return "This is too long to be a Claude API key. Check you copied only the key."
+    if not KEY_RE.match(key):
+        return "The key has characters a Claude API key does not use. Copy it again."
+    return None
+
+
+def verify_api_key(key: str) -> bool | str:
+    """Ask Anthropic whether the key works. True if it does, otherwise a plain message saying why not."""
+    try:
+        anthropic.Anthropic(api_key=key, max_retries=1, timeout=20.0).models.list(limit=1)
+    except anthropic.AuthenticationError:
+        return "Anthropic says this key is not valid. It may have been deleted. Check the key at console.anthropic.com."
+    except anthropic.PermissionDeniedError:
+        return "Anthropic says this key does not have permission to use Claude. Check the key at console.anthropic.com."
+    except anthropic.RateLimitError:
+        return "Anthropic is busy right now and could not check the key. Please try again in a minute."
+    except anthropic.APIConnectionError:
+        return "We could not reach Anthropic to check the key. Please try again in a minute."
+    except anthropic.APIStatusError as exc:
+        return f"Anthropic could not check the key (error {exc.status_code}). Please try again later."
+    except Exception:  # noqa: BLE001 - any other failure is shown as a plain message, never a crash
+        log.exception("unexpected error while checking an API key")
+        return "Something went wrong while checking the key. Please try again later."
+    return True
+
+
+def _render_key(request: Request, user: dict, error: str = "", status_code: int = 200):
+    settings = _settings(request)
+    title = "Your Claude API key" + (": please fix the problems" if error else "")
+    return render(request, "account/ai_key.html", title=title, errors={"api_key": error} if error else {},
+                  last4=_key_last4(settings, user), has_saved=bool(user.get("own_api_key_enc")),
+                  status_code=status_code)
+
+
+@router.get("/account/ai-key")
+def key_form(request: Request, user: dict = Depends(require_user)):
+    return _render_key(request, user)
+
+
+@router.post("/account/ai-key")
+async def key_save(request: Request, user: dict = Depends(require_user)):
+    form = await checked_form(request)
+    key = str(form.get("api_key", "")).strip()
+    error = check_key_format(key)
+    if error is None:
+        result = await run_in_threadpool(verify_api_key, key)
+        if result is not True:
+            error = str(result) if result else "Anthropic did not accept this key."
+    if error:
+        return _render_key(request, user, error, status_code=400)
+    settings = _settings(request)
+    with db.session() as conn:
+        conn.execute("UPDATE users SET own_api_key_enc = ? WHERE id = ?",
+                     (encrypt_secret(settings.secret_key, key), user["id"]))
+    flash(request, f"Your Claude API key ending in {key[-4:]} is connected. The AI now uses it, "
+                   "Anthropic bills you directly, and this site charges nothing for AI.", "success")
+    return redirect("/account")
+
+
+@router.post("/account/ai-key/remove")
+async def key_remove(request: Request, user: dict = Depends(require_user)):
+    await checked_form(request)
+    with db.session() as conn:
+        conn.execute("UPDATE users SET own_api_key_enc = NULL WHERE id = ?", (user["id"],))
+    flash(request, "Your Claude API key is removed from this site. To stop it working everywhere, "
+                   "delete it at console.anthropic.com too.", "success")
+    return redirect("/account")
+
+
+# ----- credits and usage ------------------------------------------------------------------------
+
+@router.get("/account/credits")
+def credits_page(request: Request, paid: str = "", user: dict = Depends(require_user)):
+    settings = _settings(request)
+    ledger = [
+        {**row, "date": _date(row["created_at"]), "reason": _reason_text(row["reason"]),
+         "change": ("+" if row["delta_cents"] > 0 else "") + credits.format_cents(row["delta_cents"])}
+        for row in credits.history(user["id"], 50)
+    ]
+    with db.session() as conn:
+        rows = conn.execute(
+            "SELECT purpose, cost_cents, paid_by, created_at FROM ai_usage WHERE user_id = ? ORDER BY id DESC LIMIT 50",
+            (user["id"],),
+        ).fetchall()
+        totals = conn.execute(
+            "SELECT paid_by, COUNT(*) AS n, COALESCE(SUM(cost_cents), 0) AS cents FROM ai_usage WHERE user_id = ?"
+            " GROUP BY paid_by", (user["id"],),
+        ).fetchall()
+    usage = [
+        {"date": _date(r["created_at"]), "label": _purpose_label(r["purpose"]),
+         "cost": credits.format_cents(r["cost_cents"]), "paid_by": r["paid_by"]}
+        for r in rows
+    ]
+    by_payer = {t["paid_by"]: {"count": t["n"], "cost": credits.format_cents(t["cents"])} for t in totals}
+    return render(request, "account/credits.html", title="Your credits and AI usage",
+                  status=ai_status(settings, user), ledger=ledger, usage=usage, by_payer=by_payer,
+                  just_paid=paid == "1")
+
+
+def _pack_label(cents: int) -> str:
+    return credits.format_cents(cents)
+
+
+def _render_buy(request: Request, user: dict, errors: dict | None = None, status_code: int = 200,
+                cancelled: bool = False):
+    settings = _settings(request)
+    title = "Buy credits" + (": please fix the problems" if errors else "")
+    return render(request, "account/buy.html", title=title, errors=errors or {},
+                  packs=[(str(c), f"{_pack_label(c)} of credits") for c in PACKS],
+                  stripe_ready=payments_ready(settings), markup_percent=_markup_percent(settings), status=ai_status(settings, user),
+                  cancelled=cancelled, status_code=status_code)
+
+
+@router.get("/account/credits/buy")
+def buy_page(request: Request, cancelled: str = "", user: dict = Depends(require_user)):
+    return _render_buy(request, user, cancelled=cancelled == "1")
+
+
+class PaymentError(Exception):
+    pass
+
+
+def create_checkout_session(secret_key: str, *, user_id: int, email: str, amount_cents: int,
+                            success_url: str, cancel_url: str, site_name: str) -> dict:
+    """Create a Stripe Checkout Session with the standard library. Returns Stripe's JSON (with "id" and "url")."""
+    fields = [
+        ("mode", "payment"),
+        ("line_items[0][quantity]", "1"),
+        ("line_items[0][price_data][currency]", "usd"),
+        ("line_items[0][price_data][unit_amount]", str(amount_cents)),
+        ("line_items[0][price_data][product_data][name]",
+         f"{credits.format_cents(amount_cents)} of AI credits on {site_name}"),
+        ("success_url", success_url),
+        ("cancel_url", cancel_url),
+        ("client_reference_id", str(user_id)),
+        ("metadata[user_id]", str(user_id)),
+        ("metadata[credits_cents]", str(amount_cents)),
+    ]
+    if email and not email.endswith("@invalid"):
+        fields.append(("customer_email", email))
+    request = urllib.request.Request(
+        STRIPE_CHECKOUT_URL,
+        data=urllib.parse.urlencode(fields).encode(),
+        method="POST",
+        headers={"Authorization": f"Bearer {secret_key}", "Content-Type": "application/x-www-form-urlencoded"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            return json.loads(response.read().decode())
+    except urllib.error.HTTPError as exc:
+        log.warning("Stripe refused the checkout session: %s %s", exc.code, exc.read()[:500])
+        raise PaymentError("The payment service did not accept the request.") from exc
+    except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+        log.warning("Could not reach Stripe: %s", exc)
+        raise PaymentError("We could not reach the payment service.") from exc
+
+
+@router.post("/account/credits/buy")
+async def buy(request: Request, user: dict = Depends(require_user)):
+    form = await checked_form(request)
+    settings = _settings(request)
+    if not payments_ready(settings):
+        flash(request, "Buying credits is not set up on this site yet.", "error")
+        return redirect("/account/credits/buy")
+    pack = _clean(form, "pack", 10)
+    if not pack.isdigit() or int(pack) not in PACKS:
+        return _render_buy(request, user, {"pack": "Choose how many credits to buy."}, status_code=400)
+    amount = int(pack)
+    try:
+        session = await run_in_threadpool(
+            create_checkout_session, settings.stripe_secret_key, user_id=user["id"], email=user["email"],
+            amount_cents=amount, success_url=f"{settings.base_url}/account/credits?paid=1",
+            cancel_url=f"{settings.base_url}/account/credits/buy?cancelled=1", site_name=settings.site_name,
+        )
+    except PaymentError as exc:
+        flash(request, f"{exc} Nothing was charged. Please try again later.", "error")
+        return redirect("/account/credits/buy")
+    url = str(session.get("url") or "")
+    session_id = str(session.get("id") or "")
+    if not url.startswith("https://") or not session_id:
+        flash(request, "The payment service gave an answer we did not understand. Nothing was charged. "
+                       "Please try again later.", "error")
+        return redirect("/account/credits/buy")
+    try:
+        with db.session() as conn:
+            conn.execute(
+                "INSERT INTO payments (user_id, provider, provider_ref, amount_cents, currency, credits_cents, status,"
+                " created_at) VALUES (?, 'stripe', ?, ?, 'usd', ?, 'pending', ?)",
+                (user["id"], session_id, amount, amount, db.now()),
+            )
+    except sqlite3.IntegrityError:
+        pass  # the same session already recorded
+    return redirect(url)
+
+
+def verify_stripe_signature(payload: bytes, header: str, secret: str, now: float | None = None,
+                            tolerance: int = STRIPE_TOLERANCE_SECONDS) -> bool:
+    """Check a Stripe-Signature header: t=<time>,v1=<HMAC-SHA256 of "t.payload">. Constant-time compare."""
+    if not header or not secret:
+        return False
+    timestamp = None
+    signatures: list[str] = []
+    for part in header.split(","):
+        key, _, value = part.strip().partition("=")
+        if key == "t":
+            timestamp = value
+        elif key == "v1":
+            signatures.append(value)
+    if not timestamp or not timestamp.isdigit() or not signatures:
+        return False
+    current = time.time() if now is None else now
+    if abs(current - int(timestamp)) > tolerance:
+        return False
+    expected = hmac.new(secret.encode(), timestamp.encode() + b"." + payload, hashlib.sha256).hexdigest()
+    return any(hmac.compare_digest(expected, sig) for sig in signatures)
+
+
+def _record_paid_session(obj: dict) -> str:
+    """Add credits for a paid Checkout Session, once. Returns what happened, for the JSON reply."""
+    session_id = str(obj.get("id") or "")
+    currency = str(obj.get("currency") or "").lower()
+    amount = obj.get("amount_total")
+    if not session_id or not isinstance(amount, int) or amount <= 0:
+        return "ignored: missing session id or amount"
+    if currency != "usd":
+        return "ignored: not US dollars"
+    metadata = obj.get("metadata") or {}
+    ref_user = str(obj.get("client_reference_id") or metadata.get("user_id") or "")
+    with db.session() as conn:
+        row = conn.execute("SELECT * FROM payments WHERE provider = 'stripe' AND provider_ref = ?",
+                           (session_id,)).fetchone()
+        if row is not None:
+            if row["status"] == "paid":
+                return "duplicate"
+            user_id = row["user_id"]
+            credit = min(row["credits_cents"], amount)
+            updated = conn.execute("UPDATE payments SET status = 'paid', amount_cents = ? WHERE id = ? AND status != 'paid'",
+                                   (amount, row["id"])).rowcount
+            if updated != 1:
+                return "duplicate"
+        else:
+            if not ref_user.isdigit():
+                return "ignored: no member on the session"
+            user_id = int(ref_user)
+            if conn.execute("SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone() is None:
+                return "ignored: unknown member"
+            credit = amount
+            try:
+                conn.execute(
+                    "INSERT INTO payments (user_id, provider, provider_ref, amount_cents, currency, credits_cents,"
+                    " status, created_at) VALUES (?, 'stripe', ?, ?, 'usd', ?, 'paid', ?)",
+                    (user_id, session_id, amount, credit, db.now()),
+                )
+            except sqlite3.IntegrityError:
+                return "duplicate"
+        conn.execute(
+            "INSERT INTO credit_ledger (user_id, delta_cents, reason, ref, created_at) VALUES (?, ?, ?, ?, ?)",
+            (user_id, credit, "Bought credits", f"stripe:{session_id}", db.now()),
+        )
+    return "credited"
+
+
+@router.post("/payments/stripe/webhook")
+async def stripe_webhook(request: Request):
+    """Called by Stripe, not by people: no CSRF token, a signed body instead. Replies with JSON."""
+    settings = _settings(request)
+    if not settings.stripe_webhook_secret:
+        return JSONResponse({"error": "payments are not set up"}, status_code=400)
+    payload = await request.body()
+    if not verify_stripe_signature(payload, request.headers.get("stripe-signature", ""),
+                                   settings.stripe_webhook_secret):
+        return JSONResponse({"error": "bad signature"}, status_code=400)
+    try:
+        event = json.loads(payload.decode())
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return JSONResponse({"error": "bad payload"}, status_code=400)
+    if not isinstance(event, dict):
+        return JSONResponse({"error": "bad payload"}, status_code=400)
+    kind = event.get("type")
+    obj = ((event.get("data") or {}).get("object")) or {}
+    result = "ignored: event not used"
+    if kind in ("checkout.session.completed", "checkout.session.async_payment_succeeded") and isinstance(obj, dict):
+        if obj.get("payment_status") == "paid":
+            result = _record_paid_session(obj)
+        else:
+            result = "ignored: not paid yet"
+    return JSONResponse({"received": True, "result": result})
+
+
+# ----- pricing (public) -------------------------------------------------------------------------
+
+def _markup_percent(settings) -> str:
+    percent = (settings.credit_markup - 1.0) * 100
+    return f"{percent:.0f}" if abs(percent - round(percent)) < 0.05 else f"{percent:.1f}"
+
+
+def _estimate_text(cents: int) -> str:
+    return "under $0.01" if cents <= 1 else "about " + credits.format_cents(cents)
 
 
 @router.get("/pricing")
 def pricing(request: Request):
-    return render(request, "placeholder.html", title="How paying works",
-                  section={"label": "How paying works", "description": "Use your own Claude API key, or buy credits."})
+    settings = _settings(request)
+    model_known = settings.model in PRICES
+    in_price, out_price = PRICES.get(settings.model, PRICES["claude-opus-5-5"])
+    rows = []
+    for label, tin, tout, searches in ESTIMATES:
+        own = cost_cents(settings.model, tin, tout, searches, 1.0)
+        site = cost_cents(settings.model, tin, tout, searches, settings.credit_markup)
+        size = f"{tin:,} tokens in, {tout:,} out" + (f", {searches} web searches" if searches else "")
+        rows.append({"label": label, "size": size, "own": _estimate_text(own), "credits": _estimate_text(site)})
+    return render(request, "account/pricing.html", title="How paying works", rows=rows, model=settings.model,
+                  model_known=model_known, in_price=f"{in_price:.2f}", out_price=f"{out_price:.2f}",
+                  search_price=f"{WEB_SEARCH_DOLLARS * 1000:.0f}", markup_percent=_markup_percent(settings),
+                  site_has_key=bool(settings.anthropic_api_key), stripe_ready=payments_ready(settings),
+                  signup_credits=credits.format_cents(settings.signup_credits) if settings.signup_credits > 0 else "")
+
+
+# ----- site owner tools -------------------------------------------------------------------------
+
+def site_counts() -> dict:
+    with db.session() as conn:
+        one = lambda sql: conn.execute(sql).fetchone()[0]  # noqa: E731
+        return {
+            "members": one("SELECT COUNT(*) FROM users WHERE email NOT LIKE 'deleted-%@invalid'"),
+            "deleted": one("SELECT COUNT(*) FROM users WHERE email LIKE 'deleted-%@invalid'"),
+            "with_key": one("SELECT COUNT(*) FROM users WHERE own_api_key_enc IS NOT NULL"),
+            "jobs": one("SELECT COUNT(*) FROM jobs"),
+            "jobs_failed": one("SELECT COUNT(*) FROM jobs WHERE status = 'failed'"),
+            "ai_calls": one("SELECT COUNT(*) FROM ai_usage"),
+            "ai_credits_cents": one("SELECT COALESCE(SUM(cost_cents), 0) FROM ai_usage WHERE paid_by = 'credits'"),
+            "ai_own_key_cents": one("SELECT COALESCE(SUM(cost_cents), 0) FROM ai_usage WHERE paid_by = 'own_key'"),
+            "paid_count": one("SELECT COUNT(*) FROM payments WHERE status = 'paid'"),
+            "paid_cents": one("SELECT COALESCE(SUM(amount_cents), 0) FROM payments WHERE status = 'paid'"),
+        }
+
+
+def grant_credits(email: str, cents: int, reason: str, ref: str = "") -> int | None:
+    """Give credits to the member with this email. Returns their id, or None if there is no such member."""
+    with db.session() as conn:
+        row = conn.execute("SELECT id FROM users WHERE email = ?", (email.strip().lower(),)).fetchone()
+    if row is None:
+        return None
+    credits.add(row["id"], cents, f"Gift from the site: {reason}", ref)
+    return row["id"]
+
+
+def _render_admin(request: Request, values: dict, errors: dict, status_code: int = 200):
+    counts = site_counts()
+    for key in ("ai_credits_cents", "ai_own_key_cents", "paid_cents"):
+        counts[key + "_text"] = credits.format_cents(counts[key])
+    title = "Site owner tools" + (": please fix the problems" if errors else "")
+    return render(request, "account/admin.html", title=title, counts=counts, values=values, errors=errors,
+                  site_has_key=bool(_settings(request).anthropic_api_key), status_code=status_code)
+
+
+@router.get("/account/admin")
+def admin_page(request: Request, user: dict = Depends(require_user)):
+    _require_admin(user)
+    return _render_admin(request, {}, {})
+
+
+@router.post("/account/admin")
+async def admin_grant(request: Request, user: dict = Depends(require_user)):
+    _require_admin(user)
+    form = await checked_form(request)
+    values = {k: _clean(form, k, 300) for k in ("email", "amount", "reason")}
+    errors: dict[str, str] = {}
+    with db.session() as conn:
+        found = conn.execute("SELECT id FROM users WHERE email = ?", (values["email"].lower(),)).fetchone()
+    if not values["email"]:
+        errors["email"] = "Enter the member's email address."
+    elif found is None:
+        errors["email"] = "No member has this email address."
+    cents = _parse_dollars(values["amount"])
+    if cents is None or cents <= 0:
+        errors["amount"] = "Enter an amount in US dollars, like 5 or 2.50."
+    elif cents > MAX_GRANT_CENTS:
+        errors["amount"] = f"Grant at most {credits.format_cents(MAX_GRANT_CENTS)} at a time."
+    if not values["reason"]:
+        errors["reason"] = "Say why, for example: thank you for answering questions in Help."
+    elif len(values["reason"]) > 200:
+        errors["reason"] = "Use 200 characters or fewer for the reason."
+    if errors:
+        return _render_admin(request, values, errors, status_code=400)
+    grant_credits(values["email"], cents, values["reason"], ref=f"admin:{user['id']}")
+    flash(request, f"Gave {credits.format_cents(cents)} of credits to {values['email'].lower()}.", "success")
+    return redirect("/account/admin")
+
+
+# ----- delete -----------------------------------------------------------------------------------
+
+def anonymise_user(user_id: int) -> None:
+    """Remove everything that identifies the member. Community posts stay under their code name."""
+    with db.session() as conn:
+        conn.execute(
+            "UPDATE users SET email = ?, display_name = 'Former member', password_hash = ?, own_api_key_enc = NULL,"
+            " screen_reader = '', device = '', language = 'en', sight_onset = 'prefer_not',"
+            " verbosity = 'summary_first', show_name_on_checks = 0, is_admin = 0 WHERE id = ?",
+            (f"deleted-{user_id}@invalid", hash_password(secrets.token_urlsafe(32)), user_id),
+        )
+
+
+def _render_delete(request: Request, errors: dict, status_code: int = 200):
+    title = "Delete your account" + (": please fix the problems" if errors else "")
+    return render(request, "account/delete.html", title=title, errors=errors, status_code=status_code)
+
+
+@router.get("/account/delete")
+def delete_form(request: Request, user: dict = Depends(require_user)):
+    return _render_delete(request, {})
+
+
+@router.post("/account/delete")
+async def delete_account(request: Request, user: dict = Depends(require_user)):
+    form = await checked_form(request)
+    if form.get("confirm") != "yes":
+        return _render_delete(request, {"confirm": "Tick the box to confirm you want to delete your account."},
+                              status_code=400)
+    anonymise_user(user["id"])
+    request.session.clear()
+    flash(request, "Your account is deleted. You are signed out.", "success")
+    return redirect("/")

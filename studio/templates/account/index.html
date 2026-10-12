@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+<dl class="panel">
+  <dt>Name</dt><dd>{{ user.display_name }}</dd>
+  <dt>Email</dt><dd>{{ user.email }}</dd>
+  <dt>Code name</dt><dd>{{ user.pseudonym }}</dd>
+  <dt>How you pay for AI</dt><dd>{% include "account/_pay_status.html" %}</dd>
+</dl>
+<h2>Change your details</h2>
+<ul class="item-list">
+  <li><a href="/account/profile">Your profile and preferences</a>: name, screen reader, device, language and how you like answers.</li>
+  <li><a href="/account/ai-key">Your Claude API key</a>: {% if user.own_api_key_enc %}see or remove the key you connected{% else %}connect your own key so you pay Anthropic directly{% endif %}.</li>
+  <li><a href="/account/credits">Your credits and AI usage</a>: balance, credit history and what each AI task cost.</li>
+  <li><a href="/account/credits/buy">Buy credits</a>.</li>
+  <li><a href="/pricing">How paying works</a>, with rough costs of typical tasks.</li>
+</ul>
+<h2>Your settings now</h2>
+<ul>
+  <li>Screen reader: {{ user.screen_reader or 'not given' }}</li>
+  <li>Device: {{ user.device or 'not given' }}</li>
+  <li>Answer style: {{ verbosity.get(user.verbosity, user.verbosity) }}</li>
+  <li>Sight: {{ sight.get(user.sight_onset, 'Prefer not to say') }}</li>
+  <li>Peer checks show {{ 'your name' if user.show_name_on_checks else 'your code name, ' ~ user.pseudonym }}</li>
+</ul>
+{% if user.is_admin %}
+<h2>Running the site</h2>
+<p><a href="/account/admin">Site owner tools</a>: give credits and see how much the site is used.</p>
+{% endif %}
+<h2>Leaving</h2>
+<p><a href="/account/delete">Delete your account</a>.</p>
+{% endblock %}

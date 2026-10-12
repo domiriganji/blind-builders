@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+{% if just_paid %}
+<p class="message message-success" role="status">Thank you. Your payment went to Stripe. Your credits are added here as soon as Stripe confirms it, usually within a minute. Reload this page to see them.</p>
+{% endif %}
+<div class="panel">
+<p>Credit balance: <strong>{{ status.balance_text }}</strong>.</p>
+{% include "account/_pay_status.html" %}
+{% if by_payer %}
+<p>AI tasks so far:
+{% if by_payer.credits %}{{ by_payer.credits.count }} paid with credits, costing {{ by_payer.credits.cost }}.{% endif %}
+{% if by_payer.own_key %}{{ by_payer.own_key.count }} on your own key, costing about {{ by_payer.own_key.cost }} at Anthropic's prices (Anthropic bills you for these).{% endif %}
+</p>
+{% endif %}
+</div>
+<h2>Buy credits</h2>
+<p><a href="/account/credits/buy">Buy credits</a> in packs of $5, $10 or $20. <a href="/pricing">Read how paying works</a>.</p>
+<h2>Credit history</h2>
+{% if ledger %}
+<table>
+  <caption class="visually-hidden">Credit history, newest first</caption>
+  <thead><tr><th scope="col">Date</th><th scope="col">Change</th><th scope="col">Reason</th></tr></thead>
+  <tbody>
+  {% for row in ledger %}
+  <tr><td>{{ row.date }}</td><td>{{ row.change }}</td><td>{{ row.reason }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="meta">Shows the latest {{ ledger|length }} changes, newest first.</p>
+{% else %}
+<p>No credits have been added or used yet.</p>
+{% endif %}
+<h2>AI usage history</h2>
+{% if usage %}
+<table>
+  <caption class="visually-hidden">AI usage history, newest first</caption>
+  <thead><tr><th scope="col">Date</th><th scope="col">What it was for</th><th scope="col">Cost, paid by</th></tr></thead>
+  <tbody>
+  {% for u in usage %}
+  <tr><td>{{ u.date }}</td><td>{{ u.label }}</td><td>{{ u.cost }}, {{ 'your own key' if u.paid_by == 'own_key' else 'credits' }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="meta">Shows the latest {{ usage|length }} AI tasks, newest first. Costs on your own key are worked out from Anthropic's prices; Anthropic's bill is the final word.</p>
+{% else %}
+<p>You have not used the AI yet.</p>
+{% endif %}
+<p><a href="/account">Back to your account</a></p>
+{% endblock %}

@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_input, error_summary, checkbox %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p class="lead">Deleting your account cannot be undone. You will be signed out and cannot sign in again with this email.</p>
+<h2>What happens</h2>
+<ul>
+  <li>Your email address, name, password and preferences are removed.</li>
+  <li>Your Claude API key is removed from this site. To stop it working everywhere, delete it at console.anthropic.com too.</li>
+  <li>Any credits left on your account are lost.</li>
+  <li>What you posted for the community, such as answers and peer checks, stays so others can still use it. It shows as Former member or your code name, {{ user.pseudonym }}, and never your name or email.</li>
+  <li>Your private work, such as projects and documents, stays stored but nobody can open it: only you could, and you can no longer sign in.</li>
+  <li>Records of credits, payments and AI usage stay, linked only to the anonymous account, so the site's accounts add up.</li>
+</ul>
+{{ error_summary(errors) }}
+<form method="post" action="/account/delete" novalidate>
+  {{ csrf_input() }}
+  {{ checkbox('confirm', 'I understand. Delete my account.', hint='Required. This cannot be undone.') }}
+  <button type="submit" class="button button-primary">Delete my account</button>
+</form>
+<p><a href="/account">Keep my account and go back</a></p>
+{% endblock %}
