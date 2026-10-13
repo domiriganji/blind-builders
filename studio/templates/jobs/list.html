@@ -1,17 +1,32 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Your recent work</h1>
-{% if jobs %}
+<h1>{{ title }}</h1>
+{% if total %}
+<p>Your latest {{ 'piece of work' if total == 1 else total ~ ' pieces of work' }}: {{ summary }}. Times are in UTC.</p>
+{% if groups.working %}
+<h2>Still working ({{ groups.working|length }})</h2>
 <ul class="item-list">
-{% for j in jobs %}
-  <li>
-    {% if j.status == 'done' and j.result_url %}<a href="{{ j.result_url }}">{{ j.title }}</a>: done
-    {% elif j.status == 'failed' %}<a href="/jobs/{{ j.id }}">{{ j.title }}</a>: did not finish
-    {% else %}<a href="/jobs/{{ j.id }}">{{ j.title }}</a>: still working{% endif %}
-    <span class="meta">({{ j.created_at[:16].replace('T', ' ') }} UTC)</span>
-  </li>
+{% for j in groups.working %}
+  <li><a href="/jobs/{{ j.id }}">{{ j.title }}</a>: still working. <span class="meta">Started {{ j.when }}.</span></li>
 {% endfor %}
 </ul>
+{% endif %}
+{% if groups.failed %}
+<h2>Did not finish ({{ groups.failed|length }})</h2>
+<ul class="item-list">
+{% for j in groups.failed %}
+  <li><a href="/jobs/{{ j.id }}">{{ j.title }}</a>: {{ 'seems to have stopped' if j.state == 'stalled' else 'did not finish' }}. <span class="meta">Started {{ j.when }}.</span></li>
+{% endfor %}
+</ul>
+{% endif %}
+{% if groups.done %}
+<h2>Done ({{ groups.done|length }})</h2>
+<ul class="item-list">
+{% for j in groups.done %}
+  <li>{% if j.result_url %}<a href="{{ j.result_url }}">{{ j.title }}</a>: done.{% else %}{{ j.title }}: done.{% endif %} <span class="meta">Started {{ j.when }}.</span></li>
+{% endfor %}
+</ul>
+{% endif %}
 {% else %}
 <p>Nothing yet. When you ask the AI to do something, it appears here.</p>
 {% endif %}

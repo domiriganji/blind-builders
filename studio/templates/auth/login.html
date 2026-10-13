@@ -1,14 +1,15 @@
 {% extends "base.html" %}
 {% from "_macros.html" import csrf_input, error_summary, field %}
 {% block content %}
-<h1>Sign in</h1>
+<h1>{{ title }}</h1>
 {{ error_summary(errors) }}
 <form method="post" action="/login" novalidate>
   {{ csrf_input() }}
   <input type="hidden" name="next" value="{{ next }}">
   {{ field('email', 'Email address', values.email, type='email', required=true, autocomplete='email', error=errors.email) }}
-  {{ field('password', 'Password', '', type='password', required=true, autocomplete='current-password') }}
+  {{ field('password', 'Password', '', type='password', required=true, autocomplete='current-password', error=errors.password) }}
   <button type="submit" class="button button-primary">Sign in</button>
 </form>
 <p>New here? <a href="/register">Create an account</a>.</p>
+<p>Forgotten your password? This site cannot reset passwords yet, because it does not send emails. You can create a new account with another email address.</p>
 {% endblock %}

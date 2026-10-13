@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% from "_macros.html" import csrf_input, error_summary, radios %}
+{% from "_macros.html" import csrf_input, error_summary %}
 {% block content %}
 <h1>{{ title }}</h1>
-{% if cancelled %}
-<p class="message" role="status">You left the payment page. Nothing was charged.</p>
+{% if cancelled and not errors %}
+<p>You can choose a pack again in the form on this page, or come back later.</p>
 {% endif %}
 {% if not stripe_ready %}
 <p><strong>Buying credits is not set up on this site yet.</strong> You can still use the AI today by <a href="/account/ai-key">connecting your own Claude API key</a>. You then pay Anthropic directly and this site charges nothing.</p>
@@ -13,7 +13,16 @@
 {{ error_summary(errors) }}
 <form method="post" action="/account/credits/buy" novalidate>
   {{ csrf_input() }}
-  {{ radios('pack', 'How many credits', packs, '', hint='You pay on a secure page run by Stripe, then come back here. This site never sees your card number.', error=errors.pack) }}
+  {# Like the radios macro, except the first choice has id field-pack, so the error summary link moves focus
+     to a radio button (a fieldset cannot take focus). #}
+  <fieldset class="field{% if errors.pack %} has-error{% endif %}" aria-describedby="hint-pack{% if errors.pack %} error-pack{% endif %}">
+    <legend>How many credits</legend>
+    <p class="hint" id="hint-pack">You pay on a secure page run by Stripe, then come back here. This site never sees your card number.</p>
+    {% if errors.pack %}<p class="field-error" id="error-pack"><span class="visually-hidden">Error: </span>{{ errors.pack }}</p>{% endif %}
+    {% for value, text in packs %}
+    <div class="choice"><input type="radio" id="field-pack{{ '' if loop.first else '-' ~ loop.index }}" name="pack" value="{{ value }}"{% if errors.pack %} aria-invalid="true"{% endif %}><label for="field-pack{{ '' if loop.first else '-' ~ loop.index }}">{{ text }}</label></div>
+    {% endfor %}
+  </fieldset>
   <button type="submit" class="button button-primary">Go to the payment page</button>
 </form>
 {% endif %}

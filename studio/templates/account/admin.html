@@ -2,6 +2,7 @@
 {% from "_macros.html" import csrf_input, error_summary, field %}
 {% block content %}
 <h1>{{ title }}</h1>
+{% if title.startswith("Site owner tools: gave") %}<p>The member sees the reason in their credit history.</p>{% endif %}
 <ul class="panel">
   <li>Members: {{ counts.members }} (plus {{ counts.deleted }} deleted accounts)</li>
   <li>Members with their own Claude API key: {{ counts.with_key }}</li>
@@ -16,6 +17,7 @@
 {{ error_summary(errors) }}
 <form method="post" action="/account/admin" novalidate>
   {{ csrf_input() }}
+  <input type="hidden" name="grant_token" value="{{ grant_token }}">
   {{ field('email', "Member's email address", values.email, type='email', required=true, autocomplete='off', error=errors.email) }}
   {{ field('amount', 'Amount in US dollars', values.amount, required=true, hint='For example 5 or 2.50. At most $1000.00 at a time.', error=errors.amount, extra='inputmode="decimal"') }}
   {{ field('reason', 'Reason', values.reason, required=true, hint='The member sees this in their credit history.', error=errors.reason) }}

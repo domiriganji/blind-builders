@@ -17,7 +17,7 @@
 <ul>
   <li>Buy credits in packs of $5, $10 or $20. You pay on a secure page run by Stripe; this site never sees your card number.</li>
   <li>Each AI task takes its cost from your credits: the AI price plus {{ markup_percent }} percent.</li>
-  <li>Your credits page lists every task and what it cost.</li>
+  <li>Your credits page lists your latest AI tasks and what each one cost.</li>
 </ul>
 <p>{% if user %}<a href="/account/credits/buy">Buy credits</a>{% else %}<a href="/register">Create an account</a> to buy credits{% endif %}.</p>
 {% elif site_has_key %}

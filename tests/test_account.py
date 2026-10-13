@@ -136,7 +136,9 @@ def test_profile_edit_saves(user_client):
     r = post(user_client, "/account/profile", {
         "display_name": "Amina B", "screen_reader": "TalkBack", "device": "Android phone", "language": "ha",
         "sight_onset": "later", "verbosity": "full", "show_name_on_checks": "yes"})
-    assert r.status_code == 200 and "Your profile is saved." in r.text
+    assert r.status_code == 200 and h1(r.text) == "Your profile is saved"
+    assert "You are on your account page." in r.text
+    assert_accessible(r)
     row = user_row()
     assert (row["display_name"], row["screen_reader"], row["device"], row["language"], row["sight_onset"],
             row["verbosity"], row["show_name_on_checks"]) == (
@@ -214,6 +216,7 @@ def test_key_is_stored_encrypted_and_only_last_four_shown(user_client, key_ok, s
     assert r.status_code == 200
     assert key_ok == [GOOD_KEY]
     assert "ending in WXYZ is connected" in r.text
+    assert h1(r.text) == "Your Claude API key is connected"
     assert "You use your own Claude API key ending in <strong>WXYZ</strong>" in r.text
     assert GOOD_KEY not in r.text
     stored = user_row()["own_api_key_enc"]
@@ -233,7 +236,8 @@ def test_key_is_stored_encrypted_and_only_last_four_shown(user_client, key_ok, s
 def test_remove_key(user_client, key_ok):
     post(user_client, "/account/ai-key", {"api_key": GOOD_KEY})
     r = post(user_client, "/account/ai-key/remove")
-    assert r.status_code == 200 and "removed" in r.text
+    assert r.status_code == 200 and h1(r.text) == "Your Claude API key is removed"
+    assert "console.anthropic.com" in r.text
     assert user_row()["own_api_key_enc"] is None
     assert "The AI is not set up for you yet" in user_client.get("/account").text
     assert "Remove my key" not in user_client.get("/account/ai-key").text
@@ -320,7 +324,8 @@ def test_credits_page_shows_ledger_and_usage(user_client, app, fake_ai):
     assert "2026-10-01" in r.text and "2026-10-02" in r.text
     assert "<td>$0.07, your own key</td>" in r.text and "<td>$0.12, credits</td>" in r.text
     assert '<th scope="col">What it was for</th>' in r.text
-    assert 'href="/account/credits/buy"' in r.text
+    # Payments are not set up in tests, so the page says so instead of offering a link that cannot work.
+    assert "Buying credits is not set up on this site yet" in r.text and 'href="/account/ai-key"' in r.text
     # Summary (balance) comes before the history.
     assert r.text.index("Credit balance") < r.text.index("Credit history")
     assert_accessible(r)
@@ -338,6 +343,15 @@ def test_credits_page_only_shows_your_own_usage(client):
 def test_credits_page_after_payment_says_what_happens(user_client):
     r = user_client.get("/account/credits?paid=1")
     assert "as soon as Stripe confirms" in r.text
+    assert h1(r.text) == "Thank you: your payment went to Stripe"
+    assert_accessible(r)
+
+
+def test_buy_page_after_cancelling_says_nothing_was_charged(user_client, payments_on):
+    r = user_client.get("/account/credits/buy?cancelled=1")
+    assert h1(r.text) == "You left the payment page: nothing was charged"
+    assert 'action="/account/credits/buy"' in r.text
+    assert_accessible(r)
 
 
 # ----- buying -----------------------------------------------------------------------------------
@@ -445,10 +459,12 @@ def _signed(payload: bytes, secret: str = WEBHOOK_SECRET, t: int | None = None) 
     return {"Stripe-Signature": f"t={t},v1={sig}", "Content-Type": "application/json"}
 
 
-def _event(session_id: str, uid: int, amount: int = 500, status: str = "paid") -> bytes:
+def _event(session_id: str, uid: int, amount: int = 500, status: str = "paid", metadata: dict | None = None) -> bytes:
+    if metadata is None:
+        metadata = {"user_id": str(uid), "credits_cents": str(amount)}
     return json.dumps({"id": "evt_1", "type": "checkout.session.completed", "data": {"object": {
         "id": session_id, "object": "checkout.session", "payment_status": status, "amount_total": amount,
-        "currency": "usd", "client_reference_id": str(uid), "metadata": {"user_id": str(uid)}}}}).encode()
+        "currency": "usd", "client_reference_id": str(uid), "metadata": metadata}}}).encode()
 
 
 def test_webhook_adds_credits_once(user_client, payments_on):
@@ -571,7 +587,9 @@ def test_admin_grant_works(client):
     assert_accessible(r)
     r = post(client, "/account/admin", {"email": "Friend@Example.com", "amount": "2.50",
                                         "reason": "Thanks for helping in Help"})
-    assert r.status_code == 200 and "Gave $2.50 of credits to friend@example.com" in r.text
+    assert r.status_code == 200
+    assert h1(r.text) == "Site owner tools: gave $2.50 of credits to friend@example.com"
+    assert_accessible(r)
     assert credits.balance(user_id("friend@example.com")) == 250
     assert "Thanks for helping in Help" in credits.history(user_id("friend@example.com"))[0]["reason"]
 
@@ -639,7 +657,8 @@ def test_delete_account_anonymises_and_signs_out(user_client, key_ok):
     pseudonym = user_row()["pseudonym"]
     old_hash = user_row()["password_hash"]
     r = post(user_client, "/account/delete", {"confirm": "yes"})
-    assert r.status_code == 200 and "Your account is deleted" in r.text
+    assert r.status_code == 200 and h1(r.text) == "Your account is deleted"
+    assert_accessible(r)
     assert "Sign in" in r.text
     with db.session() as conn:
         row = dict(conn.execute("SELECT * FROM users WHERE id = ?", (uid,)).fetchone())
@@ -655,3 +674,181 @@ def test_delete_account_anonymises_and_signs_out(user_client, key_ok):
     assert user_client.get("/account", follow_redirects=False).status_code == 303
     register(user_client)
     assert user_id() != uid
+
+
+# ----- regressions from the audit ---------------------------------------------------------------
+
+@pytest.mark.parametrize("field, value, message", [
+    ("display_name", "Amina sk-ant-api03-Ab12Cd34Ef", "looks like a Claude API key"),
+    ("display_name", "Amina " + GOOD_KEY, "looks like a Claude API key"),
+    ("device", "Pixel, card 4111 1111 1111 1111", "looks like a card number"),
+    ("screen_reader", "NVDA, password: hunter22", "looks like a password"),
+])
+def test_profile_refuses_secrets_other_members_could_see(user_client, field, value, message):
+    data = {"display_name": "Amina", "language": "en", "sight_onset": "prefer_not", "verbosity": "summary_first",
+            field: value}
+    r = post(user_client, "/account/profile", data)
+    assert r.status_code == 400 and message in r.text
+    assert f'href="#field-{field}"' in r.text
+    assert value not in r.text  # not echoed back into the form
+    assert user_row()[field] != value
+
+
+def test_profile_cleans_invisible_and_control_characters(user_client):
+    r = post(user_client, "/account/profile", {"display_name": "​ ​", "language": "en",
+                                               "sight_onset": "prefer_not", "verbosity": "summary_first"})
+    assert r.status_code == 400 and "Enter the name you want other members to see." in r.text
+    post(user_client, "/account/profile", {"display_name": "Amina\nB\t", "screen_reader": "NVDA\r\n",
+                                           "language": "en", "sight_onset": "prefer_not",
+                                           "verbosity": "summary_first"})
+    assert user_row()["display_name"] == "Amina B" and user_row()["screen_reader"] == "NVDA"
+
+
+def test_profile_accepts_unicode_and_long_input_is_explained(user_client):
+    r = post(user_client, "/account/profile", {"display_name": "Zoë Łukasz 王芳", "language": "pl",
+                                               "sight_onset": "later", "verbosity": "full"})
+    assert r.status_code == 200 and user_row()["display_name"] == "Zoë Łukasz 王芳"
+    r = post(user_client, "/account/profile", {"display_name": "x" * 5000, "language": "en",
+                                               "sight_onset": "prefer_not", "verbosity": "summary_first"})
+    assert r.status_code == 400 and "80 characters or fewer" in r.text
+    assert "x" * 201 not in r.text
+
+
+def test_unreadable_key_with_credits_is_explained(user_client, app):
+    app.state.settings.anthropic_api_key = "sk-ant-site-key"
+    credits.add(user_id(), 300, "Welcome credits")
+    with db.session() as conn:
+        conn.execute("UPDATE users SET own_api_key_enc = 'garbage' WHERE email = 'amina@example.com'")
+    r = user_client.get("/account")
+    assert "You use credits" in r.text and "can no longer be read" in r.text
+
+
+def test_credits_page_offers_buying_only_when_it_works(user_client, payments_on):
+    r = user_client.get("/account/credits")
+    assert 'href="/account/credits/buy"' in r.text and "Buying credits is not set up" not in r.text
+
+
+def test_checkout_answer_that_is_not_an_object_is_a_payment_error(monkeypatch):
+    class Resp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return b'["not", "an", "object"]'
+
+    monkeypatch.setattr(account.urllib.request, "urlopen", lambda req, timeout: Resp())
+    with pytest.raises(account.PaymentError):
+        account.create_checkout_session("sk_test_9", user_id=7, email="", amount_cents=500,
+                                        success_url="https://s/ok", cancel_url="https://s/no", site_name="S")
+
+
+def test_signature_checker_never_crashes_on_odd_headers():
+    payload = b"{}"
+    assert not account.verify_stripe_signature(payload, "t=²,v1=abc", "s", now=2)
+    assert not account.verify_stripe_signature(payload, "t=100,v1=éé", "s", now=100)
+    assert not account.verify_stripe_signature(payload, "t=" + "9" * 40 + ",v1=abc", "s")
+
+
+def test_webhook_odd_headers_and_shapes_are_refused_not_crashes(user_client, payments_on):
+    uid = user_id()
+    payload = _event("cs_odd", uid)
+    t = int(time.time())
+    r = user_client.post("/payments/stripe/webhook", content=payload,
+                         headers={"Stripe-Signature": f"t={t},v1=café".encode("latin-1")})
+    assert r.status_code == 400
+    for body in (b'{"type": "checkout.session.completed", "data": ["x"]}',
+                 b'{"type": "checkout.session.completed", "data": {"object": "x"}}',
+                 b'[1, 2]'):
+        r = user_client.post("/payments/stripe/webhook", content=body, headers=_signed(body))
+        assert r.status_code in (200, 400), body
+    weird = json.dumps({"type": "checkout.session.completed", "data": {"object": {
+        "id": "cs_weird", "payment_status": "paid", "amount_total": True, "currency": "usd",
+        "metadata": "not a dict"}}}).encode()
+    assert user_client.post("/payments/stripe/webhook", content=weird, headers=_signed(weird)).status_code == 200
+    big = b'{"pad": "' + b"x" * (300 * 1024) + b'"}'
+    assert user_client.post("/payments/stripe/webhook", content=big, headers=_signed(big)).status_code == 413
+    assert credits.balance(uid) == 0
+
+
+def test_webhook_ignores_sessions_this_site_did_not_create(user_client, payments_on):
+    """Another product on the same Stripe account sets client_reference_id: never credit a member for it."""
+    uid = user_id()
+    other = _event("cs_other_product", uid, 5000, metadata={"order": "123"})
+    r = user_client.post("/payments/stripe/webhook", content=other, headers=_signed(other))
+    assert r.json()["result"] == "ignored: not a credit purchase from this site"
+    assert credits.balance(uid) == 0
+    # A session from this site whose pending row is missing still works, for the credits it was created for.
+    ours = _event("cs_no_row", uid, 500)
+    assert user_client.post("/payments/stripe/webhook", content=ours,
+                            headers=_signed(ours)).json()["result"] == "credited"
+    assert credits.balance(uid) == 500
+
+
+def test_admin_grant_sent_twice_gives_credits_once(client):
+    register(client, "friend@example.com", "Friend")
+    post(client, "/logout")
+    register(client, "owner@example.com", "Owner")
+    make_admin("owner@example.com")
+    page = client.get("/account/admin").text
+    token = re.search(r'name="grant_token" value="([^"]+)"', page).group(1)
+    data = {"email": "friend@example.com", "amount": "5", "reason": "Thanks", "grant_token": token}
+    post(client, "/account/admin", data)
+    r = post(client, "/account/admin", data)
+    assert h1(r.text) == "Site owner tools: those credits were already given"
+    assert "nothing more was added" in r.text
+    assert credits.balance(user_id("friend@example.com")) == 500
+    # A new form (new token) gives again.
+    token2 = re.search(r'name="grant_token" value="([^"]+)"', client.get("/account/admin").text).group(1)
+    assert token2 != token
+    post(client, "/account/admin", dict(data, grant_token=token2))
+    assert credits.balance(user_id("friend@example.com")) == 1000
+
+
+def test_admin_grant_refuses_secrets_in_the_reason(client):
+    register(client, "owner@example.com", "Owner")
+    make_admin("owner@example.com")
+    r = post(client, "/account/admin", {"email": "owner@example.com", "amount": "5",
+                                        "reason": "card 4111 1111 1111 1111"})
+    assert r.status_code == 400 and "looks like a card number" in r.text
+    assert credits.balance(user_id("owner@example.com")) == 0
+
+
+def test_delete_error_is_shown_next_to_the_box(user_client):
+    r = post(user_client, "/account/delete", {})
+    assert 'id="error-confirm"' in r.text
+    assert re.search(r'<input type="checkbox" id="field-confirm"[^>]*aria-describedby="hint-confirm error-confirm"'
+                     r'[^>]*aria-invalid="true"', r.text)
+
+
+def test_delete_stops_safely_when_a_section_fails(user_client, app):
+    def broken(uid):
+        raise RuntimeError("disk full")
+
+    hooks = app.state.forget_user_hooks
+    app.state.forget_user_hooks = [broken]
+    r = post(user_client, "/account/delete", {"confirm": "yes"})
+    assert r.status_code == 500
+    assert h1(r.text) == "Your account is not deleted yet"
+    assert "Please try again" in r.text
+    assert user_row()["display_name"] == "Amina"  # not anonymised
+    assert user_client.get("/account").status_code == 200  # still signed in
+    app.state.forget_user_hooks = hooks
+    r = post(user_client, "/account/delete", {"confirm": "yes"})
+    assert h1(r.text) == "Your account is deleted"
+
+
+def test_delete_removes_jobs_and_signs_out_other_devices(client):
+    from studio import jobs
+    register(client)
+    other = TestClient(client.app)
+    post(other, "/login", {"email": "amina@example.com", "password": "correct horse battery"})
+    job_id = jobs.submit(user_id(), "test", "Private job", lambda ctx: "/x")
+    post(client, "/account/delete", {"confirm": "yes"})
+    with db.session() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM jobs WHERE id = ?", (job_id,)).fetchone()[0] == 0
+    assert other.get("/account", follow_redirects=False).status_code == 303
+
+
+def test_pricing_does_not_promise_every_task_is_listed(client, app):
+    app.state.settings.stripe_secret_key = "sk_test_123"
+    app.state.settings.anthropic_api_key = "sk-ant-site-key"
+    r = client.get("/pricing")
+    assert "lists every task" not in r.text and "latest AI tasks" in r.text
