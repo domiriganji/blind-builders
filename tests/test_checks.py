@@ -177,7 +177,7 @@ def test_required_fields_and_bad_choices(asker):
         assert f'href="#field-{name}"' in r.text
     # The radio group's error links to its first choice, which can take focus.
     assert 'href="#field-wanted-1"' in r.text and "Choose who should check it" in r.text
-    assert "There are 5 problems" in r.text
+    assert "Please check 5 answers" in r.text
     assert_accessible(r)
 
 
@@ -928,7 +928,7 @@ def test_choosing_how_you_checked_is_required_when_both_are_wanted(asker):
     r = post(asker, f"/checks/{rid}/report", {"looks_finished": "yes", "improve": "Kept text"})
     assert r.status_code == 400
     assert h1(r) == "Check this: Cake shop: please fix the problems" == title_text(r)
-    assert "There is a problem" in r.text
+    assert "Please check 1 answer" in r.text
     assert 'href="#field-method-1"' in r.text and 'id="field-method-1"' in r.text
     assert "Choose how you checked it" in r.text
     assert "Kept text" in r.text and re.search(r'name="looks_finished" value="yes" checked', r.text)
@@ -942,7 +942,7 @@ def test_sighted_validation_asks_only_the_sighted_questions(asker):
     sign_in_as(asker, SIGHTED, "Sam Sighted")
     r = post(asker, f"/checks/{rid}/report", {"method": "sighted", "would_trust": "maybe"})
     assert r.status_code == 400
-    assert "There are 3 problems" in r.text
+    assert "Please check 3 answers" in r.text
     for name in ("looks_finished", "anything_broken", "would_trust"):
         assert f'href="#field-{name}-1"' in r.text
     assert "Choose whether it looks finished and professional: yes, no or not sure." in r.text
@@ -962,7 +962,7 @@ def test_screen_reader_validation_does_not_ask_the_sighted_questions(asker):
     rid = latest_request_id()
     sign_in_as(asker, CHECKER, "Chidi")
     r = send_report(asker, rid, method="screen_reader", browser="")
-    assert r.status_code == 400 and "There is a problem" in r.text and 'href="#field-browser"' in r.text
+    assert r.status_code == 400 and "Please check 1 answer" in r.text and 'href="#field-browser"' in r.text
     r = send_report(asker, rid, method="screen_reader", follow_redirects=False)
     assert r.status_code == 303
     rep = reports_of(rid)[0]

@@ -120,7 +120,7 @@ def test_research_journey_end_to_end(live, browser):
     page.get_by_role("button", name="Start the project").click()
     pages.check("Run your own research: please fix the problems")
     summary = page.get_by_role("alert")
-    assert "There are 2 problems" in summary.inner_text()
+    assert "Please check 2 answers" in summary.inner_text()
     summary.get_by_role("link", name="Enter a short name for your project.").click()
     assert _is_focused(page.get_by_label("Project name"))
     summary.get_by_role("link", name="Enter your research question.").click()

@@ -65,6 +65,11 @@ VERBOSITY = [
     ("summary_first", "Summary first, then details"),
     ("full", "Full detail"),
 ]
+# How the AI describes the look of what a member builds. The effect only is the default (the organizer's choice).
+DESCRIBE_LOOKS = [
+    ("effect", "The effect only, for example: looks calm and finished, easy to read on a phone"),
+    ("colours", "The effect, then the main colours in plain words"),
+]
 LANGUAGES = [
     ("en", "English"),
     ("ar", "Arabic"),
@@ -235,6 +240,7 @@ def _profile_values(user: dict) -> dict:
         "verbosity": user["verbosity"],
         "show_name_on_checks": bool(user["show_name_on_checks"]),
         "show_name_on_help": bool(user["show_name_on_help"]),
+        "describe_looks": "colours" if user["describe_colours"] else "effect",
     }
 
 
@@ -242,7 +248,7 @@ def _render_profile(request: Request, user: dict, values: dict, errors: dict, st
     title = "Your profile and preferences" + (": please fix the problems" if errors else "")
     return render(request, "account/profile.html", title=title, values=values, errors=errors,
                   pseudonym=user["pseudonym"], languages=LANGUAGES, sight_options=SIGHT_ONSET,
-                  verbosity_options=VERBOSITY, status_code=status_code)
+                  verbosity_options=VERBOSITY, looks_options=DESCRIBE_LOOKS, status_code=status_code)
 
 
 @router.get("/account/profile")
@@ -262,6 +268,7 @@ async def profile_save(request: Request, user: dict = Depends(require_user)):
         "verbosity": _clean(form, "verbosity", 20),
         "show_name_on_checks": form.get("show_name_on_checks") == "yes",
         "show_name_on_help": form.get("show_name_on_help") == "yes",
+        "describe_looks": _clean(form, "describe_looks", 20) or "effect",
     }
     errors: dict[str, str] = {}
     if not values["display_name"]:
@@ -278,6 +285,8 @@ async def profile_save(request: Request, user: dict = Depends(require_user)):
         errors["sight_onset"] = "Choose one of the options, or Prefer not to say."
     if values["verbosity"] not in dict(VERBOSITY):
         errors["verbosity"] = "Choose how you want answers: summary first, or full detail."
+    if values["describe_looks"] not in dict(DESCRIBE_LOOKS):
+        errors["describe_looks"] = "Choose how the AI should describe looks: the effect only, or the effect and colours."
     for name in ("display_name", "screen_reader", "device"):
         problem = secret_problem(values[name])
         if problem:
@@ -288,10 +297,11 @@ async def profile_save(request: Request, user: dict = Depends(require_user)):
     with db.session() as conn:
         conn.execute(
             "UPDATE users SET display_name = ?, screen_reader = ?, device = ?, language = ?, sight_onset = ?,"
-            " verbosity = ?, show_name_on_checks = ?, show_name_on_help = ? WHERE id = ?",
+            " verbosity = ?, show_name_on_checks = ?, show_name_on_help = ?, describe_colours = ? WHERE id = ?",
             (values["display_name"], values["screen_reader"], values["device"], values["language"],
              values["sight_onset"], values["verbosity"], 1 if values["show_name_on_checks"] else 0,
-             1 if values["show_name_on_help"] else 0, user["id"]),
+             1 if values["show_name_on_help"] else 0, 1 if values["describe_looks"] == "colours" else 0,
+             user["id"]),
         )
     _announce(request, "Your profile is saved")
     return redirect("/account")
@@ -762,7 +772,8 @@ def anonymise_user(user_id: int) -> None:
         conn.execute(
             "UPDATE users SET email = ?, display_name = 'Former member', password_hash = ?, own_api_key_enc = NULL,"
             " screen_reader = '', device = '', language = 'en', sight_onset = 'prefer_not',"
-            " verbosity = 'summary_first', show_name_on_checks = 0, show_name_on_help = 0, is_admin = 0 WHERE id = ?",
+            " verbosity = 'summary_first', show_name_on_checks = 0, show_name_on_help = 0, describe_colours = 0,"
+            " is_admin = 0 WHERE id = ?",
             (f"deleted-{user_id}@invalid", hash_password(secrets.token_urlsafe(32)), user_id),
         )
 

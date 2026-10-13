@@ -106,7 +106,7 @@ def test_ask_get_an_ai_answer_answer_and_mark_helpful(live, browser):
     asker.get_by_role("button", name="Post your question").click()
     asker.wait_for_load_state()
     assert_heading(asker, "Ask a question: please fix the problems")
-    expect(asker.get_by_role("alert").get_by_role("heading", name="There are 2 problems")).to_be_visible()
+    expect(asker.get_by_role("alert").get_by_role("heading", name="Please check 2 answers")).to_be_visible()
     audit(asker, problems, "/help/ask with errors")
     follow_error_link(asker, "Enter a short title that says what you need help with.", "Title")
     follow_error_link(asker, "Enter your question. Say what you tried and what happened.", "Your question")

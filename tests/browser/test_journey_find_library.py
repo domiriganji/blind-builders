@@ -16,7 +16,7 @@ from .conftest import check_page, check_page_narrow, new_page, sign_in, sign_up
 
 pytestmark = pytest.mark.browser
 
-ERROR_SUMMARY = re.compile(r"^There (is a problem|are \d+ problems)$")
+ERROR_SUMMARY = re.compile(r"^Please check \d+ answers?$")
 
 RESEARCH = ResearchResult(
     text="## Summary\nTwo tools exist.\n\nAI Content Describer (https://github.com/cartertemm/AI-content-describer) ...",

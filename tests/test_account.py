@@ -130,6 +130,20 @@ def test_profile_shows_code_name_and_current_values(user_client):
     assert "only helps match" in r.text
     assert "Summary first, then details" in r.text and "Full detail" in r.text
     assert "Show my name on peer checks instead of my code name" in r.text
+    # Looks are described by their effect unless the member asks for colours too.
+    assert 'name="describe_looks" value="effect" checked' in r.text
+
+
+def test_profile_colour_choice_is_saved(user_client):
+    base = {"display_name": "Amina", "language": "en", "sight_onset": "prefer_not", "verbosity": "summary_first"}
+    post(user_client, "/account/profile", dict(base, describe_looks="colours"))
+    assert user_row()["describe_colours"] == 1
+    assert 'name="describe_looks" value="colours" checked' in user_client.get("/account/profile").text
+    post(user_client, "/account/profile", dict(base, describe_looks="effect"))
+    assert user_row()["describe_colours"] == 0
+    r = post(user_client, "/account/profile", dict(base, describe_looks="rainbow"))
+    assert r.status_code == 400 and 'href="#field-describe_looks"' in r.text
+    assert user_row()["describe_colours"] == 0
 
 
 def test_profile_edit_saves(user_client):

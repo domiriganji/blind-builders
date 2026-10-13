@@ -130,6 +130,61 @@ def test_cost_and_credit_charging(app):
     assert credits.balance(uid) < 500
 
 
+def test_member_note_goes_before_every_system_prompt(app):
+    """The shared note on how to speak to the member (docs/VOICE.md, 4.18) comes first in every call."""
+    from types import SimpleNamespace
+    from studio import ai
+
+    class Block:
+        type = "text"; text = "ok"
+
+    class Msg:
+        content = [Block()]; stop_reason = "end_turn"; usage = None; model = "claude-opus-5-5"
+
+    class Stream:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get_final_message(self): return Msg()
+
+    class Beta:
+        class messages:
+            last_kwargs = None
+            @staticmethod
+            def stream(**kw):
+                Beta.messages.last_kwargs = kw
+                return Stream()
+
+    class SDK:
+        beta = Beta
+
+    client = AIClient(api_key="x", model="claude-opus-5-5", user_id=1, paid_by="own_key", markup=1.0, sdk_client=SDK(),
+                      member_note="NOTE")
+    client.text(system="Section prompt.", prompt="p", purpose="t")
+    assert Beta.messages.last_kwargs["system"] == "NOTE\n\nSection prompt."
+
+    with db.session() as conn:
+        conn.execute("INSERT INTO users (email, display_name, password_hash, pseudonym, created_at, screen_reader)"
+                     " VALUES ('n@x.co','N','x','M2','now','JAWS')")
+        user = dict(conn.execute("SELECT * FROM users WHERE email='n@x.co'").fetchone())
+    credits.add(user["id"], 500, "test top-up")
+    settings = SimpleNamespace(anthropic_api_key="k", model="claude-opus-5-5", credit_markup=1.25, secret_key="s")
+    made = ai.default_factory(settings)(user)
+    assert made.member_note == ai.member_voice(user)
+
+
+def test_member_voice_follows_the_profile():
+    from studio.ai import LOOKS_COLOURS, LOOKS_EFFECT, member_voice
+    plain = member_voice({"screen_reader": "", "verbosity": "summary_first", "language": "en", "describe_colours": 0})
+    assert "Their tools: not given." in plain and "summary first, then details" in plain
+    assert LOOKS_EFFECT in plain and "never ask them to choose colours" in plain
+    assert "main language" not in plain
+    full = member_voice({"screen_reader": "VoiceOver  on iPhone", "verbosity": "full", "language": "ha",
+                         "describe_colours": 1})
+    assert "Their tools: VoiceOver on iPhone." in full and "Their answer style: full detail." in full
+    assert "Their main language is Hausa" in full
+    assert LOOKS_COLOURS in full and LOOKS_EFFECT not in full
+
+
 def test_refusal_is_reported_plainly(app):
     import pytest
     from studio.ai import AIRefused

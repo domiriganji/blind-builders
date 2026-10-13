@@ -84,9 +84,36 @@ def nest_headings(html: str, base: int = 2) -> Markup:
     return Markup(_HEADING_RE.sub(lambda m: f"<{m.group(1)}h{mapping[int(m.group(2))]}{m.group(3)}", text))
 
 
+_MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+           "November", "December")
+
+
+def date_words(iso: str | None, with_time: bool = False) -> str:
+    """One date format everywhere (docs/VOICE.md, 4.13): '2026-10-13T12:29:05+00:00' -> '13 October 2026',
+    or '13 October 2026, 12:29 UTC' with_time. Anything that is not a date comes back unchanged."""
+    text = (iso or "").strip()
+    m = re.match(r"(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?", text)
+    if not m or not 1 <= int(m.group(2)) <= 12:
+        return text
+    out = f"{int(m.group(3))} {_MONTHS[int(m.group(2)) - 1]} {m.group(1)}"
+    if with_time and m.group(4):
+        out += f", {m.group(4)}:{m.group(5)} UTC"
+    return out
+
+
+def error_title(title: str, errors: object) -> str:
+    """The title (and h1) of a form shown again after a failed send: the count first, without blame
+    (docs/VOICE.md, 4.9). `errors` is the dict of field messages, or a list, or one message."""
+    count = len(errors) if isinstance(errors, (dict, list, tuple, set)) else (1 if errors else 0)
+    if not count:
+        return title
+    return f"Please check {count} answer{'' if count == 1 else 's'}: {title}"
+
+
 templates.env.filters["markdown"] = markdown
 templates.env.filters["shift_headings"] = shift_headings
 templates.env.filters["nest_headings"] = nest_headings
+templates.env.filters["date_words"] = date_words
 
 # Macros imported from _macros.html cannot see page variables, but they can see globals.
 # render() sets this before the template renders, so csrf_input() works in any template.

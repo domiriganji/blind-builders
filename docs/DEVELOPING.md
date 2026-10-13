@@ -47,8 +47,8 @@ Templates go in `studio/templates/<section>/`. Tests go in `tests/test_<section>
 
 | File | What it gives you |
 |---|---|
-| `studio/web.py` | `render(request, template, title=..., **ctx)`, `checked_form(request)`, `require_user`, `current_user`, `flash`, `redirect`, `get_ai(request, user)`, the `markdown`, `nest_headings` and `shift_headings` template filters |
-| `studio/ai.py` | `AIClient.structured / text / research`, `AIError`, `AINotAvailable`, `AIRefused`, `ResearchResult`, `Source` |
+| `studio/web.py` | `render(request, template, title=..., **ctx)`, `checked_form(request)`, `require_user`, `current_user`, `flash`, `redirect`, `get_ai(request, user)`, `error_title(title, errors)`, `date_words(iso)`, the `markdown`, `nest_headings`, `shift_headings` and `date_words` template filters |
+| `studio/ai.py` | `AIClient.structured / text / research`, `member_voice(user)`, `AIError`, `AINotAvailable`, `AIRefused`, `ResearchResult`, `Source` |
 | `studio/jobs.py` | `submit(user_id, kind, title, fn, *args, back_url="", dedupe_key="", item_ref="")`, `job_url(job_id)`, `JobContext.progress(text)`, `forget_item(conn, user_id, item_ref)`, `still_wanted(conn, ctx)` |
 | `studio/sensitive.py` | `find_secret(text)`: a plain message if the text holds a password, PIN, one-time code, API key or card number |
 | `studio/db.py` | `with db.session() as conn:` and `db.now()` |
@@ -65,11 +65,11 @@ Do not edit these files from a section. If a section needs a change in a shared 
 1. **One h1 that says where you are or what just happened.** Pass the same words as `title=` to `render`, for example `title="Cake shop: version 2 is ready"`. Screen readers announce the title first.
 2. **Headings in order** (h1, then h2, then h3). People move by headings. Put the summary first, details after.
 3. **Forms use the macros** from `_macros.html` (pass `mark_optional=false` for a field that is optional but central, so it is not announced as "optional"): `csrf_input`, `error_summary`, `field`, `textarea`, `select`, `radios`, `checkbox`, `post_button`, `sources_list`. Import them with `{% from "_macros.html" import ... %}`. Every field gets a visible label. Hints and errors are linked automatically.
-4. **Every POST handler** starts with `form = await checked_form(request)`, which checks the CSRF token. Read values with `form_text(form, name, limit)`: a field sent twice arrives as a list, and every value needs a length limit. After success, `redirect()` (303) to a page. On a validation error, re-render the form with `status_code=400`, `errors={field: message}` and a title ending in ": please fix the problems".
+4. **Every POST handler** starts with `form = await checked_form(request)`, which checks the CSRF token. Read values with `form_text(form, name, limit)`: a field sent twice arrives as a list, and every value needs a length limit. After success, `redirect()` (303) to a page. On a validation error, re-render the form with `status_code=400`, `errors={field: message}` and `title=error_title(title, errors)` (from `studio/web.py`), which gives "Please check 1 answer: Sign in".
 5. **No JavaScript required.** No streaming text. No auto-refresh. No content that changes while someone is reading. `static/enhance.js` is the only script.
 6. **Buttons are `<button>`, links are `<a>`.** Link text makes sense on its own ("Open the preview", never "click here").
 7. **Data tables have `<th scope="col">`.** Never use tables for layout.
-8. **Plain language.** Short sentences. Buttons say what they do. Dates as `2026-10-12` or in words.
+8. **Plain language, in the voice of `docs/VOICE.md`.** Every word a member reads follows it: short sentences, buttons that say what they do, errors that say what happened and what to do next. Dates in one format, "13 October 2026": `{{ value|date_words }}` in templates, `date_words(value)` in Python (`date_words(value, with_time=True)` adds "12:29 UTC" where the time matters).
 9. **Light pages.** No images unless they carry information, no web fonts, no external scripts.
 
 ## Using the AI
@@ -107,7 +107,7 @@ def _understand(ctx, ai, thing_id):          # runs in the background
 - `structured()` schemas must be JSON Schema objects with `"additionalProperties": false` and every property listed in `"required"` (a requirement of structured outputs). Use strings, numbers, booleans, arrays and nested objects.
 - `research()` searches the live web and returns `ResearchResult(text, sources)`. Always show the sources with the `sources_list` macro.
 - `AIError` raised inside a job is shown to the person on the job page in plain words. Do not catch it inside the job.
-- Every system prompt says: the person is blind or has low vision and uses a screen reader; put the summary first; use plain language and short headings; no tables unless asked; no emoji; never claim something was checked or tested unless it was.
+- `AIClient` puts the shared member note (`ai.member_voice(user)`: who the person is, their tools, answer style and language, the tone, and how to describe looks) before every system prompt by itself. Section prompts do not repeat it; they add only what their task needs, such as the rules for text written for other readers or for editing a member's own words (`docs/VOICE.md`, 4.18).
 
 ## Honesty rules
 
@@ -125,7 +125,7 @@ def _understand(ctx, ai, thing_id):          # runs in the background
 
 ## Visual checks
 
-`studio/visual_check.py` opens a build's pages in Chromium (Playwright) on a phone and a computer and measures what sighted visitors meet: sideways scrolling, text contrast, cut-off and overlapping text, small tap targets and text on phones, and broken pictures. `available()` says whether the server has a browser; `check_site(files)` never raises and returns a `VisualReport` with pictures for an AI to look at. Each problem has `builder_text` for the member and `fix_text` for the AI. Members are told about the look in outcomes (easy to read, works on phones, looks finished), never in colours: no member-facing text names a colour. Built pages are untrusted, so they run in Chromium's sandbox, with every request outside their own files blocked, no new windows, a bare environment (none of the site's secrets), a cap on renderer processes and script memory, one check at a time, and a time limit. Every chosen page and size is in the report, measured or not; a check passes only when it ran on every page. Pictures are PNG, or JPEG when a PNG would be too large to send (`SCREENSHOT_MAX_BYTES`), and `check_site(files, max_screenshots=n)` keeps only the first n. In tests, replace `visual_check.available` and `check_site` with a fake (see `tests/test_build.py`); `tests/test_visual_check.py` uses the real browser.
+`studio/visual_check.py` opens a build's pages in Chromium (Playwright) on a phone and a computer and measures what sighted visitors meet: sideways scrolling, text contrast, cut-off and overlapping text, small tap targets and text on phones, and broken pictures. `available()` says whether the server has a browser; `check_site(files)` never raises and returns a `VisualReport` with pictures for an AI to look at. Each problem has `builder_text` for the member and `fix_text` for the AI. Members are told about the look by its effect (easy to read, works on phones, looks finished). Colours are named only for members who chose "The effect, then the main colours" in Your profile (`users.describe_colours`), or who mention colours themselves; nobody is asked to choose colours (`docs/VOICE.md`, 4.4). Built pages are untrusted, so they run in Chromium's sandbox, with every request outside their own files blocked, no new windows, a bare environment (none of the site's secrets), a cap on renderer processes and script memory, one check at a time, and a time limit. Every chosen page and size is in the report, measured or not; a check passes only when it ran on every page. Pictures are PNG, or JPEG when a PNG would be too large to send (`SCREENSHOT_MAX_BYTES`), and `check_site(files, max_screenshots=n)` keeps only the first n. In tests, replace `visual_check.available` and `check_site` with a fake (see `tests/test_build.py`); `tests/test_visual_check.py` uses the real browser.
 
 ## Tests
 

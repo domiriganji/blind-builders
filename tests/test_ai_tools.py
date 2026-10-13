@@ -191,7 +191,7 @@ def test_every_check_is_required(user_client):
     r = post(user_client, "/ai-tools/claude-code/reports", data)
     assert r.status_code == 400
     assert "please fix the problems" in r.text
-    assert "There are 7 problems" in r.text
+    assert "Please check 7 answers" in r.text
     for key in ai_tools.CHECK_KEYS + ("overall",):
         # The summary links to the first choice, which can take focus; the group itself cannot.
         assert f'href="#field-{key}-1"' in r.text and f'id="field-{key}-1"' in r.text

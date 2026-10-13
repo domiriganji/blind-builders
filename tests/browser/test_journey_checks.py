@@ -108,7 +108,7 @@ def test_request_check_close_and_public_record(live, browser):
 
     go(asker, asker.get_by_role("button", name="Ask for the check"))
     assert h1_text(asker) == "Ask for a check: please fix the problems"
-    expect(asker.get_by_role("heading", name="There are 3 problems")).to_be_visible()
+    expect(asker.get_by_role("heading", name="Please check 3 answers")).to_be_visible()
     audit(asker, "new request form with errors")
     follow_error(asker, "Enter a short name for what you want checked.", asker.get_by_label("Name of what you want checked"))
     follow_error(asker, "Enter the full web address, starting with https:// or http://.", asker.get_by_label("Web address"))
@@ -393,7 +393,7 @@ def test_sighted_friend_checks_how_it_looks(live, browser):
     # Sending without choosing how they checked: one problem, and its link goes to the first choice.
     go(friend, friend.get_by_role("button", name="Send my check"))
     assert h1_text(friend) == f"Check this: {title}: please fix the problems"
-    expect(friend.get_by_role("heading", name="There is a problem")).to_be_visible()
+    expect(friend.get_by_role("heading", name="Please check 1 answer")).to_be_visible()
     audit(friend, "report form, how you checked not chosen")
     follow_error(friend, re.compile("^Choose how you checked it"),
                  friend.get_by_role("radio", name="With a screen reader"))
@@ -401,7 +401,7 @@ def test_sighted_friend_checks_how_it_looks(live, browser):
     # Sighted, but the questions not answered: only the sighted questions are asked for.
     friend.get_by_role("radio", name="I am sighted and looked at how it appears").check()
     go(friend, friend.get_by_role("button", name="Send my check"))
-    expect(friend.get_by_role("heading", name="There are 3 problems")).to_be_visible()
+    expect(friend.get_by_role("heading", name="Please check 3 answers")).to_be_visible()
     audit(friend, "report form, sighted questions not answered")
     follow_error(friend, "Choose whether it looks finished and professional: yes, no or not sure.",
                  friend.get_by_role("group", name=LOOK_QUESTIONS[0]).get_by_role("radio", name="Yes", exact=True))

@@ -72,7 +72,7 @@ def is_focused(locator) -> bool:
 
 def follow_error(page, message: str, field) -> None:
     """The error summary lists the problem as a link; following it puts focus on the field to fix."""
-    summary = page.get_by_role("alert").filter(has=page.get_by_role("heading", name="There"))
+    summary = page.get_by_role("alert").filter(has=page.get_by_role("heading", name="Please check"))
     expect(summary).to_be_visible()
     summary.get_by_role("link", name=message).click()
     expect(field).to_be_focused()

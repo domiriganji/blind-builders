@@ -128,6 +128,8 @@ def init(feature_schemas: list[str]) -> None:
         ensure_column(conn, "users", "session_epoch", "INTEGER NOT NULL DEFAULT 0")
         # Help is public, so it shows the code name unless the member chooses their name.
         ensure_column(conn, "users", "show_name_on_help", "INTEGER NOT NULL DEFAULT 0")
+        # How the AI describes looks: 0 = the effect only (the default), 1 = the effect, then the main colours.
+        ensure_column(conn, "users", "describe_colours", "INTEGER NOT NULL DEFAULT 0")
         for schema in feature_schemas:
             if schema:
                 conn.executescript(schema)

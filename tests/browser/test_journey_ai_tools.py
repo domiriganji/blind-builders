@@ -87,7 +87,7 @@ def test_member_reports_fixes_mistakes_updates_and_deletes(live, browser):
     assert heading_1(page) == f"How {TOOL} works with screen readers: please fix the problems"
     checked(page, "form with mistakes")
     summary = page.get_by_role("alert")
-    expect(summary.get_by_role("heading", name="There are 10 problems")).to_be_visible()
+    expect(summary.get_by_role("heading", name="Please check 10 answers")).to_be_visible()
     # Following an error link moves focus to the field that needs fixing, for a text field...
     summary.get_by_role("link", name="Enter the version of the tool you used, for example 2.1.296.").click()
     expect(page.get_by_label(VERSION_LABEL, exact=True)).to_be_focused()
@@ -219,7 +219,7 @@ def test_key_pages_work_without_javascript(live, browser):
     page.wait_for_load_state()
     assert heading_1(page) == "How Gemini CLI works with screen readers: please fix the problems"
     checked_without_js(page, viewer, "form with mistakes")
-    expect(page.get_by_role("heading", name="There are 10 problems")).to_be_visible()
+    expect(page.get_by_role("heading", name="Please check 10 answers")).to_be_visible()
     page.get_by_role("link", name="Enter the version of the tool you used, for example 2.1.296.").click()
     expect(page.get_by_label("Version of Gemini CLI", exact=True)).to_be_focused()
     page.get_by_label("Version of Gemini CLI", exact=True).fill("0.63.0")

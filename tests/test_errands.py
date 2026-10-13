@@ -387,7 +387,7 @@ def test_new_errand_validation(user_client, fake_ai):
     assert r.status_code == 400
     _a11y_ok(r.text)
     assert 'href="#field-kind"' in r.text and 'href="#field-request"' in r.text
-    assert "There are 2 problems" in r.text
+    assert "Please check 2 answers" in r.text
     r = post(user_client, "/do/new", {"kind": "hack", "request": "x" * 5000})
     assert r.status_code == 400 and "at most 4,000 characters" in r.text
     assert fake_ai.calls == []

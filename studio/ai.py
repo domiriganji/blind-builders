@@ -38,6 +38,52 @@ IMAGE_MAX_TOKENS = 4_784
 WEB_SEARCH_TOOL = {"type": "web_search_20260209", "name": "web_search"}
 WEB_FETCH_TOOL = {"type": "web_fetch_20260209", "name": "web_fetch"}
 
+# Put before every system prompt, so the AI speaks to every member the same way (docs/VOICE.md, 4.18).
+MEMBER_VOICE = """\
+The person you work for is blind or has low vision. They may read with a screen reader in speech or braille, \
+with magnification or zoom, or with some sight. Their tools: {tools}. Their answer style: {style}. {language}\
+Treat them as a capable adult, a maker and the expert on their own access. Be warm, calm and direct. Do not \
+pity them, do not praise ordinary things, and do not apologise or reassure out of habit. Never write despite, \
+brave, inspiring, overcome, suffer, special needs, visually impaired, visually challenged or differently abled, \
+and never write simply, just, easy, obviously or do not worry. Mention blindness only when it matters to the \
+answer. Words like see and look are fine, but do not assume they listen: write read, check or go to, not "you \
+will hear". Do not explain how screen readers work unless asked. Many readers speak English as a second \
+language: use plain words and no idioms. If something failed, say what happened, whether anything was lost, \
+and what they can do next. Never claim something was checked or tested unless it was. Put the summary first. \
+Use short sentences and short headings. No tables unless asked, no emoji, no decorative characters or ASCII \
+art. Keep list items short, with the key word first. Never mention their blindness or low vision, or how they \
+read, in anything written for other readers (a website, a letter, a paper, a form answer) unless they ask. \
+{looks}"""
+LOOKS_EFFECT = ("When you tell them how something looks, say the effect it has and what it suits, for example calm, "
+                "finished and easy to read on a phone. Do not name colours, colour codes or fonts, and never ask them "
+                "to choose colours. If they mention colours themselves, follow their wishes and talk about colours "
+                "freely.")
+LOOKS_COLOURS = ("When you tell them how something looks, say the effect first, then name the main colours in plain "
+                 "words, for example deep green and cream. Give colour codes and font names only if they ask.")
+
+
+def member_voice(user: dict) -> str:
+    """The shared note on how to speak to this member, filled from their profile."""
+    from .features.account import LANGUAGES  # here, not at the top: features import this module
+
+    def get(name: str, default: Any = "") -> Any:
+        try:
+            return user[name] if user[name] is not None else default
+        except (KeyError, IndexError):
+            return default
+
+    tools = " ".join(str(get("screen_reader")).split())[:100] or "not given"
+    style = "full detail" if get("verbosity") == "full" else "summary first, then details"
+    code = get("language", "en") or "en"
+    language = ""
+    if code != "en":
+        name = dict(LANGUAGES).get(code, "")
+        if name:
+            language = (f"Their main language is {name}; the site is in English, so if they write to you in {name}, "
+                        f"answer in {name}. ")
+    looks = LOOKS_COLOURS if get("describe_colours", 0) else LOOKS_EFFECT
+    return MEMBER_VOICE.format(tools=tools, style=style, language=language, looks=looks)
+
 
 class AIError(Exception):
     """An AI problem with a message that is safe and useful to show the user."""
@@ -88,8 +134,9 @@ class AIClient:
     """Wraps the Anthropic SDK. Feature code calls structured(), research() or text()."""
 
     def __init__(self, *, api_key: str, model: str, user_id: int, paid_by: str, markup: float,
-                 sdk_client: Any | None = None):
+                 sdk_client: Any | None = None, member_note: str = ""):
         self.model = model
+        self.member_note = member_note  # member_voice(user), put before every system prompt
         self.user_id = user_id
         self.paid_by = paid_by  # "own_key" or "credits"
         self.markup = markup
@@ -176,6 +223,8 @@ class AIClient:
         return cost_cents(self.model, input_tokens, int(kwargs.get("max_tokens", 0)), searches, self.markup)
 
     def _call(self, *, purpose: str, **kwargs) -> Any:
+        if self.member_note:
+            kwargs["system"] = f"{self.member_note}\n\n{kwargs.get('system') or ''}".strip()
         hold_id = None
         if self.paid_by == "credits":
             # Hold the most this call can cost before making it, and settle the real cost after, so a member
@@ -324,11 +373,11 @@ def default_factory(settings) -> Callable[[dict], AIClient]:
             key = decrypt_secret(settings.secret_key, user["own_api_key_enc"])
             if key:
                 return AIClient(api_key=key, model=settings.model, user_id=user["id"], paid_by="own_key",
-                                markup=settings.credit_markup)
+                                markup=settings.credit_markup, member_note=member_voice(user))
         if settings.anthropic_api_key:
             if credits.balance(user["id"]) > 0:
                 return AIClient(api_key=settings.anthropic_api_key, model=settings.model, user_id=user["id"],
-                                paid_by="credits", markup=settings.credit_markup)
+                                paid_by="credits", markup=settings.credit_markup, member_note=member_voice(user))
             raise AINotAvailable("To use the AI, buy credits or connect your own Claude API key on your account page.")
         raise AINotAvailable("To use the AI, connect your own Claude API key on your account page. This site does not provide AI credits yet.")
 

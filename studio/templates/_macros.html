@@ -4,7 +4,7 @@
 {% macro error_summary(errors) %}
 {% if errors %}
 <div class="error-summary" role="alert" aria-labelledby="error-summary-title" tabindex="-1">
-  <h2 id="error-summary-title">There {{ 'is a problem' if errors|length == 1 else 'are ' ~ errors|length ~ ' problems' }}</h2>
+  <h2 id="error-summary-title">Please check {{ errors|length }} {{ 'answer' if errors|length == 1 else 'answers' }}</h2>
   <ul>
   {% for name, message in errors.items() %}<li><a href="#field-{{ name }}">{{ message }}</a></li>{% endfor %}
   </ul>
@@ -21,7 +21,7 @@
 
 {% macro _hint_error(name, hint, error) %}
 {% if hint %}<p class="hint" id="hint-{{ name }}">{{ hint }}</p>{% endif %}
-{% if error %}<p class="field-error" id="error-{{ name }}"><span class="visually-hidden">Error: </span>{{ error }}</p>{% endif %}
+{% if error %}<p class="field-error" id="error-{{ name }}"><span class="visually-hidden">Please check: </span>{{ error }}</p>{% endif %}
 {% endmacro %}
 
 {% macro field(name, label, value='', type='text', hint='', error='', required=false, autocomplete='', extra='', mark_optional=true) %}
@@ -62,7 +62,7 @@
 
 {% macro checkbox(name, label, checked=false, hint='', error='') %}
 <div class="field choice{% if error %} has-error{% endif %}">
-  {% if error %}<p class="field-error" id="error-{{ name }}"><span class="visually-hidden">Error: </span>{{ error }}</p>{% endif %}
+  {% if error %}<p class="field-error" id="error-{{ name }}"><span class="visually-hidden">Please check: </span>{{ error }}</p>{% endif %}
   <input type="checkbox" id="field-{{ name }}" name="{{ name }}" value="yes"{% if checked %} checked{% endif %}{{ _described(name, hint, error) }}>
   <label for="field-{{ name }}">{{ label }}</label>
   {% if hint %}<p class="hint" id="hint-{{ name }}">{{ hint }}</p>{% endif %}
