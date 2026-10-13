@@ -2,7 +2,7 @@
 title: Publishing articles and papers
 summary: Where to share your work quickly (preprint servers), how to choose and submit to a journal, how to make an accessible PDF from Word, LibreOffice or LaTeX, and the screen reader problems found in journal submission systems.
 last_checked: 2026-10
-order: 5
+order: 6
 ---
 
 ## The short version
@@ -30,7 +30,7 @@ Before you post, check whether the journal you plan to submit to accepts papers 
 
 - Read a few papers the journal published recently. Is your work the same kind?
 - For open access journals, check the [Directory of Open Access Journals](https://doaj.org).
-- Use the [Think. Check. Submit.](https://thinkchecksubmit.org) checklist to avoid journals that take fees and do not really review papers.
+- Use the [Think. Check. Submit.](https://thinkchecksubmit.org) checklist to avoid journals that take fees without reviewing papers.
 - Find the journal's "instructions for authors" page and the editorial office's email address before you start. You may need it.
 
 ## Journal submission systems and screen readers
@@ -63,7 +63,7 @@ From **Word** on Windows: use the built-in heading styles, then save as PDF with
 
 From **LibreOffice Writer**: use the heading styles, then export as PDF with the "Universal Accessibility (PDF/UA)" option turned on.
 
-To check a PDF, two free tools are widely used: [PAC](https://pac.pdf-accessibility.org), the PDF Accessibility Checker, on Windows, and [veraPDF](https://verapdf.org), which checks against the PDF/UA standard. Like the checks on this site, they cannot tell you how the PDF sounds; ask a member to read it with their screen reader.
+To check a PDF, two free tools are widely used: [PAC](https://pac.pdf-accessibility.org), the PDF Accessibility Checker, on Windows, and [veraPDF](https://verapdf.org), which checks against the PDF/UA standard. Like the checks on this site, they cannot tell you how the PDF reads in speech or braille; ask a member to try it with their screen reader or braille display.
 
 ## LaTeX and tagged PDF
 
@@ -76,8 +76,8 @@ How to use it: tagging is turned on with a `\DocumentMetadata{...}` line at the 
 
 Writing maths: NVDA 2026.1 (May 2026) has MathCAT built in for reading maths ([NVDA releases](https://github.com/nvaccess/nvda/releases)).
 
-We could not check how well Overleaf's online editor works with screen readers. If you use it, share what works in [Ask the community](/help/ask?title=Writing%20LaTeX%20with%20a%20screen%20reader).
+We could not check how well Overleaf's online editor works with screen readers. If you use it, please share what works: [ask a question about this guide](/help/ask?title=Publishing%20articles%20and%20papers) and add what you found.
 
-## You are not alone in this
+## What other blind and low-vision researchers report
 
-In a 2026 study of 57 blind and low-vision researchers, nearly one in five could not do a literature review or evaluate visual outputs on their own ([Khan and Seo, CHI 2026](https://doi.org/10.1145/3772318.3791242)). Ask the community, use peer checks for your PDFs, and share what works.
+In a 2026 study of 57 blind and low-vision researchers, for nearly one in five, the tools they had did not let them do a literature review or check visual outputs on their own ([Khan and Seo, CHI 2026](https://doi.org/10.1145/3772318.3791242)). Members share what works in [Ask the community](/help), and [peer checks](/checks) can test your PDFs.

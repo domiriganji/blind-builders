@@ -2,7 +2,7 @@
 title: Putting your web app on Android and iPhone home screens, and in app stores
 summary: Make a web app that people can add to their home screen with no developer account, then the general route into Google Play and the App Store, with every step that needs a paid developer account marked.
 last_checked: 2026-10
-order: 4
+order: 5
 ---
 
 ## The short version
@@ -80,10 +80,10 @@ For many projects, a home screen web app (Part 1) is enough, and it avoids the f
 
 ## What we do not know yet
 
-The research behind this site found no evidence from April to October 2026 that the accessibility of App Store Connect or the Google Play Console improved, and we have not tested them with screen readers ourselves. If you have published through either one with a screen reader, please share what worked in [Ask the community](/help/ask?title=Publishing%20to%20an%20app%20store%20with%20a%20screen%20reader).
+The research behind this site found no evidence from April to October 2026 that the accessibility of App Store Connect or the Google Play Console improved, and we have not tested them with screen readers ourselves. If you have published through either one with a screen reader, please share what worked: [ask a question about this guide](/help/ask?title=Putting%20your%20web%20app%20on%20Android%20and%20iPhone%20home%20screens%2C%20and%20in%20app%20stores) and add what you found.
 
 ## Before you publish
 
 - Test the installed app with TalkBack on Android and VoiceOver on iPhone: headings, button names, form labels, and where focus goes after each action.
-- Ask other blind members for a [peer check](/checks) on the phones they use.
-- Make sure the app's name and icon label read well, because that is the first thing people hear.
+- Ask blind and low-vision members for a [peer check](/checks) on the phones they use.
+- Make sure the app's name and icon label read well, because that is the first thing people hear or read.
