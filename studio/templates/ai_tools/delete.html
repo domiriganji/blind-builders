@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% from "_macros.html" import post_button %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p class="lead">This deletes your answers{% if report.workarounds and report.note %}, workarounds and note{% elif report.workarounds %} and workarounds{% elif report.note %} and note{% endif %} for {{ tool.name }} version {{ report.tool_version }}, reported on {{ report.date|date_words }}. Other members will no longer see them. You cannot undo this.</p>
+<div class="actions">
+  {{ post_button('/ai-tools/' ~ tool.slug ~ '/reports/' ~ report.id ~ '/delete', 'Delete my report', 'primary') }}
+  <a href="/ai-tools/{{ tool.slug }}#report-{{ report.id }}">Keep it and go back</a>
+</div>
+{% endblock %}

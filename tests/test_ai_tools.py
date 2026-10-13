@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from studio import db
 from studio.a11y_check import check_html
 from studio.features import ai_tools
+from studio.web import date_words
 
 from .conftest import post, register, user_id
 
@@ -127,9 +128,12 @@ def test_index_lists_tools_in_a_table(client):
     assert '<th scope="row"><a href="/ai-tools/cursor">Cursor</a>' in page.text
     assert "Kind: editor" in table_row(page.text, "Cursor")
     assert 'href="/ai-tools/claude-code"' in page.text
-    assert "No reports yet" in table_row(page.text, "Cursor")
+    # The empty state is said once, with no "Latest report: none yet" after it.
+    assert table_row(page.text, "Cursor").endswith("No reports yet.")
+    assert "Latest report" not in table_row(page.text, "Cursor")
     for _key, _q, statement, _hint in ai_tools.CHECKS:
         assert statement in page.text
+    assert "No member reports in the last 90 days." in page.text and "0 member reports" not in page.text
     assert not check_html(page.text).errors
 
 
@@ -139,7 +143,13 @@ def test_tool_page_shows_dated_research_and_sources(client):
     assert "What the research found (October 2026)" in page.text
     assert "--ax-screen-reader" in page.text
     assert 'href="https://code.claude.com/docs/en/accessibility" rel="noopener noreferrer"' in page.text
-    assert "No reports yet" in page.text
+    # The research is a plain lead sentence, then a list of short sentences.
+    assert "<p>Claude Code has a screen reader mode.</p>" in page.text
+    assert "<li>It needs version 2.1.181 or later and was officially released on 20 July 2026.</li>" in page.text
+    # "No reports" is said once, under the h1; the section only says what to do next.
+    assert page.text.count("reports yet") == 1 and "No member reports yet." in page.text
+    assert "<h2>Member reports</h2>" in page.text
+    assert "Be the first to say how Claude Code (terminal) works for you: sign in, then use the form below." in page.text
     assert "sign in" in page.text and "/login?next=/ai-tools/claude-code" in page.text
     assert 'name="tool_version"' not in page.text  # signed out: no form
     assert len(re.findall(r"<h1[ >]", page.text)) == 1
@@ -164,16 +174,18 @@ def test_member_reports_and_it_appears_everywhere(user_client):
     assert "<h3>Version 2.1.296: 1 report</h3>" in page.text
     assert "You can tell when it has finished: yes" in page.text
     assert "You can review what it changed: no" in page.text
-    assert "What you type is spoken: not tested" in page.text
+    assert "What you type is echoed: not tested" in page.text
     assert "Overall: Usable with workarounds" in page.text
     assert "<strong>NVDA+6</strong>" in page.text  # member text rendered as Markdown
-    assert "Reported on" in page.text and "by you" in page.text
+    today = date_words(datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+    assert f"Reported on {today} by you" in page.text
     assert "Member verdict in the last 90 days: 0 usable, 1 with workarounds, 0 not usable" in page.text
+    assert not re.search(r"\d{4}-\d{2}-\d{2}", page.text.split("<main", 1)[1])  # dates in words
     assert not check_html(page.text).errors
     index = user_client.get("/ai-tools")
     row = table_row(index.text, "Claude Code (terminal)")
-    assert "0 usable, 1 with workarounds, 0 not usable" in row
-    assert datetime.now(timezone.utc).strftime("%Y-%m-%d") in row
+    assert row.endswith(f"0 usable, 1 with workarounds, 0 not usable. Latest report: {today}.")
+    assert "1 member report in the last 90 days" in index.text
 
 
 def test_reporting_same_version_again_updates(user_client):
@@ -186,20 +198,73 @@ def test_reporting_same_version_again_updates(user_client):
     assert "is updated" in user_client.get("/ai-tools/claude-code").text
 
 
-def test_every_check_is_required(user_client):
+def test_only_the_overall_verdict_is_needed_among_the_questions(user_client):
     data = {k: v for k, v in GOOD_REPORT.items() if k not in ai_tools.CHECK_KEYS and k != "overall"}
     r = post(user_client, "/ai-tools/claude-code/reports", data)
     assert r.status_code == 400
-    assert "please fix the problems" in r.text
-    assert "Please check 7 answers" in r.text
-    for key in ai_tools.CHECK_KEYS + ("overall",):
-        # The summary links to the first choice, which can take focus; the group itself cannot.
-        assert f'href="#field-{key}-1"' in r.text and f'id="field-{key}-1"' in r.text
-        assert f'id="error-{key}"' in r.text
+    assert h1(r.text) == "Please check 1 answer: How Claude Code (terminal) works with screen readers"
+    assert title(r.text) == h1(r.text)
+    assert "Please check 1 answer" in r.text and "fix the problems" not in r.text
+    # The summary links to the first choice, which can take focus; the group itself cannot.
+    assert 'href="#field-overall-1"' in r.text and 'id="field-overall-1"' in r.text and 'id="error-overall"' in r.text
+    for key in ai_tools.CHECK_KEYS:
+        assert f'id="error-{key}"' not in r.text
     assert 'value="2.1.296"' in r.text  # what they typed is kept
     assert len(re.findall(r"<h1[ >]", r.text)) == 1
     with db.session() as conn:
         assert conn.execute("SELECT COUNT(*) AS n FROM ai_tool_reports").fetchone()["n"] == 0
+    # Checks left unanswered are saved as not tested.
+    assert post(user_client, "/ai-tools/claude-code/reports", dict(data, overall="usable"),
+                follow_redirects=False).status_code == 303
+    with db.session() as conn:
+        row = conn.execute("SELECT * FROM ai_tool_reports").fetchone()
+    assert [row[k] for k in ai_tools.CHECK_KEYS] == ["not_tested"] * 6
+
+
+def test_an_empty_form_asks_only_for_what_is_needed(user_client):
+    r = post(user_client, "/ai-tools/claude-code/reports", {})
+    assert r.status_code == 400
+    assert h1(r.text) == "Please check 4 answers: How Claude Code (terminal) works with screen readers"
+    for key in ("tool_version", "screen_reader", "os", "overall-1"):
+        assert f'href="#field-{key}"' in r.text, key
+
+
+def test_every_choice_has_its_own_name(user_client):
+    page = user_client.get("/ai-tools/claude-code").text
+    labels = dict(re.findall(r'<input type="radio" id="(field-[a-z_]+-\d)"[^>]*><label for="\1">([^<]+)</label>', page))
+    assert len(labels) == 6 * 3 + 3
+    assert len(set(labels.values())) == len(labels)  # voice control and lists of fields can tell them apart
+    assert labels["field-turn_end-1"] == "Yes, I can tell when it has finished"
+    assert labels["field-turn_end-2"] == "No, I cannot tell when it has finished"
+    assert labels["field-turn_end-3"] == "Not tested: telling when it has finished"
+    for key in ai_tools.CHECK_KEYS:
+        values = re.findall(rf'name="{key}" value="([a-z_]+)"', page)
+        assert values == ["yes", "no", "not_tested"]
+        # A new report starts every check at Not tested.
+        assert re.search(rf'id="field-{key}-3" name="{key}" value="not_tested" checked', page), key
+    assert not re.search(r'name="overall" value="[a-z_]+" checked', page)  # the verdict is the member's own
+
+
+def test_form_starts_from_the_members_own_report(user_client):
+    report(user_client, tool_version="2.1.290", overall="not_usable", note="Old note.")
+    report(user_client, tool_version="2.1.296", changes_reviewable="yes", note="Newest note.")
+    page = user_client.get("/ai-tools/claude-code").text
+    assert "This form starts with your report for version 2.1.296." in page
+    assert 'name="tool_version" type="text" value="2.1.296"' in page
+    assert 'name="changes_reviewable" value="yes" checked' in page and "Newest note.</textarea>" in page
+    # Each own report has a link to change it, which starts the form from that report.
+    with db.session() as conn:
+        old_id = conn.execute("SELECT id FROM ai_tool_reports WHERE tool_version = '2.1.290'").fetchone()["id"]
+    assert f'href="/ai-tools/claude-code?edit={old_id}#report-form-title">Change your report for version 2.1.290</a>' in page
+    page = user_client.get(f"/ai-tools/claude-code?edit={old_id}").text
+    assert "This form starts with your report for version 2.1.290." in page
+    assert 'name="overall" value="not_usable" checked' in page and "Old note.</textarea>" in page
+    # Another tool starts with the screen reader and operating system from the newest report, nothing else.
+    page = user_client.get("/ai-tools/cursor").text
+    assert 'name="os" type="text" value="Windows 11"' in page and 'value="2026.2"' in page
+    assert 'name="tool_version" type="text" value=""' in page and "starts with your report" not in page
+    # Someone else's report id, or nonsense, starts from the member's own newest report.
+    assert "for version 2.1.296." in user_client.get("/ai-tools/claude-code?edit=abc").text
 
 
 def test_text_fields_validated(user_client):
@@ -253,7 +318,8 @@ def test_only_the_author_can_delete_a_report(client):
     post(client, "/logout")
     register(client, "b@example.com", "B")
     page = client.get("/ai-tools/claude-code")
-    assert "Delete your report" not in page.text
+    assert "Delete your report" not in page.text and "Change your report" not in page.text
+    assert client.get(f"/ai-tools/claude-code/reports/{rid}/delete").status_code == 404
     assert post(client, f"/ai-tools/claude-code/reports/{rid}/delete").status_code == 404
     # The wrong tool in the address is also 404, even for the author.
     post(client, "/logout")
@@ -411,11 +477,17 @@ def test_error_messages_name_their_field(user_client):
     r = post(user_client, "/ai-tools/claude-code/reports",
              dict(GOOD_REPORT, screen_reader_version="x" * 31, os="o" * 81, note="password: hunter2"))
     assert r.status_code == 400
-    assert "The screen reader version is too long. Shorten it to 30 characters or fewer." in r.text
-    assert "The operating system is too long. Shorten it to 80 characters or fewer." in r.text
-    assert "Anything else looks like it has a password, API key or card number in it." in r.text
+    assert "Use 30 characters or fewer for the screen reader version. It has 31 now." in r.text
+    assert "Use 80 characters or fewer for the operating system. It has 81 now." in r.text
+    assert (f"The Anything else box: {ai_tools.SECRET_MESSAGE} {ai_tools.PUBLIC_SUFFIX}"
+            in r.text.replace("&#34;", '"').replace("&quot;", '"'))
+    assert "Everyone can read this page." in r.text
     r = post(user_client, "/ai-tools/claude-code/reports", dict(GOOD_REPORT, workarounds="w" * 4001))
-    assert "Workarounds is too long. Shorten it to 4000 characters or fewer." in r.text
+    assert "Use 4,000 characters or fewer for the Workarounds box. It has 4,001 now." in r.text
+    # Words members use about access problems are not mistaken for secrets.
+    assert report(user_client, note="The PIN box is not announced, and the password field has no label.").status_code == 303
+    # The shared detector also catches a PIN written out.
+    assert post(user_client, "/ai-tools/claude-code/reports", dict(GOOD_REPORT, note="my PIN 4821")).status_code == 400
 
 
 def test_long_unicode_and_odd_input(user_client):
@@ -462,14 +534,46 @@ def test_form_address_opened_directly_goes_to_the_form(client):
     assert page.status_code == 200 and 'name="tool_version"' in page.text
 
 
-def test_delete_address_opened_directly_deletes_nothing(user_client):
+def test_delete_asks_first_and_says_what_is_lost(user_client):
     report(user_client)
     with db.session() as conn:
         rid = conn.execute("SELECT id FROM ai_tool_reports").fetchone()["id"]
-    r = user_client.get(f"/ai-tools/claude-code/reports/{rid}/delete", follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"] == "/ai-tools/claude-code"
-    with db.session() as conn:
+    page = user_client.get("/ai-tools/claude-code")
+    # The report's own link goes to a page that asks first.
+    assert f'href="/ai-tools/claude-code/reports/{rid}/delete">Delete your report for version 2.1.296</a>' in page.text
+    r = user_client.get(f"/ai-tools/claude-code/reports/{rid}/delete")
+    assert r.status_code == 200
+    assert h1(r.text) == "Delete your report on Claude Code (terminal) version 2.1.296?"
+    assert title(r.text) == h1(r.text)
+    assert "This deletes your answers, workarounds and note for Claude Code (terminal) version 2.1.296" in r.text
+    assert "You cannot undo this." in r.text
+    assert ">Delete my report</button>" in r.text
+    assert f'href="/ai-tools/claude-code#report-{rid}">Keep it and go back</a>' in r.text
+    assert not check_html(r.text).errors
+    with db.session() as conn:  # opening the page deletes nothing
         assert conn.execute("SELECT COUNT(*) AS n FROM ai_tool_reports").fetchone()["n"] == 1
+    assert user_client.get("/ai-tools/claude-code/reports/99999/delete").status_code == 404
+
+
+def test_delete_page_needs_sign_in(client):
+    r = client.get("/ai-tools/claude-code/reports/1/delete", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"].startswith("/login")
+
+
+def test_research_note_is_split_into_short_sentences():
+    lead, points = ai_tools.note_parts("Tool X has a mode. Turn it on with --x; it needs version 2.1.181 or "
+                                       "later. Known gap: costs are shown at exit.")
+    assert lead == "Tool X has a mode."
+    assert points == ["Turn it on with --x.", "It needs version 2.1.181 or later.",
+                      "Known gap: costs are shown at exit."]
+    assert ai_tools.note_parts("agentaloud is an app. It runs.") == ("agentaloud is an app.", ["It runs."])
+    for t in ai_tools.load_seed():
+        lead, points = ai_tools.note_parts(t["research_note"])
+        # No word is lost or changed, apart from a capital letter after a semicolon.
+        def words(text):
+            return re.sub(r"[.;]", "", text).lower().split()
+        assert words(" ".join([lead] + points)) == words(t["research_note"]), t["slug"]
+        assert lead and all(p[0].isupper() or p[0].isdigit() for p in points), t["slug"]
 
 
 def test_regression_notice_compares_versions_by_number():

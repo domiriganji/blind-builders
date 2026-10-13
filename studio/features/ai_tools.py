@@ -3,9 +3,10 @@ version by version.
 
 Each tool has a short research note (what public sources said as of October 2026, with links) and member
 reports. The site does not test the tools or check the reports, and the pages and the JSON say so. A report
-records the tool version, the screen reader and operating system, six plain checks (yes, no or not tested) and an overall verdict. Anyone can read; members sign in to post. A member has
-one report per tool version: posting again for the same version updates it. Members can delete their own
-reports. Nothing here needs the AI, so it works for everyone, with or without credits or an API key.
+records the tool version, the screen reader and operating system, six plain checks (yes, no or not tested) and
+an overall verdict. Anyone can read; members sign in to post. A member has one report per tool version: posting
+again for the same version updates it. Members can change or delete their own reports; deleting asks first.
+Nothing here needs the AI, so it works for everyone, with or without credits or an API key.
 """
 from __future__ import annotations
 
@@ -19,7 +20,16 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from .. import db
-from ..web import checked_form, current_user, redirect, render, require_user
+from ..sensitive import find_secret
+from ..web import checked_form, current_user, date_words, error_title, redirect, render, require_user
+
+try:  # One wording for the secrets rule everywhere (docs/VOICE.md 4.9), once studio/sensitive.py has it.
+    from ..sensitive import PUBLIC_SUFFIX, SECRET_MESSAGE
+except ImportError:
+    SECRET_MESSAGE = ("This looks like it includes a password, PIN, code, card number or API key, so it was not "
+                      "saved or sent to the AI. Please take it out: this site never needs them. If it is not one, "
+                      "change the wording a little, for example \"the PIN box is not announced\", and send it again.")
+    PUBLIC_SUFFIX = "Everyone can read this page."
 
 router = APIRouter(prefix="/ai-tools")
 NAV = {"label": "AI tools report", "url": "/ai-tools",
@@ -30,7 +40,7 @@ RESEARCH_AS_OF = "October 2026"
 SUMMARY_DAYS = 90
 
 KINDS = ("terminal", "editor", "desktop app", "website")
-ANSWERS = (("yes", "Yes"), ("no", "No"), ("not_tested", "I did not test this"))
+ANSWERS = (("yes", "Yes"), ("no", "No"), ("not_tested", "Not tested"))
 ANSWER_WORDS = {"yes": "yes", "no": "no", "not_tested": "not tested"}
 OVERALL = (("usable", "Usable"), ("usable_with_workarounds", "Usable with workarounds"), ("not_usable", "Not usable"))
 OVERALL_WORDS = dict(OVERALL)
@@ -38,33 +48,57 @@ OVERALL_WORDS = dict(OVERALL)
 # The six checks: (column, question for the form, plain statement shown on reports, hint).
 CHECKS = (
     ("turn_end", "Can you tell when the AI has finished?", "You can tell when it has finished",
-     "For example a sound, a spoken message, or the prompt coming back."),
+     "For example a sound, a message in speech or braille, or the prompt coming back."),
     ("output_readable", "Can you read the answer at your own pace?",
      "You can read the answer at your own pace without it jumping",
      "The answer stays still while you read it with your screen reader or braille display. Nothing jumps, repeats or disappears."),
     ("changes_reviewable", "Can you review what it changed?", "You can review what it changed",
-     "For example, the changed lines or files are read to you before or after you approve them."),
+     "For example, you can read or hear the changed lines or files before or after you approve them."),
     ("menus_spoken", "Are menus and choices announced?", "Menus and choices are announced",
-     "When a list of options appears, your screen reader says the options and which one is selected."),
+     "When a list of options appears, your screen reader says or shows the options and which one is selected."),
     ("approvals_readable", "Are permission questions read in full?", "Permission questions are read in full",
-     "When the tool asks to run a command or change a file, you can hear the whole question before you answer."),
-    ("typing_echoed", "Is what you type spoken?", "What you type is spoken",
-     "Your screen reader echoes the letters or words you type into the tool."),
+     "When the tool asks to run a command or change a file, you can read or hear the whole question before you answer."),
+    ("typing_echoed", "Is what you type echoed?", "What you type is echoed",
+     "Your screen reader says or shows the letters or words you type into the tool."),
 )
+# Each choice names its answer and its topic, so the 18 choices on the form all have different names: voice
+# control ("click Yes") and a screen reader's list of form fields can tell them apart. The stored values stay
+# yes, no and not_tested.
+CHOICE_LABELS = {
+    "turn_end": ("Yes, I can tell when it has finished", "No, I cannot tell when it has finished",
+                 "Not tested: telling when it has finished"),
+    "output_readable": ("Yes, I can read the answer at my own pace", "No, I cannot read the answer at my own pace",
+                        "Not tested: reading the answer at my own pace"),
+    "changes_reviewable": ("Yes, I can review what it changed", "No, I cannot review what it changed",
+                           "Not tested: reviewing what it changed"),
+    "menus_spoken": ("Yes, menus and choices are announced", "No, menus and choices are not announced",
+                     "Not tested: menus and choices"),
+    "approvals_readable": ("Yes, permission questions are read in full",
+                           "No, permission questions are not read in full", "Not tested: permission questions"),
+    "typing_echoed": ("Yes, what I type is echoed", "No, what I type is not echoed",
+                      "Not tested: echo of what I type"),
+}
+
+
+def choices_for(key: str) -> tuple[tuple[str, str], ...]:
+    """The form's choices for one check: the stored values, with labels that name the topic."""
+    return tuple(zip((value for value, _text in ANSWERS), CHOICE_LABELS[key]))
+
+
 CHECK_KEYS = tuple(c[0] for c in CHECKS)
 
 # Versions are short so they fit in a heading on a 320 pixel wide screen.
 TEXT_LIMITS = {"tool_version": 30, "screen_reader": 80, "screen_reader_version": 30, "os": 80}
 # How each field is named in error messages, so a message makes sense on its own in the error summary.
-TEXT_NAMES = {"tool_version": "The tool version", "screen_reader": "The screen reader name",
-              "screen_reader_version": "The screen reader version", "os": "The operating system"}
+TEXT_NAMES = {"tool_version": "the tool version", "screen_reader": "the screen reader",
+              "screen_reader_version": "the screen reader version", "os": "the operating system"}
 LONG_LIMIT = 4000
-LONG_NAMES = {"workarounds": "Workarounds", "note": "Anything else"}
+LONG_NAMES = {"workarounds": "the Workarounds box", "note": "the Anything else box"}
 # One report per version, so this is the most versions of one tool a member can report on. It stops one
 # account from filling a tool's page; a real tester deletes old reports long before reaching it.
 MAX_REPORTS_PER_TOOL = 100
 # Shown with the JSON and on the pages: what this site did and did not check.
-REPORTS_ABOUT = ("Member reports. Each one is what a member says happened with their screen reader. "
+REPORTS_ABOUT = ("Members write these reports about their own screen reader, braille display or magnifier. "
                  "This site does not test the tools or check the reports.")
 RESEARCH_ABOUT = ("A summary of the linked public sources, written when this report was set up. "
                   "Nobody on this site tested the tool.")
@@ -166,9 +200,27 @@ def verdict_text(counts: dict) -> str:
             f"{counts['not_usable']} not usable")
 
 
+def note_parts(note: str) -> tuple[str, list[str]]:
+    """A research note as a lead sentence and a list of short sentences, so it is easy to follow by ear and in
+    braille: the note is split at each sentence end and at each semicolon. Version numbers such as 2.1.181 are
+    not split, because a sentence ends only where a full stop is followed by a space and a capital letter."""
+    parts = []
+    for sentence in re.split(r"(?<=[.!?\"])\s+(?=[A-Z])", (note or "").strip()):
+        for i, piece in enumerate(p.strip() for p in sentence.split("; ")):
+            if not piece:
+                continue
+            if i:
+                piece = piece[0].upper() + piece[1:]
+            if not piece.endswith((".", "!", "?", '"')):
+                piece += "."
+            parts.append(piece)
+    return (parts[0] if parts else "", parts[1:])
+
+
 def _tool_dict(row) -> dict:
     tool = dict(row)
     tool["sources"] = json.loads(tool.pop("research_sources_json") or "[]")
+    tool["note_lead"], tool["note_points"] = note_parts(tool["research_note"])
     return tool
 
 
@@ -198,7 +250,7 @@ def tools_with_summary() -> list[dict]:
         t["verdict"] = verdict_text(t["counts"])
         if not sum(t["counts"].values()) and t["id"] in latest_by_tool:
             t["verdict"] = f"No reports in the last {SUMMARY_DAYS} days"
-        t["latest"] = (latest_by_tool.get(t["id"]) or "")[:10]
+        t["latest"] = date_words((latest_by_tool.get(t["id"]) or "")[:10])
     return tools
 
 
@@ -333,33 +385,37 @@ def validate_report(form: dict) -> tuple[dict, dict]:
     """Return (values, errors). Errors are in the order the fields appear on the form. Each message names its
     field or says what to enter, because the error summary shows the messages away from their fields."""
     values = {k: _clean_line(form.get(k)) for k in TEXT_LIMITS}
-    for k in CHECK_KEYS + ("overall",):
-        values[k] = _one(form.get(k))
+    # A check left unanswered counts as not tested, so a quick report needs only the version, the screen
+    # reader, the operating system and the overall verdict. The form starts every check at Not tested.
+    for k in CHECK_KEYS:
+        values[k] = _one(form.get(k)) or "not_tested"
+    values["overall"] = _one(form.get("overall"))
     for k in LONG_NAMES:
         values[k] = _clean_text(form.get(k))
     errors: dict[str, str] = {}
     if not values["tool_version"]:
-        errors["tool_version"] = "Enter the version of the tool you used, for example 2.1.296."
+        errors["tool_version"] = ("Enter the version of the tool you used, for example 2.1.296. "
+                                  "For a website, write web and the date.")
     if not values["screen_reader"]:
         errors["screen_reader"] = "Enter the screen reader you used, for example NVDA."
     if not values["os"]:
         errors["os"] = "Enter your operating system, for example Windows 11."
     for k, limit in TEXT_LIMITS.items():
         if k not in errors and len(values[k]) > limit:
-            errors[k] = f"{TEXT_NAMES[k]} is too long. Shorten it to {limit} characters or fewer."
+            errors[k] = f"Use {limit} characters or fewer for {TEXT_NAMES[k]}. It has {len(values[k]):,} now."
     for key, question, _statement, _hint in CHECKS:
         if values[key] not in ANSWER_WORDS:
-            errors[key] = f"Choose yes, no or I did not test this for: {question}"
+            errors[key] = f"Choose yes, no or not tested for: {question}"
     if values["overall"] not in OVERALL_WORDS:
         errors["overall"] = "Choose your overall verdict: usable, usable with workarounds, or not usable."
     for k, label in LONG_NAMES.items():
         if len(values[k]) > LONG_LIMIT:
-            errors[k] = f"{label} is too long. Shorten it to {LONG_LIMIT} characters or fewer."
+            errors[k] = f"Use {LONG_LIMIT:,} characters or fewer for {label}. It has {len(values[k]):,} now."
     names = {**TEXT_NAMES, **LONG_NAMES}
     for k in ("tool_version", "screen_reader", "screen_reader_version", "os", "workarounds", "note"):
-        if k not in errors and looks_secret(values[k]):
-            errors[k] = (f"{names[k]} looks like it has a password, API key or card number in it. Remove it: "
-                         "reports are public, and this site never asks for those.")
+        if k not in errors and (looks_secret(values[k]) or find_secret(values[k])):
+            name = names[k]
+            errors[k] = f"{name[0].upper()}{name[1:]}: {SECRET_MESSAGE} {PUBLIC_SUFFIX}"
     return values, errors
 
 
@@ -383,19 +439,48 @@ def _done(request: Request, slug: str, text: str) -> None:
     request.session[DONE_KEY] = {"slug": slug, "text": text}
 
 
+FORM_FIELDS = ("tool_version", "screen_reader", "screen_reader_version", "os") + CHECK_KEYS + (
+    "overall", "workarounds", "note")
+
+
+def _starting_values(user: dict | None, mine: list[dict], edit_id: int | None) -> tuple[dict, dict | None]:
+    """What the empty form starts with, and the report it starts from (or None).
+
+    A member who has reported this tool starts from that report: the one they chose to change, or else their
+    newest. Publishing it with the same version updates it, so nobody types nine answers again. Otherwise the
+    form starts with the screen reader and operating system from the member's newest report on any tool (or
+    the screen reader from their profile), and every check at Not tested."""
+    values = {k: "not_tested" for k in CHECK_KEYS}
+    values["screen_reader"] = (user or {}).get("screen_reader") or ""
+    if not user:
+        return values, None
+    start = next((r for r in mine if r["id"] == edit_id), None) or (mine[0] if mine else None)
+    if start:
+        values.update({k: start[k] for k in FORM_FIELDS})
+        return values, start
+    with db.session() as conn:
+        last = conn.execute("SELECT screen_reader, screen_reader_version, os FROM ai_tool_reports WHERE user_id = ?"
+                            " ORDER BY created_at DESC, id DESC LIMIT 1", (user["id"],)).fetchone()
+    if last:
+        values.update(dict(last))
+    return values, None
+
+
 def _tool_page(request: Request, tool: dict, *, values: dict | None = None, errors: dict | None = None,
-               status_code: int = 200):
+               status_code: int = 200, edit_id: int | None = None):
     reports = reports_for(tool["id"])
     groups = group_by_version(reports)
     recent = recent_counts(reports)
     user = current_user(request)
     done = request.session.pop(DONE_KEY, None)
+    mine = [r for r in reports if user and r["user_id"] == user["id"]]
+    starting_from = None
     if values is None:
-        values = {"screen_reader": (user or {}).get("screen_reader") or ""}
-    own_versions = sorted({r["tool_version"] for r in reports if user and r["user_id"] == user["id"]})
+        values, starting_from = _starting_values(user, mine, edit_id)
+    own_versions = sorted({r["tool_version"] for r in mine})
     title = f"How {tool['name']} works with screen readers"
     if errors:
-        title += ": please fix the problems"
+        title = error_title(title, errors)
     elif isinstance(done, dict) and done.get("slug") == tool["slug"] and done.get("text"):
         title = str(done["text"])
     return render(request, "ai_tools/tool.html", title=title, tool=tool, groups=groups,
@@ -403,8 +488,19 @@ def _tool_page(request: Request, tool: dict, *, values: dict | None = None, erro
                   summary_days=SUMMARY_DAYS,
                   regression=regression_notice(groups), research_as_of=RESEARCH_AS_OF,
                   reports_about=REPORTS_ABOUT, research_about=RESEARCH_ABOUT,
-                  checks=CHECKS, answers=ANSWERS, overall_options=OVERALL, values=values, errors=errors or {},
-                  summary_errors=summary_errors(errors or {}), own_versions=own_versions, status_code=status_code)
+                  checks=CHECKS, choices={k: choices_for(k) for k in CHECK_KEYS}, overall_options=OVERALL,
+                  values=values, errors=errors or {}, summary_errors=summary_errors(errors or {}),
+                  own_versions=own_versions, starting_from=starting_from, status_code=status_code)
+
+
+def _own_report(tool: dict, report_id: int, user: dict):
+    with db.session() as conn:
+        row = conn.execute("SELECT * FROM ai_tool_reports WHERE id = ? AND tool_id = ?",
+                           (report_id, tool["id"])).fetchone()
+    if row is None or row["user_id"] != user["id"]:
+        raise HTTPException(status_code=404, detail="We could not find that report among yours. "
+                                                    "Your reports are listed on the tool's page.")
+    return row
 
 
 @router.get("")
@@ -446,16 +542,20 @@ def report_form_address(slug: str):
 
 
 @router.get("/{slug}/reports/{report_id}/delete")
-def delete_address(slug: str, report_id: int):
-    """The delete button's address opened directly (for example after signing in again): show the tool page,
-    where the button is. Nothing is deleted without pressing the button."""
+def confirm_delete(request: Request, slug: str, report_id: int, user: dict = Depends(require_user)):
+    """Ask before deleting: a report can hold thousands of characters of the member's own notes. Nothing is
+    deleted until the member chooses the button on this page."""
     tool = get_tool(slug)
-    return redirect(f"/ai-tools/{tool['slug']}")
+    report = _report_dict(_own_report(tool, report_id, user))
+    return render(request, "ai_tools/delete.html",
+                  title=f"Delete your report on {tool['name']} version {report['tool_version']}?",
+                  tool=tool, report=report)
 
 
 @router.get("/{slug}")
-def tool_page(request: Request, slug: str):
-    return _tool_page(request, get_tool(slug))
+def tool_page(request: Request, slug: str, edit: str = ""):
+    """The tool's page. ?edit=<report id> starts the form from one of the member's own reports."""
+    return _tool_page(request, get_tool(slug), edit_id=int(edit) if edit.isdigit() else None)
 
 
 @router.post("/{slug}/reports")
@@ -465,14 +565,15 @@ async def add_report(request: Request, slug: str, user: dict = Depends(require_u
     values, errors = validate_report(form)
     if errors:
         return _tool_page(request, tool, values=values, errors=errors, status_code=400)
-    columns = ("tool_version", "screen_reader", "screen_reader_version", "os") + CHECK_KEYS + ("overall", "workarounds", "note")
+    columns = FORM_FIELDS
     with db.session() as conn:
         mine = conn.execute("SELECT id, tool_version FROM ai_tool_reports WHERE tool_id = ? AND user_id = ?",
                             (tool["id"], user["id"])).fetchall()
         existing = next((r["id"] for r in mine if _version_key(r["tool_version"]) == _version_key(values["tool_version"])), None)
         if existing is None and len(mine) >= MAX_REPORTS_PER_TOOL:
             too_many = {"tool_version": f"You have reported {len(mine)} versions of {tool['name']}, the most one member "
-                                        "can. Delete one of your older reports on this page, then publish this one."}
+                                        "can. Delete one of your older reports on this page, then publish this one. "
+                                        "Your answers are kept below."}
         else:
             too_many = None
             if existing:
@@ -497,11 +598,8 @@ async def add_report(request: Request, slug: str, user: dict = Depends(require_u
 async def delete_report(request: Request, slug: str, report_id: int, user: dict = Depends(require_user)):
     await checked_form(request)
     tool = get_tool(slug)
+    row = _own_report(tool, report_id, user)
     with db.session() as conn:
-        row = conn.execute("SELECT id, user_id, tool_version FROM ai_tool_reports WHERE id = ? AND tool_id = ?",
-                           (report_id, tool["id"])).fetchone()
-        if row is None or row["user_id"] != user["id"]:
-            raise HTTPException(status_code=404, detail="We could not find that report among yours.")
-        conn.execute("DELETE FROM ai_tool_reports WHERE id = ?", (report_id,))
+        conn.execute("DELETE FROM ai_tool_reports WHERE id = ? AND user_id = ?", (report_id, user["id"]))
     _done(request, tool["slug"], f"Your report on {tool['name']} version {row['tool_version']} is deleted")
     return redirect(f"/ai-tools/{tool['slug']}")
