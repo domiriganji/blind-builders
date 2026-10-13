@@ -65,7 +65,7 @@ def start_document(page, base, title, kind="Article", target="", check=assert_pa
 
 def save_text(page, text):
     page.get_by_role("textbox", name="Your text").fill(text)
-    page.get_by_role("button", name="Save", exact=True).click()
+    page.get_by_role("button", name="Save my text").click()
 
 
 def test_create_validation_moves_focus_to_the_field(live, browser):
@@ -75,7 +75,7 @@ def test_create_validation_moves_focus_to_the_field(live, browser):
     calls_before = len(live["fake_ai"].calls)
     page.goto(base + "/write")
     page.get_by_role("button", name="Start the document").click()
-    assert h1(page) == "Start a new document: please fix the problems"
+    assert h1(page) == "Please check 1 answer: Start a new document"
     assert_page_ok(page, "create errors")
     follow_error_link(page, "Enter a title for your document. You can change it later.",
                       page.get_by_label("Title", exact=True))
@@ -91,7 +91,7 @@ def test_create_validation_moves_focus_to_the_field(live, browser):
     # Saving with mistakes: an empty title and a card number in the text
     page.get_by_label("Title", exact=True).fill("")
     save_text(page, "My card is 4111 1111 1111 1111.")
-    assert h1(page) == "Été: a story: please fix the problems"
+    assert h1(page) == "Please check 2 answers: Été: a story"
     assert_page_ok(page, "save errors")
     assert page.get_by_role("textbox", name="Your text").input_value() == "My card is 4111 1111 1111 1111."  # nothing lost
     follow_error_link(page, "This looks like it includes a card number. Please take it out. This site never needs "
@@ -102,18 +102,18 @@ def test_create_validation_moves_focus_to_the_field(live, browser):
     # Asking for suggestions before any text is saved points to the text box
     page.goto(base + "/write")
     page.get_by_role("link", name="Été: a story").click()
-    page.get_by_role("button", name="Get suggestions").click()
-    assert h1(page) == "Été: a story: please fix the problems"
+    page.get_by_role("button", name="Save and get suggestions").click()
+    assert h1(page) == "Please check 1 answer: Été: a story"
     assert_page_ok(page, "suggest errors")
-    follow_error_link(page, "Your document has no saved text yet. Write or paste your text here and save it, "
-                            "then ask for suggestions.", page.get_by_role("textbox", name="Your text"))
+    follow_error_link(page, 'Your document has no text yet. Write or paste it in "Your text", '
+                            'then choose "Save and get suggestions".', page.get_by_role("textbox", name="Your text"))
 
     # Preparing for a publication that is not named points to the publication field
     save_text(page, BODY)
     assert h1(page) == "Été: a story: saved as version 1"
     page.get_by_label("What should the AI look for?").select_option(label="Prepare it for the publication I named")
-    page.get_by_role("button", name="Get suggestions").click()
-    follow_error_link(page, "Fill in the publication you are aiming for and save, so the AI knows what to prepare "
+    page.get_by_role("button", name="Save and get suggestions").click()
+    follow_error_link(page, "Fill in the publication you are aiming for, so the AI knows what to prepare "
                             "your text for. Or choose another goal.",
                       page.get_by_label("Publication you are aiming for"))
     # The cover letter section explains what to do and links to the field
@@ -134,14 +134,14 @@ def test_write_suggest_accept_reject_and_versions(live, browser):
     assert page.get_by_role("status").filter(has_text="Saved as version 1").count() == 1
     assert_page_ok(page, "saved")
     # Saving again without changes says so
-    page.get_by_role("button", name="Save", exact=True).click()
+    page.get_by_role("button", name="Save my text").click()
     assert h1(page) == "My essay: saved, the text had not changed"
 
     # Ask for suggestions
     fake.on("write.suggest", SUGGESTIONS)
     page.get_by_label("What should the AI look for?").select_option(label="Fix spelling and grammar only")
     page.get_by_label("Anything else the AI should know").fill("Keep British spelling.")
-    page.get_by_role("button", name="Get suggestions").click()
+    page.get_by_role("button", name="Save and get suggestions").click()
     assert h1(page) == "2 suggestions for My essay"
     assert_page_ok(page, "suggestions")
     main = page.get_by_role("main")
@@ -149,7 +149,8 @@ def test_write_suggest_accept_reject_and_versions(live, browser):
     note = page.get_by_role("region", name="The AI's overall note")
     assert "Written by the AI" in note.inner_text() and "Mostly clear" in note.inner_text()
     first = page.get_by_role("region", name="Suggestion 1 of 2")
-    assert "Was: teh" in first.inner_text() and "Now: the" in first.inner_text()
+    assert "Your words: teh" in first.inner_text() and "Suggested: the" in first.inner_text()
+    assert 'Change, computed by the site: replaces "teh" with "the".' in first.inner_text()
     assert "The AI's reason: Spelling." in first.inner_text()
     assert "Where it is in your text:" in first.inner_text()
 
@@ -159,20 +160,23 @@ def test_write_suggest_accept_reject_and_versions(live, browser):
     # Accept one, reject the other; each page's h1 says what happened
     page.get_by_role("button", name="Accept suggestion 1").click()
     assert h1(page) == "2 suggestions for My essay: suggestion 1 accepted"
+    # The page opens at the next suggestion to decide, which starts with what just happened
+    assert page.url.endswith("#suggestion-2")
+    assert "Suggestion 1 accepted." in page.get_by_role("region", name="Suggestion 2 of 2").inner_text()
     assert_page_ok(page, "accepted")
     assert page.get_by_role("button", name="Accept suggestion 1").count() == 0
     assert "Accepted. Your text has this change." in page.get_by_role("region", name="Suggestion 1 of 2").inner_text()
     page.get_by_role("button", name="Reject suggestion 2").click()
     assert h1(page) == "2 suggestions for My essay: suggestion 2 rejected"
     assert_page_ok(page, "rejected")
-    assert page.get_by_role("button", name="Accept all that still match").count() == 0
+    assert page.get_by_role("link", name=re.compile(r"^Accept all \d+ waiting")).count() == 0
 
     page.get_by_role("link", name="Back to My essay").click()
     assert h1(page) == "My essay"
     assert page.get_by_role("textbox", name="Your text").input_value() == BODY.replace("teh", "the")
 
     # A suggestion goes out of date when the text changes before it is accepted
-    page.get_by_role("button", name="Get suggestions").click()
+    page.get_by_role("button", name="Save and get suggestions").click()
     assert h1(page) == "1 suggestion for My essay"
     page.get_by_role("link", name="Back to My essay").click()
     save_text(page, "A completely new text.")
@@ -181,9 +185,10 @@ def test_write_suggest_accept_reject_and_versions(live, browser):
     assert h1(page) == "1 suggestion for My essay"
     assert "This no longer matches your text" in page.get_by_role("region", name="Suggestion 1 of 1").inner_text()
     assert_page_ok(page, "stale suggestion")
-    page.get_by_role("button", name="Accept suggestion 1").click()
-    assert h1(page) == "1 suggestion for My essay: suggestion 1 is out of date, nothing changed"
-    assert page.get_by_role("alert").filter(has_text="no longer matches your text").count() == 1
+    assert page.get_by_role("button", name="Accept suggestion 1").count() == 0
+    page.get_by_role("button", name="Dismiss suggestion 1 (no longer matches your text)").click()
+    assert h1(page) == "1 suggestion for My essay: suggestion 1 dismissed"
+    assert page.get_by_role("status").filter(has_text="Suggestion 1 dismissed. Your text is unchanged.").count() == 1
     assert_page_ok(page, "stale result")
 
     # Accept all and reject all
@@ -192,16 +197,20 @@ def test_write_suggest_accept_reject_and_versions(live, browser):
     fake.on("write.suggest", {"overall_note": "", "suggestions": [
         {"original": "Alpha one.", "proposed": "Alpha 1.", "reason": "Digits."},
         {"original": "Beta two.", "proposed": "Beta 2.", "reason": "Digits."}]})
-    page.get_by_role("button", name="Get suggestions").click()
+    page.get_by_role("button", name="Save and get suggestions").click()
     assert h1(page) == "2 suggestions for My essay"
     assert "The AI did not write an overall note." in page.get_by_role("region", name="The AI's overall note").inner_text()
-    page.get_by_role("button", name="Accept all that still match").click()
+    # Accepting all is a link to a question first, after the last suggestion
+    page.get_by_role("link", name="Accept all 2 waiting suggestions").click()
+    assert h1(page) == "Accept all 2 waiting suggestions for My essay?"
+    assert_page_ok(page, "accept all question")
+    page.get_by_role("button", name="Accept every suggestion that still fits my text").click()
     assert h1(page) == "2 suggestions for My essay: 2 suggestions accepted"
     assert_page_ok(page, "accept all")
     page.get_by_role("link", name="Back to My essay").click()
     fake.on("write.suggest", {"overall_note": "Fine.", "suggestions": [
         {"original": "Alpha 1.", "proposed": "Alpha one.", "reason": "Words."}]})
-    page.get_by_role("button", name="Get suggestions").click()
+    page.get_by_role("button", name="Save and get suggestions").click()
     page.get_by_role("button", name="Reject all remaining").click()
     assert h1(page) == "1 suggestion for My essay: 1 suggestion rejected"
     assert_page_ok(page, "reject all")
@@ -210,12 +219,14 @@ def test_write_suggest_accept_reject_and_versions(live, browser):
     page.get_by_role("link", name="Back to My essay").click()
     page.get_by_role("link", name="See all versions and restore an earlier one").click()
     assert h1(page) == "Versions of My essay"
-    assert page.get_by_role("heading", level=2, name=re.compile(r"^Saved on \d{4}-\d{2}-\d{2} \(\d+ versions\)$")).count() >= 1
+    assert page.get_by_role("heading", level=2, name=re.compile(r"^Saved on \d{1,2} [A-Z][a-z]+ \d{4} \(\d+ versions\)$")).count() >= 1
     assert_page_ok(page, "versions")
-    page.get_by_role("link", name="Version 1", exact=True).click()
+    page.get_by_role("link", name=re.compile(r"^Version 1: saved by you, \d\d:\d\d UTC$")).click()
     assert h1(page) == "Version 1 of My essay"
     assert_page_ok(page, "version 1")
-    page.get_by_role("button", name="Restore this version").click()
+    diff = page.get_by_role("region", name="What is different from your current text")
+    assert "This version has:" in diff.inner_text()
+    page.get_by_role("button", name="Restore version 1").first.click()
     assert h1(page) == "My essay: version 1 restored"
     assert_page_ok(page, "restored")
     assert page.get_by_role("textbox", name="Your text").input_value() == BODY
@@ -253,28 +264,29 @@ def test_export_venues_cover_letter_and_delete(live, browser):
     fake.on("write.venues", ResearchResult(
         text="Summary: one good fit.\n\n# Journal of Examples\n\nNo fee found. Nothing found about screen reader access.",
         sources=[Source(url="https://example.org/guidelines", title="Author guidelines", quote="Submit online.")]))
-    page.get_by_role("button", name="Find where to publish").click()
-    assert h1(page) == "Where you could publish Screen readers in class"
+    page.get_by_role("button", name="Save and search the web for places to publish").click()
+    assert h1(page) == "Where to publish: Screen readers in class"
     assert_page_ok(page, "venues")
     main = page.get_by_role("main").inner_text()
-    assert "Written by the AI." in main and "The site has not checked it." in main
-    assert page.get_by_role("heading", level=2, name="Journal of Examples").count() == 1
+    answer = page.get_by_role("region", name="Written by the AI (not checked)")
+    assert "Summary: one good fit." in answer.inner_text() and "check each one" in main
+    assert answer.get_by_role("heading", level=3, name="Journal of Examples").count() == 1
     assert page.get_by_role("link", name="Author guidelines").get_attribute("rel") == "noopener noreferrer"
     page.get_by_role("link", name="Back to Screen readers in class").click()
     page.get_by_role("link", name=re.compile(r"^Places to publish, found ")).click()
-    assert h1(page) == "Where you could publish Screen readers in class"
+    assert h1(page) == "Where to publish: Screen readers in class"
     page.get_by_role("link", name="Back to Screen readers in class").click()
 
     # Cover letter: a long note is refused with the limit, then a draft becomes a new document
     page.get_by_label("Anything the letter should mention").fill("n" * 2001)
-    page.get_by_role("button", name="Draft a cover letter for Journal of Examples").click()
-    assert h1(page) == "Screen readers in class: please fix the problems"
+    page.get_by_role("button", name="Save and draft a cover letter for Journal of Examples").click()
+    assert h1(page) == "Please check 1 answer: Screen readers in class"
     assert_page_ok(page, "cover letter errors")
     follow_error_link(page, "This is 2,001 characters long. Shorten it to 2,000 characters or fewer.",
                       page.get_by_label("Anything the letter should mention"))
     fake.on("write.cover_letter", "Dear [Editor's name],\n\nI am submitting my paper.\n\n[Your name]")
     page.get_by_label("Anything the letter should mention").fill("I teach braille.")
-    page.get_by_role("button", name="Draft a cover letter for Journal of Examples").click()
+    page.get_by_role("button", name="Save and draft a cover letter for Journal of Examples").click()
     assert h1(page) == "Cover letter: Screen readers in class"
     assert "The AI wrote this draft. Nobody has checked it." in page.get_by_role("main").inner_text()
     assert_page_ok(page, "cover letter")
@@ -283,11 +295,43 @@ def test_export_venues_cover_letter_and_delete(live, browser):
     page.get_by_role("link", name="Delete Cover letter: Screen readers in class").click()
     assert h1(page) == "Delete Cover letter: Screen readers in class?"
     assert_page_ok(page, "delete confirm")
-    page.get_by_role("button", name="Delete this document for good").click()
+    page.get_by_role("button", name="Delete this document forever").click()
     assert h1(page) == "Write and publish: Cover letter: Screen readers in class deleted"
     assert_page_ok(page, "deleted")
     assert page.get_by_role("link", name="Cover letter: Screen readers in class").count() == 0
     assert page.get_by_role("link", name="Screen readers in class", exact=True).count() == 1
+
+
+def test_unsaved_edits_go_with_the_ai_buttons(live, browser):
+    """Typing in the text box and choosing an AI button straight away never throws the words away."""
+    fake = live["fake_ai"]
+    page = new_page(browser)
+    base = live["base"]
+    sign_up(page, base, "write-unsaved@example.com", "Write Unsaved")
+    start_document(page, base, "Unsaved essay")
+    # The title comes first in the edit form, then the text, then the publication
+    labels = page.locator("#edit-title ~ .field label").all_inner_texts()
+    assert [" ".join(t.split()) for t in labels][:3] == ["Title", "Your text", "Publication you are aiming for (optional)"]
+    page.get_by_role("textbox", name="Your text").fill(BODY)
+    fake.on("write.suggest", SUGGESTIONS)
+    page.get_by_role("button", name="Save and get suggestions").click()
+    assert h1(page) == "2 suggestions for Unsaved essay"
+    assert page.get_by_role("status").filter(has_text="Saved your text as version 1, then asked the AI.").count() == 1
+    assert "teh mat" in fake.calls[-1][2]["prompt"]
+    page.get_by_role("link", name="Back to Unsaved essay").click()
+    # A question about another field keeps every word typed, and nothing reaches the AI
+    long_text = BODY + "\n\n" + "More words for the ending. " * 400
+    calls = len(fake.calls)
+    page.get_by_role("textbox", name="Your text").fill(long_text)
+    page.get_by_label("Title", exact=True).fill("")
+    page.get_by_role("button", name="Save and search the web for places to publish").click()
+    assert h1(page) == "Please check 1 answer: Unsaved essay"
+    assert page.get_by_role("textbox", name="Your text").input_value() == long_text
+    assert len(fake.calls) == calls
+    assert_page_ok(page, "unsaved edits kept")
+    # Reloading the address the form went to leads back to the document, not to a dead end
+    page.goto(page.url)
+    assert h1(page) == "Unsaved essay"
 
 
 def test_ai_failure_shows_a_plain_message(live, browser):
@@ -298,7 +342,7 @@ def test_ai_failure_shows_a_plain_message(live, browser):
     start_document(page, base, "Failing essay")
     save_text(page, BODY)
     fake.on("write.suggest", AIError("The AI is busy right now (rate limit). Please try again in a minute."))
-    page.get_by_role("button", name="Get suggestions").click()
+    page.get_by_role("button", name="Save and get suggestions").click()
     assert h1(page) == "This did not finish: Suggestions for Failing essay"
     assert "rate limit" in page.get_by_role("main").inner_text()
     assert_page_ok(page, "job failed")
@@ -306,7 +350,7 @@ def test_ai_failure_shows_a_plain_message(live, browser):
     fake.on("write.suggest", {"overall_note": "Looks fine."})
     page.goto(base + "/write")
     page.get_by_role("link", name="Failing essay").click()
-    page.get_by_role("button", name="Get suggestions").click()
+    page.get_by_role("button", name="Save and get suggestions").click()
     assert h1(page) == "This did not finish: Suggestions for Failing essay"
     assert "incomplete" in page.get_by_role("main").inner_text()
 
@@ -326,8 +370,8 @@ def test_write_works_without_javascript(live, browser):
     def shows_content(page, label=""):
         assert page.get_by_role("heading", level=1).count() == 1, label
         assert len(page.get_by_role("main").inner_text().strip()) > 20, label
-        if "please fix the problems" not in h1(page):
-            visited.append(page.url)
+        if not h1(page).startswith("Please check"):
+            visited.append(page.url.split("#", 1)[0])  # the page, wherever it opened
 
     page = new_page(browser, javascript=False)
     sign_in(page, base, email)
@@ -336,7 +380,7 @@ def test_write_works_without_javascript(live, browser):
     assert h1(page) == "No script essay: saved as version 1"
     shows_content(page)
     fake.on("write.suggest", SUGGESTIONS)
-    page.get_by_role("button", name="Get suggestions").click()
+    page.get_by_role("button", name="Save and get suggestions").click()
     assert h1(page) == "2 suggestions for No script essay"
     shows_content(page)
     page.get_by_role("button", name="Accept suggestion 1").click()
@@ -347,8 +391,8 @@ def test_write_works_without_javascript(live, browser):
     page.get_by_role("link", name="See all versions and restore an earlier one").click()
     assert h1(page) == "Versions of No script essay"
     shows_content(page)
-    page.get_by_role("link", name="Version 1", exact=True).click()
-    page.get_by_role("button", name="Restore this version").click()
+    page.get_by_role("link", name=re.compile(r"^Version 1: saved by you, \d\d:\d\d UTC$")).click()
+    page.get_by_role("button", name="Restore version 1").last.click()
     assert h1(page) == "No script essay: version 1 restored"
     shows_content(page)
     page.get_by_role("link", name="Choose a format to export").click()
@@ -359,15 +403,15 @@ def test_write_works_without_javascript(live, browser):
     assert info.value.suggested_filename == "no-script-essay.txt"
     page.get_by_role("link", name="Back to No script essay").click()
     fake.on("write.venues", ResearchResult(text="# A magazine\n\nDetails.", sources=[]))
-    page.get_by_role("button", name="Find where to publish").click()
-    assert h1(page) == "Where you could publish No script essay"
+    page.get_by_role("button", name="Save and search the web for places to publish").click()
+    assert h1(page) == "Where to publish: No script essay"
     assert "did not list any sources" in page.get_by_role("main").inner_text()
     shows_content(page)
     page.get_by_role("link", name="Back to No script essay").click()
     # Errors still work without JavaScript, and the error link still moves focus to the field
     page.get_by_label("Title", exact=True).fill("")
-    page.get_by_role("button", name="Save", exact=True).click()
-    assert h1(page) == "No script essay: please fix the problems"
+    page.get_by_role("button", name="Save my text").click()
+    assert h1(page) == "Please check 1 answer: No script essay"
     shows_content(page)
     follow_error_link(page, "Enter a title for your document.", page.get_by_label("Title", exact=True))
     page.goto(base + "/write")
@@ -385,7 +429,7 @@ def test_write_works_without_javascript(live, browser):
     assert len(visited) >= 9
     checker.context.close()
 
-    page.get_by_role("button", name="Delete this document for good").click()
+    page.get_by_role("button", name="Delete this document forever").click()
     assert h1(page) == "Write and publish: No script essay deleted"
     shows_content(page)
 

@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% from "_macros.html" import post_button %}
+{% block content %}
+<h1>{{ title }}</h1>
+{% if waiting %}
+<p class="lead">This puts every waiting suggestion that still fits into your text, in order, and saves one new version. A suggestion whose words are no longer in your text is left out and marked out of date.</p>
+<p>You can restore your text as it is now from the versions page later.</p>
+<div class="actions">
+{{ post_button('/write/' ~ doc.id ~ '/suggestions/' ~ batch.id ~ '/accept-all', 'Accept every suggestion that still fits my text', 'primary') }}
+<a href="/write/{{ doc.id }}/suggestions/{{ batch.id }}#progress">No, go back and decide one at a time</a>
+</div>
+{% else %}
+<p class="lead">Every suggestion in this set has been decided, so there is nothing to accept.</p>
+<p><a href="/write/{{ doc.id }}/suggestions/{{ batch.id }}">Back to the suggestions</a></p>
+{% endif %}
+{% endblock %}

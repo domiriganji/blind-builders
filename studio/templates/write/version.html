@@ -2,17 +2,49 @@
 {% from "_macros.html" import post_button %}
 {% block content %}
 <h1>{{ title }}</h1>
-<p class="lead">Saved {{ version.when }}: {{ version.note }}. {{ version.words }} word{{ '' if version.words == 1 else 's' }}.
-{% if same_as_current %}This is the same as your current text.{% else %}This is different from your current text, which has {{ doc.words }} word{{ '' if doc.words == 1 else 's' }}.{% endif %}</p>
+<p class="lead">{{ version.saved }} {{ version.word_text }}.
+{% if same_as_current %}This is the same as your current text.{% else %}Your current text has {{ doc.word_text }}.{% endif %}</p>
 {% if not same_as_current %}
 <p>Restoring makes this version your current text. Your current text is kept in the versions list first, so you can always come back to it.</p>
-{{ post_button('/write/' ~ doc.id ~ '/versions/' ~ version.id ~ '/restore', 'Restore this version', 'primary') }}
+{{ post_button('/write/' ~ doc.id ~ '/versions/' ~ version.id ~ '/restore', 'Restore version ' ~ version.number, 'primary') }}
+
+<section aria-labelledby="diff-title">
+<h2 id="diff-title">What is different from your current text</h2>
+<p class="meta">Computed by the site, not the AI.</p>
+{% if differences %}
+<ol>
+{% for d in differences %}
+  <li>
+  {% if d.version and d.current %}
+  <p><strong>This version has:</strong> {{ d.version }}</p>
+  <p><strong>Your current text has:</strong> {{ d.current }}</p>
+  {% elif d.version %}
+  <p><strong>Only this version has:</strong> {{ d.version }}</p>
+  {% else %}
+  <p><strong>Only your current text has:</strong> {{ d.current }}</p>
+  {% endif %}
+  </li>
+{% endfor %}
+</ol>
+{% if more_differences %}<p>{{ more_differences }} more difference{{ '' if more_differences == 1 else 's' }} are not listed here. The full text of this version follows.</p>{% endif %}
+{% else %}
+<p>The words are the same. Only spaces or line breaks differ.</p>
 {% endif %}
-<h2>The text of version {{ version.number }}</h2>
+</section>
+{% endif %}
+
+<section aria-labelledby="text-title">
+<h2 id="text-title">The text of version {{ version.number }}</h2>
 {% if version.body %}
-<pre>{{ version.body }}</pre>
+<div class="version-text">
+{{ version.body|markdown|nest_headings(3) }}
+</div>
 {% else %}
 <p>This version is empty.</p>
+{% endif %}
+</section>
+{% if not same_as_current %}
+{{ post_button('/write/' ~ doc.id ~ '/versions/' ~ version.id ~ '/restore', 'Restore version ' ~ version.number, 'primary') }}
 {% endif %}
 <p><a href="/write/{{ doc.id }}/versions">Back to all versions</a></p>
 <p><a href="/write/{{ doc.id }}">Back to {{ doc.title }}</a></p>

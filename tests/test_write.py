@@ -1,4 +1,5 @@
 """Write and publish: documents, versions, AI suggestions accepted one at a time, export, venues, cover letters."""
+import html
 import io
 import re
 
@@ -110,7 +111,7 @@ def test_new_form_is_prefilled(user_client):
 def test_create_validation_errors(user_client):
     r = post(user_client, "/write/new", {"title": "", "kind": "poem", "target": "x" * 300})
     assert r.status_code == 400
-    assert h1(r.text) == "Start a new document: please fix the problems"
+    assert h1(r.text) == "Please check 3 answers: Start a new document"
     assert 'href="#field-title"' in r.text and 'href="#field-kind"' in r.text and 'href="#field-target"' in r.text
     assert 'aria-invalid="true"' in r.text
     with db.session() as conn:
@@ -142,9 +143,9 @@ def test_save_creates_versions_and_skips_unchanged(user_client):
     assert page.text.index("Version 2") < page.text.index("Version 1")
     v1 = user_client.get(f"/write/{doc_id}/versions/{versions[0]['id']}")
     assert h1(v1.text) == "Version 1 of My essay"
-    assert "First draft." in v1.text and "Restore this version" in v1.text
+    assert "First draft." in v1.text and "Restore version 1" in v1.text
     v2 = user_client.get(f"/write/{doc_id}/versions/{versions[1]['id']}")
-    assert "same as your current text" in v2.text and "Restore this version" not in v2.text
+    assert "same as your current text" in v2.text and "Restore version" not in v2.text
 
 
 def test_save_normalises_line_endings_and_updates_title_and_target(user_client):
@@ -159,13 +160,13 @@ def test_save_validation_errors(user_client):
     doc_id = create_doc(user_client)
     r = save(user_client, doc_id, "Pay with 4111 1111 1111 1111 please", title="")
     assert r.status_code == 400
-    assert h1(r.text) == "My essay: please fix the problems"
+    assert h1(r.text) == "Please check 2 answers: My essay"
     assert "card number" in r.text and 'href="#field-body"' in r.text and 'href="#field-title"' in r.text
     # The person's text is kept in the form so nothing is lost
     assert "Pay with 4111 1111 1111 1111 please" in r.text
     assert body_of(doc_id) == "" and versions_of(doc_id) == []
     r = save(user_client, doc_id, "x" * (write_mod.MAX_BODY + 1))
-    assert r.status_code == 400 and "too long" in r.text
+    assert r.status_code == 400 and "one document can hold up to 300,000" in r.text
 
 
 def test_card_number_detector():
@@ -221,7 +222,9 @@ def test_suggestions_keep_only_exact_excerpts_in_document_order(user_client, fak
     ])
     kind, purpose, kwargs = fake_ai.calls[-1]
     assert kind == "structured" and purpose == "write.suggest"
-    assert "teh mat" in kwargs["prompt"] and "screen reader" in kwargs["system"]
+    assert "teh mat" in kwargs["prompt"] and "Respect the writer's voice" in kwargs["system"]
+    # The shared member note is added by AIClient, so the section prompt does not repeat it (docs/VOICE.md 4.18)
+    assert "screen reader" not in kwargs["system"] and "never suggest euphemisms" in kwargs["system"]
     rows = suggestion_rows(batch_id)
     assert [(r["number"], r["original"]) for r in rows] == [(1, "teh"), (2, "Blind writers deserve good tools.")]
     assert all(r["status"] == "pending" for r in rows)
@@ -230,13 +233,19 @@ def test_suggestions_keep_only_exact_excerpts_in_document_order(user_client, fak
     assert h1(page.text) == "2 suggestions for My essay"
     assert "<title>2 suggestions for My essay –" in page.text
     assert "Suggestion 1 of 2" in page.text and "Suggestion 2 of 2" in page.text
-    assert "<strong>Was:</strong> teh" in page.text and "<strong>Now:</strong> the" in page.text
+    assert "<strong>Your words:</strong> teh" in page.text and "<strong>Suggested:</strong> the" in page.text
+    assert "Was:" not in page.text and "Now:" not in page.text
+    text = html.unescape(page.text)
+    assert '<strong>Change, computed by the site:</strong> replaces "teh" with "the".' in text
     assert "<strong>The AI's reason:</strong> Spelling." in page.text
-    assert "<strong>Where it is in your text:</strong> # Introduction The cat sat on teh mat. It was happy." in page.text
+    assert ('<strong>Where it is in your text:</strong> In the section "Introduction", paragraph 1: '
+            "The cat sat on teh mat. It was happy.") in text
     assert "The AI's overall note" in page.text and "Mostly clear." in page.text and "Written by the AI" in page.text
     assert "2 of the AI's 4 suggestions were left out" in page.text and "Checked by the site" in page.text
     assert "Accept suggestion 1" in page.text and "Reject suggestion 2" in page.text
-    assert "Accept all that still match" in page.text and "Reject all remaining" in page.text
+    assert "Accept all 2 waiting suggestions" in page.text and "Reject all remaining" in page.text
+    # Accepting all comes after the last suggestion, so it is never the first button reached
+    assert page.text.index("Accept all 2 waiting") > page.text.index("Reject suggestion 2")
     # Nothing changed yet
     assert body_of(doc_id) == BODY
     # The document page links the batch
@@ -359,14 +368,14 @@ def test_reject_all_remaining(user_client, fake_ai):
     assert "Rejected 1 suggestion" in r.text
     assert [s["status"] for s in suggestion_rows(batch_id)] == ["accepted", "rejected"]
     assert body_of(doc_id) == BODY.replace("teh", "the", 1)
-    assert "Accept all that still match" not in r.text
+    assert "waiting suggestion" not in r.text
 
 
 def test_suggest_validation(user_client, fake_ai):
     doc_id = create_doc(user_client)
     r = post(user_client, f"/write/{doc_id}/suggest", {"goal": "spelling"})
-    assert r.status_code == 400 and "no saved text yet" in r.text
-    assert h1(r.text) == "My essay: please fix the problems"
+    assert r.status_code == 400 and "has no text yet" in r.text
+    assert h1(r.text) == "Please check 1 answer: My essay"
     save(user_client, doc_id, BODY)
     r = post(user_client, f"/write/{doc_id}/suggest", {"goal": "nonsense"})
     assert r.status_code == 400 and 'href="#field-goal"' in r.text
@@ -395,13 +404,30 @@ def test_suggest_ai_error_is_shown_on_job_page(user_client, fake_ai):
     assert "This did not finish" in r.text and "rate limit" in r.text
 
 
-def test_in_context():
+def test_where_in_text_leads_with_the_place():
     body = "word " * 30 + "teh target " + "more " * 30
-    ctx = write_mod.in_context(body, "teh")
-    assert ctx.startswith("...") and ctx.endswith("...") and "teh target" in ctx
-    assert ctx.startswith("...word ") and ctx.endswith(" more...")
-    assert write_mod.in_context("teh", "teh") == ""
-    assert write_mod.in_context("abc", "zzz") == ""
+    ctx = write_mod.where_in_text(body, "teh")
+    assert ctx.startswith("Paragraph 1: ...word ") and ctx.endswith(" more...") and "teh target" in ctx
+    assert write_mod.where_in_text("teh", "teh") == "Paragraph 1: teh"
+    assert write_mod.where_in_text("abc", "zzz") == ""
+    # The place comes first, Markdown marks are left out, and the words stay inside their paragraph
+    body = "# Abstract\n\nFirst paragraph.\n\nWe assume teh reader.\n\n## Methods\n\nWe paid teh fee."
+    assert write_mod.where_in_text(body, "assume teh") == 'In the section "Abstract", paragraph 2: We assume teh reader.'
+    assert write_mod.where_in_text(body, "paid teh") == 'In the section "Methods", paragraph 1: We paid teh fee.'
+    assert write_mod.where_in_text(body, "Methods") == 'In the heading "Methods".'
+
+
+def test_describe_change_is_worked_out_word_by_word():
+    describe = write_mod.describe_change
+    assert describe("teh", "the") == 'replaces "teh" with "the".'
+    assert describe("We assume the reader knows.", "We assume that the reader knows.") == 'adds "that" after "assume".'
+    assert describe("It was very happy.", "It was happy.") == 'removes "very".'
+    assert describe("It was happy.", "") == 'removes "It was happy."'
+    assert describe("Go now", "") == 'removes "Go now".'
+    assert describe("Start here.", "Now Start here.") == 'adds "Now" before "Start".'
+    assert describe("a  b", "a b") == "changes only spaces or line breaks."
+    assert describe("one two three four five six seven eight", "1 two 3 four 5 six 7 eight") == (
+        "makes 4 changes in this passage.")
 
 
 def test_filter_suggestions_unit():
@@ -516,11 +542,11 @@ def test_venues_research_with_sources(user_client, fake_ai):
                  Source(url="javascript:alert(1)", title="Bad link")]))
     r = post(user_client, f"/write/{doc_id}/venues")
     assert r.status_code == 200
-    assert h1(r.text) == "Where you could publish Screen readers in class"
-    assert "<h2>Journal of Examples</h2>" in r.text
+    assert h1(r.text) == "Where to publish: Screen readers in class"
+    assert "<h3>Journal of Examples</h3>" in r.text and ">Written by the AI (not checked)</h2>" in r.text
     assert 'href="https://example.org/guidelines" rel="noopener noreferrer"' in r.text
     assert "javascript:" not in r.text
-    assert "Sources (1)" in r.text and "has not checked it" in r.text and "Written by the AI" in r.text
+    assert "Sources (1)" in r.text
     kind, purpose, kwargs = fake_ai.calls[-1]
     assert kind == "research" and purpose == "write.venues"
     assert "open access fee" in kwargs["prompt"] and "screen reader" in kwargs["prompt"]
@@ -541,14 +567,14 @@ def test_venues_without_sources_warns(user_client, fake_ai):
 def test_venues_needs_text(user_client, fake_ai):
     doc_id = create_doc(user_client)
     r = post(user_client, f"/write/{doc_id}/venues")
-    assert "no saved text yet" in r.text and fake_ai.calls == []
+    assert "has no text yet" in r.text and fake_ai.calls == []
 
 
 def test_cover_letter_creates_new_document(user_client, fake_ai):
     doc_id = create_doc(user_client, "Screen readers in class", "paper", "Journal of Examples")
     save(user_client, doc_id, BODY, title="Screen readers in class", target="Journal of Examples")
     page = user_client.get(f"/write/{doc_id}")
-    assert "Draft a cover letter for Journal of Examples" in page.text
+    assert ">Save and draft a cover letter for Journal of Examples</button>" in page.text
     fake_ai.on("write.cover_letter", "Dear [Editor's name],\n\nI am submitting my paper.\n\n[Your name]")
     r = post(user_client, f"/write/{doc_id}/cover-letter", {"notes": "I teach braille."}, follow_redirects=False)
     job = user_client.get(r.headers["location"], follow_redirects=False)
@@ -574,7 +600,8 @@ def test_cover_letter_needs_target(user_client, fake_ai):
     doc_id = create_doc(user_client)
     save(user_client, doc_id, BODY)
     page = user_client.get(f"/write/{doc_id}")
-    assert "first fill in" in page.text and 'action="/write/%d/cover-letter"' % doc_id not in page.text
+    assert 'href="#field-target">Go to the publication field' in page.text
+    assert 'formaction="/write/%d/cover-letter">Save and draft a cover letter</button>' % doc_id in page.text
     r = post(user_client, f"/write/{doc_id}/cover-letter", {"notes": ""})
     assert r.status_code == 400 and "Fill in the publication you are sending this to" in r.text
     # The error summary links to the field that fixes the problem, which is a real input.
@@ -902,8 +929,8 @@ def test_empty_ai_answers_save_nothing(user_client, fake_ai):
 def test_errors_point_at_the_field_that_fixes_them(user_client, fake_ai):
     doc_id = create_doc(user_client)
     r = post(user_client, f"/write/{doc_id}/venues")
-    assert r.status_code == 400 and h1(r.text) == "My essay: please fix the problems"
-    assert 'href="#field-body"' in r.text and "no saved text yet" in r.text
+    assert r.status_code == 400 and h1(r.text) == "Please check 1 answer: My essay"
+    assert 'href="#field-body"' in r.text and "has no text yet" in r.text
     r = post(user_client, f"/write/{doc_id}/cover-letter", {"notes": "n" * 2001})
     assert r.status_code == 400
     for field in ("body", "target", "notes"):
@@ -950,10 +977,12 @@ def test_versions_are_grouped_by_day_and_numbered(user_client):
     with db.session() as conn:
         conn.execute("UPDATE write_versions SET created_at = '2026-01-02T10:00:00+00:00' WHERE body = 'One.'")
     page = user_client.get(f"/write/{doc_id}/versions")
-    assert "<h2>Saved on 2026-01-02 (1 version)</h2>" in page.text
-    assert re.search(r"<h2>Saved on \d{4}-\d{2}-\d{2} \(2 versions\)</h2>", page.text)
-    assert page.text.index("(2 versions)") < page.text.index("2026-01-02 (1 version)")
-    assert "This is your current text." in page.text
+    assert "<h2>Saved on 2 January 2026 (1 version)</h2>" in page.text
+    assert re.search(r"<h2>Saved on \d{1,2} [A-Z][a-z]+ \d{4} \(2 versions\)</h2>", page.text)
+    assert page.text.index("(2 versions)") < page.text.index("2 January 2026 (1 version)")
+    assert not re.search(r"\d{4}-\d{2}-\d{2}", page.text.split("<main", 1)[1])
+    assert re.search(r">Version 3: saved by you, \d\d:\d\d UTC \(current text\)</a>", page.text)
+    assert ">Version 1: saved by you, 10:00 UTC</a>" in page.text
     assert not check_html(page.text).errors
     versions = versions_of(doc_id)
     v2 = user_client.get(f"/write/{doc_id}/versions/{versions[1]['id']}")
@@ -971,3 +1000,231 @@ def test_all_suggestions_dropped_is_explained_honestly(user_client, fake_ai):
     assert "None of its suggestions could be used" in page.text
     assert "1 of the AI's 1 suggestion was left out" in page.text
     assert "The AI made 0" not in page.text and "more suggestion" not in page.text
+
+
+# ----- ease of use: found by blind members using screen readers, braille and keyboards -------------
+
+def test_ai_buttons_save_the_text_box_first(user_client, fake_ai):
+    """The AI buttons sit in the same form as the text box, so edits are saved first and never thrown away."""
+    doc_id = create_doc(user_client, target="Some Journal")
+    page = user_client.get(f"/write/{doc_id}").text
+    # One form: the AI buttons use formaction, so the text box goes with them
+    form = page.split('action="/write/%d/save"' % doc_id, 1)[1].split("</form>", 1)[0]
+    assert "<form" not in form
+    for action, name in [("suggest", "Save and get suggestions"),
+                         ("venues", "Save and search the web for places to publish"),
+                         ("cover-letter", "Save and draft a cover letter for Some Journal")]:
+        assert f'formaction="/write/{doc_id}/{action}">{name}</button>' in form, action
+    assert 'name="body"' in form and ">Save my text</button>" in form
+    # Never saved, the text box is filled in, and "Save and get suggestions" is chosen
+    fake_ai.on("write.suggest", {"overall_note": "", "suggestions": [{"original": "teh", "proposed": "the", "reason": ""}]})
+    r = post(user_client, f"/write/{doc_id}/suggest", {"body": BODY, "title": "My essay", "target": "Some Journal",
+                                                       "goal": "spelling", "instructions": ""})
+    assert r.status_code == 200 and "Saved your text as version 1, then asked the AI." in r.text
+    assert body_of(doc_id) == BODY and [v["note"] for v in versions_of(doc_id)] == ["Saved by you"]
+    assert "teh mat" in fake_ai.calls[-1][2]["prompt"]
+    # An edit made just before asking for a search is what the AI reads
+    fake_ai.on("write.venues", ResearchResult(text="Found one.", sources=[]))
+    r = post(user_client, f"/write/{doc_id}/venues", {"body": BODY + "\n\nNew ending.", "title": "My essay",
+                                                      "target": "Some Journal"})
+    assert "Saved your text as version 2, then asked the AI." in r.text
+    assert "New ending." in fake_ai.calls[-1][2]["prompt"]
+    # Unchanged text is not saved again
+    fake_ai.on("write.cover_letter", "Dear [Editor's name],")
+    post(user_client, f"/write/{doc_id}/cover-letter", {"body": BODY + "\n\nNew ending.", "title": "My essay",
+                                                        "target": "Some Journal", "notes": ""})
+    assert len(versions_of(doc_id)) == 2
+
+
+def test_ai_button_keeps_the_words_when_something_needs_checking(user_client, fake_ai):
+    doc_id = create_doc(user_client)
+    long_text = "A long pasted essay. " * 600
+    # Nothing saved yet, and the instructions hold a card number: the text is kept in the box, the AI never runs
+    r = post(user_client, f"/write/{doc_id}/suggest", {"body": long_text, "title": "My essay", "target": "",
+                                                       "goal": "clearer", "instructions": "card 4111 1111 1111 1111"})
+    assert r.status_code == 400 and h1(r.text) == "Please check 1 answer: My essay"
+    assert long_text.strip() in r.text and 'href="#field-instructions"' in r.text
+    assert "Saved your text as version 1. The AI has not started yet." in r.text
+    assert body_of(doc_id) == long_text  # the text itself was fine, so it is saved
+    assert 'value="clearer" selected' in r.text
+    # A problem in the text box itself: nothing is saved, and every word is shown again
+    r = post(user_client, f"/write/{doc_id}/cover-letter", {"body": "My card 4111 1111 1111 1111.", "title": "",
+                                                            "target": "Some Journal", "notes": "I teach braille."})
+    assert r.status_code == 400
+    assert "My card 4111 1111 1111 1111." in r.text and "I teach braille." in r.text
+    assert 'href="#field-title"' in r.text and 'href="#field-body"' in r.text
+    assert body_of(doc_id) == long_text and fake_ai.calls == []
+
+
+def test_reload_after_a_form_goes_back_to_the_document(user_client, fake_ai):
+    doc_id = create_doc(user_client)
+    save(user_client, doc_id, BODY)
+    batch_id = ask_suggestions(user_client, doc_id, fake_ai, [{"original": "teh", "proposed": "the", "reason": ""}])
+    sid = suggestion_rows(batch_id)[0]["id"]
+    vid = versions_of(doc_id)[0]["id"]
+    for path, back in [("/save", f"/write/{doc_id}"), ("/suggest", f"/write/{doc_id}"), ("/venues", f"/write/{doc_id}"),
+                       ("/cover-letter", f"/write/{doc_id}"),
+                       (f"/suggestions/{batch_id}/{sid}/accept", f"/write/{doc_id}/suggestions/{batch_id}"),
+                       (f"/suggestions/{batch_id}/{sid}/reject", f"/write/{doc_id}/suggestions/{batch_id}"),
+                       (f"/suggestions/{batch_id}/reject-all", f"/write/{doc_id}/suggestions/{batch_id}"),
+                       (f"/versions/{vid}/restore", f"/write/{doc_id}/versions/{vid}")]:
+        r = user_client.get(f"/write/{doc_id}{path}", follow_redirects=False)
+        assert r.status_code == 303 and r.headers["location"] == back, path
+    assert suggestion_rows(batch_id)[0]["status"] == "pending" and body_of(doc_id) == BODY
+
+
+def test_edit_form_order_and_save_lands_on_the_text(user_client):
+    doc_id = create_doc(user_client)
+    page = user_client.get(f"/write/{doc_id}").text
+    assert page.index('id="field-title"') < page.index('id="field-body"') < page.index('id="field-target"')
+    r = post(user_client, f"/write/{doc_id}/save", {"body": "Text.", "title": "My essay", "target": ""},
+             follow_redirects=False)
+    assert r.headers["location"] == f"/write/{doc_id}#edit-title"
+    page = user_client.get(f"/write/{doc_id}").text
+    assert re.search(r"Last saved by you on \d{1,2} [A-Z][a-z]+ \d{4} at \d\d:\d\d UTC\.", page)
+    assert not re.search(r"\d{4}-\d{2}-\d{2}", page.split("<main", 1)[1])
+
+
+def test_deciding_moves_on_to_the_next_suggestion(user_client, fake_ai):
+    doc_id = create_doc(user_client)
+    save(user_client, doc_id, "Alpha one. Beta two. Gamma three.")
+    batch_id = ask_suggestions(user_client, doc_id, fake_ai, [
+        {"original": "Alpha one.", "proposed": "Alpha 1.", "reason": "Digits."},
+        {"original": "Beta two.", "proposed": "Beta 2.", "reason": "Digits."},
+        {"original": "Gamma three.", "proposed": "Gamma 3.", "reason": "Digits."},
+    ])
+    rows = suggestion_rows(batch_id)
+    base = f"/write/{doc_id}/suggestions/{batch_id}"
+    r = post(user_client, f"{base}/{rows[0]['id']}/accept", follow_redirects=False)
+    assert r.headers["location"] == f"{base}#suggestion-2"
+    page = user_client.get(base).text
+    # The outcome is said at the top of the next suggestion, once, and the h1 says it too
+    section = page.split('id="suggestion-2"', 1)[1].split("</section>", 1)[0]
+    assert section.index("Suggestion 1 accepted. Your text has the change and is saved as version 2.") < section.index("<h2")
+    assert page.count("Suggestion 1 accepted.") == 1
+    assert h1(page) == "3 suggestions for My essay: suggestion 1 accepted"
+    assert "<strong>Before:</strong> Alpha one." in page and "<strong>After (now in your text):</strong> Alpha 1." in page
+    assert "2 waiting for your decision and 1 accepted." in page
+    r = post(user_client, f"{base}/{rows[2]['id']}/reject", follow_redirects=False)
+    assert r.headers["location"] == f"{base}#suggestion-2"
+    page = user_client.get(base).text
+    assert "<strong>Your words (kept):</strong> Gamma three." in page
+    assert "<strong>Suggested, not used:</strong> Gamma 3." in page
+    r = post(user_client, f"{base}/{rows[1]['id']}/reject", follow_redirects=False)
+    assert r.headers["location"] == f"{base}#progress"  # none left: the counts
+    page = user_client.get(base).text
+    progress = page.split('id="progress"', 1)[1].split("</div>", 1)[0]
+    assert "Suggestion 2 rejected. Your text is unchanged." in progress and "1 accepted and 2 rejected." in progress
+
+
+def test_accept_all_is_last_and_asks_first(user_client, fake_ai):
+    doc_id = create_doc(user_client)
+    save(user_client, doc_id, "teh one, teh two.")
+    batch_id = ask_suggestions(user_client, doc_id, fake_ai, [
+        {"original": "teh one", "proposed": "the one", "reason": "Spelling."},
+        {"original": "teh two", "proposed": "the two", "reason": "Spelling."},
+    ])
+    base = f"/write/{doc_id}/suggestions/{batch_id}"
+    page = user_client.get(base).text
+    # The first button on the page is for suggestion 1, not for all of them
+    first_button = re.search(r"<button[^>]*>([^<]*)</button>", page.split("<main", 1)[1]).group(1)
+    assert first_button == "Accept suggestion 1"
+    assert f'<a href="{base}/accept-all">Accept all 2 waiting suggestions</a>' in page
+    confirm = user_client.get(f"{base}/accept-all")
+    assert confirm.status_code == 200 and h1(confirm.text) == "Accept all 2 waiting suggestions for My essay?"
+    assert ">Accept every suggestion that still fits my text</button>" in confirm.text
+    assert "No, go back and decide one at a time" in confirm.text
+    assert not check_html(confirm.text).errors
+    assert body_of(doc_id) == "teh one, teh two."  # opening the question changes nothing
+    r = post(user_client, f"{base}/accept-all", follow_redirects=False)
+    assert r.headers["location"] == f"{base}#progress"
+    assert "Accepted 2 suggestions and saved your text as version 2." in user_client.get(base).text
+    assert h1(user_client.get(f"{base}/accept-all").text) == "No suggestions are waiting for My essay"
+
+
+def test_out_of_date_suggestion_is_a_notice_and_can_be_dismissed(user_client, fake_ai):
+    doc_id = create_doc(user_client)
+    save(user_client, doc_id, BODY)
+    batch_id = ask_suggestions(user_client, doc_id, fake_ai, [{"original": "teh", "proposed": "the", "reason": ""},
+                                                              {"original": "It was happy.", "proposed": "Glad.", "reason": ""}])
+    save(user_client, doc_id, BODY.replace("teh", "thee").replace("It was happy.", "It was happy. It was happy."))
+    base = f"/write/{doc_id}/suggestions/{batch_id}"
+    page = user_client.get(base).text
+    assert "Accept suggestion 1" not in page and "Dismiss suggestion 1 (no longer matches your text)" in page
+    assert "Quoted from your earlier text:" in page and 'class="field-error"' not in page
+    rows = suggestion_rows(batch_id)
+    post(user_client, f"{base}/{rows[0]['id']}/reject", {"dismiss": "yes"})
+    assert suggestion_rows(batch_id)[0]["status"] == "stale"
+    # Accepting one that no longer fits is information, not an error alert
+    r = post(user_client, f"{base}/{rows[1]['id']}/accept")
+    assert 'role="status">Suggestion 2 no longer matches your text' in r.text and 'role="alert"' not in r.text
+    assert suggestion_rows(batch_id)[1]["status"] == "stale"
+
+
+def test_version_page_shows_what_is_different(user_client):
+    doc_id = create_doc(user_client)
+    save(user_client, doc_id, "# Start\n\nFirst paragraph.\n\nSecond paragraph.")
+    save(user_client, doc_id, "# Start\n\nFirst paragraph, changed.\n\nSecond paragraph.\n\nA new ending.")
+    first = versions_of(doc_id)[0]
+    page = user_client.get(f"/write/{doc_id}/versions/{first['id']}").text
+    assert ">What is different from your current text</h2>" in page and "Computed by the site, not the AI." in page
+    assert "<strong>This version has:</strong> First paragraph." in page
+    assert "<strong>Your current text has:</strong> First paragraph, changed." in page
+    assert "<strong>Only your current text has:</strong> A new ending." in page
+    assert "<h3>Start</h3>" in page and "<pre>" not in page  # real headings and paragraphs
+    assert page.count(">Restore version 1</button>") == 2  # before and after the text
+    assert not check_html(page).errors
+    assert user_client.get(f"/write/{doc_id}/versions").text.count("(current text)</a>") == 1
+
+
+EXPORT_LEVELS = "# Title again\n\n## Section\n\nText.\n\n#### Part\n\nMore text."
+
+
+def test_exports_close_heading_gaps(user_client):
+    from docx import Document
+    doc_id = create_doc(user_client, "Title again")
+    save(user_client, doc_id, EXPORT_LEVELS, title="Title again")
+    document = Document(io.BytesIO(user_client.get(f"/write/{doc_id}/export.docx").content))
+    headings = [(p.style.name, p.text) for p in document.paragraphs if p.style.name.startswith("Heading")]
+    assert headings == [("Heading 1", "Title again"), ("Heading 2", "Section"), ("Heading 3", "Part")]
+    page = user_client.get(f"/write/{doc_id}/export.html").text
+    assert "<h2>Section</h2>" in page and "<h3>Part</h3>" in page and "<h4>" not in page
+    tex = user_client.get(f"/write/{doc_id}/export.tex").text
+    assert "\\section{Section}" in tex and "\\subsection{Part}" in tex
+    txt = user_client.get(f"/write/{doc_id}/export.txt").text
+    assert txt == "Title again\n\nSection\n\nText.\n\nPart\n\nMore text.\n" and "#" not in txt
+    export = user_client.get(f"/write/{doc_id}/export").text
+    assert "File name: title-again.docx." in export and "Downloads folder" in export
+
+
+def test_cover_letter_respects_disclosure_and_links_back(user_client, fake_ai):
+    doc_id = create_doc(user_client, "Screen readers in class", "paper", "Journal of Examples")
+    save(user_client, doc_id, BODY, title="Screen readers in class", target="Journal of Examples")
+    fake_ai.on("write.cover_letter", "Dear [Editor's name],\n\n[Your name]")
+    r = post(user_client, f"/write/{doc_id}/cover-letter", {"notes": ""}, follow_redirects=False)
+    new_id = int(user_client.get(r.headers["location"], follow_redirects=False).headers["location"].rsplit("/", 1)[1])
+    kind, purpose, kwargs = fake_ai.calls[-1]
+    assert "Never mention that the writer is blind or has low vision" in kwargs["prompt"]
+    letter = user_client.get(f"/write/{new_id}").text
+    assert "This letter is a new document." in letter
+    assert f'Your text "<a href="/write/{doc_id}">Screen readers in class</a>" is unchanged.' in letter
+    assert 'id="publish-title"' not in letter and 'id="cover-title"' not in letter
+    assert "Fill in everything in square brackets" in letter and "carefully" not in letter
+    paper = user_client.get(f"/write/{doc_id}").text
+    assert ">Cover letters drafted</h3>" in paper
+    assert f'<a href="/write/{new_id}">Cover letter: Screen readers in class</a>' in paper
+
+
+def test_index_table_has_a_caption_and_row_headers(user_client):
+    doc_id = create_doc(user_client)
+    page = user_client.get("/write").text
+    assert "<caption>Your documents, most recently changed first</caption>" in page
+    assert f'<th scope="row"><a href="/write/{doc_id}">My essay</a></th>' in page
+    assert not re.search(r"\d{4}-\d{2}-\d{2}", page.split("<main", 1)[1])
+
+
+def test_prompts_carry_only_task_rules():
+    assert "screen reader" not in write_mod.SUGGEST_SYSTEM and "blind or has low vision" not in write_mod.SUGGEST_SYSTEM
+    assert "never suggest euphemisms" in write_mod.SUGGEST_SYSTEM
+    for system in (write_mod.SUGGEST_SYSTEM, write_mod.VENUES_SYSTEM, write_mod.COVER_LETTER_SYSTEM):
+        assert "Put the summary first" not in system and "emoji" not in system
