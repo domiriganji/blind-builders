@@ -31,7 +31,10 @@ PRICES = {
     "claude-opus-4-8": (5.0, 25.0),
 }
 WEB_SEARCH_DOLLARS = 0.01  # per search
-IMAGE_MAX_TOKENS = 1_600  # Claude scales large images down; one image costs at most about this many input tokens
+# The most one image can cost in input tokens. Models with high-resolution vision (Opus 4.7 and later, including
+# Opus 5 and 5.5, and Sonnet 5 and later) take images up to 2576 pixels on the long edge, at up to about 4,784
+# tokens each; older models scale them down to about 1,600. Holds use the larger figure, so they always cover.
+IMAGE_MAX_TOKENS = 4_784
 WEB_SEARCH_TOOL = {"type": "web_search_20260209", "name": "web_search"}
 WEB_FETCH_TOOL = {"type": "web_fetch_20260209", "name": "web_fetch"}
 
@@ -149,7 +152,7 @@ class AIClient:
 
     def _worst_case_cents(self, kwargs: dict) -> int:
         """The most a call can cost: the longest answer allowed, the input (about 3 characters a token, which
-        overestimates; each image counts as the most an image can cost, about 1,600 tokens, however large its
+        overestimates; each image counts as the most an image can cost, IMAGE_MAX_TOKENS, however large its
         data), and every web search and page fetch allowed, each reading about 10,000 tokens."""
         chars = len(str(kwargs.get("system", "")))
         images = 0

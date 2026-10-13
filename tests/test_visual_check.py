@@ -269,3 +269,290 @@ def test_without_a_browser_the_report_says_so(monkeypatch):
     report = visual_check.check_site({"index.html": GOOD})
     assert report.available is False and report.pages == [] and "cannot open pages" in report.error
     assert report.to_dict()["available"] is False
+
+
+# ----- resources, the sandbox and the browser's environment --------------------------------------------------
+
+def _descendants() -> list[int]:
+    """The process ids of every process started (directly or not) by this one."""
+    parents = {}
+    for name in os.listdir("/proc"):
+        if name.isdigit():
+            try:
+                with open(f"/proc/{name}/stat") as f:
+                    parents[int(name)] = int(f.read().rsplit(")", 1)[1].split()[1])
+            except (OSError, ValueError, IndexError):
+                pass
+    found, todo = set(), [os.getpid()]
+    while todo:
+        parent = todo.pop()
+        for pid, pp in parents.items():
+            if pp == parent and pid not in found:
+                found.add(pid)
+                todo.append(pid)
+    return sorted(found)
+
+
+class _Sampler:
+    """Looks at this process's descendants every 50 ms while a check runs."""
+
+    def __init__(self, look):
+        self.look, self.results, self._stop = look, [], threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def _run(self):
+        while not self._stop.is_set():
+            self.results.append(self.look(_descendants()))
+            time.sleep(0.05)
+
+    def __enter__(self):
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc):
+        self._stop.set()
+        self._thread.join(5)
+
+
+@pytest.mark.skipif(not os.path.isdir("/proc"), reason="needs /proc")
+def test_a_page_cannot_open_windows_that_open_more_windows():
+    fan_out = page("""<h1>Fan out</h1><a id="link" href="index.html?link=1" target="_blank">Next</a>
+<form id="form" action="index.html" target="_blank"><input name="form" aria-label="Form"></form>
+<script>
+const depth = +(new URLSearchParams(location.search).get('d') || 0);
+if (depth < 5) for (let i = 0; i < 4; i++) {
+  try { window.open('index.html?d=' + (depth + 1) + '&i=' + i, '_blank', 'noopener'); } catch (e) {}
+}
+if (!location.search) {
+  document.getElementById('link').dispatchEvent(new MouseEvent('click', {bubbles: true}));
+  setTimeout(() => document.getElementById('form').submit(), 50);
+}
+</script>""")
+    with _Sampler(len) as sampler:
+        visual_check.check_site({"index.html": fan_out}, timeout_s=60, page_timeout_s=5)
+    # A browser, its helpers, at most two pages' processes and Playwright's driver: never hundreds.
+    assert max(sampler.results) < 25, max(sampler.results)
+    assert "--renderer-process-limit=2" in visual_check.CHROMIUM_ARGS
+    assert any(a.startswith("--js-flags=--max-old-space-size=") for a in visual_check.CHROMIUM_ARGS)
+
+
+def test_only_one_check_runs_at_a_time(monkeypatch):
+    real, running, most = visual_check._check_all, [0], [0]
+
+    async def counted(*args, **kwargs):
+        running[0] += 1
+        most[0] = max(most[0], running[0])
+        try:
+            await __import__("asyncio").sleep(0.3)
+            return await real(*args, **kwargs)
+        finally:
+            running[0] -= 1
+
+    monkeypatch.setattr(visual_check, "_check_all", counted)
+    reports = []
+    threads = [threading.Thread(target=lambda: reports.append(visual_check.check_site({"index.html": GOOD})))
+               for _ in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(120)
+    assert most[0] == 1 and len(reports) == 3 and all(p.checked for r in reports for p in r.pages)
+
+
+@pytest.mark.skipif(not os.path.isdir("/proc"), reason="needs /proc")
+def test_the_browser_gets_none_of_the_sites_secrets(monkeypatch):
+    monkeypatch.setenv("STUDIO_SECRET_KEY", "secret-for-the-visual-check-test")
+    busy = page("<h1>Busy</h1><script>const t = Date.now(); while (Date.now() - t < 1500) {}</script>")
+
+    def browsers(pids):
+        out = []
+        for pid in pids:
+            try:
+                with open(f"/proc/{pid}/cmdline", "rb") as f:
+                    program = os.path.basename(f.read().split(b"\0")[0]).decode()
+                with open(f"/proc/{pid}/environ", "rb") as f:
+                    environ = f.read()
+            except OSError:
+                continue
+            if "chrom" in program or "headless_shell" in program:
+                out.append(environ)
+        return out
+
+    with _Sampler(browsers) as sampler:
+        visual_check.check_site({"index.html": busy}, timeout_s=60)
+    seen = [environ for found in sampler.results for environ in found]
+    assert seen, "no browser process was seen"
+    assert not any(b"secret-for-the-visual-check-test" in environ for environ in seen)
+    assert not any(b"STUDIO_SECRET_KEY" in environ for environ in seen)
+
+
+class _FakeBrowser:
+    async def close(self):
+        pass
+
+
+class _FakeChromium:
+    """Chromium where the sandbox cannot start (as for a site run as root)."""
+
+    def __init__(self):
+        self.launches: list[dict] = []
+
+    async def launch(self, **kwargs):
+        self.launches.append(kwargs)
+        if kwargs["chromium_sandbox"]:
+            raise RuntimeError("No usable sandbox!")
+        return _FakeBrowser()
+
+
+class _FakePlaywright:
+    def __init__(self, chromium):
+        self.chromium = chromium
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+def test_without_its_sandbox_the_browser_is_not_used_unless_the_operator_says_so(monkeypatch):
+    import playwright.async_api
+    chromium = _FakeChromium()
+    monkeypatch.setattr(playwright.async_api, "async_playwright", lambda: _FakePlaywright(chromium))
+    monkeypatch.setattr(visual_check, "_sandbox", True)
+    monkeypatch.delenv("STUDIO_VISUAL_CHECKS", raising=False)
+    monkeypatch.setenv("STUDIO_SECRET_KEY", "not-for-the-browser")
+    monkeypatch.delenv("STUDIO_VISUAL_CHECKS_ALLOW_NO_SANDBOX", raising=False)
+    assert visual_check._probe() is False
+    assert [launch["chromium_sandbox"] for launch in chromium.launches] == [True]
+    # The operator chose to run without it.
+    monkeypatch.setenv("STUDIO_VISUAL_CHECKS_ALLOW_NO_SANDBOX", "1")
+    chromium.launches.clear()
+    assert visual_check._probe() is True and visual_check._sandbox is False
+    assert [launch["chromium_sandbox"] for launch in chromium.launches] == [True, False]
+    # Either way the browser gets a bare environment, never the site's.
+    for launch in chromium.launches:
+        assert set(launch["env"]) == {"PATH", "HOME", "LANG"}
+        assert "not-for-the-browser" not in str(launch["env"])
+
+
+# ----- what is measured: pictures, faded text, overlays, tight lines, lazy pictures, a check cut short -------
+
+NOISE = page("""<h1>Noise</h1><canvas id="c" width="1280" height="2400" style="display:block;width:100%"></canvas>
+<script>
+const c = document.getElementById('c'), x = c.getContext('2d'), img = x.createImageData(c.width, c.height);
+for (let i = 0; i < img.data.length; i++) img.data[i] = (i % 4 === 3) ? 255 : Math.random() * 256;
+x.putImageData(img, 0, 0);
+</script>""")
+
+
+def test_pictures_are_small_enough_to_send_and_only_as_many_as_wanted():
+    report = visual_check.check_site({"index.html": NOISE, "about.html": GOOD, "menu.html": GOOD, "cake.svg": PICTURE},
+                                     timeout_s=120, max_screenshots=3)
+    assert len(report.screenshots) + len(report.dropped_screenshots) >= 3
+    assert len(report.screenshots) <= 3
+    for shot in report.screenshots:
+        assert len(shot.png) <= visual_check.SCREENSHOT_MAX_BYTES
+        magic = b"\x89PNG" if shot.media_type == "image/png" else b"\xff\xd8\xff"
+        assert shot.png.startswith(magic)
+    # On a computer the noisy page would be a PNG of about 9 MB: it is sent as a JPEG, or left out and said so.
+    noisy = [s for s in report.screenshots if s.path == "index.html"]
+    assert len(noisy) + len([d for d in report.dropped_screenshots if d.startswith("index.html")]) == 2
+    assert all(s.media_type == "image/jpeg" for s in noisy if s.size == "computer")
+    assert all(p.checked for p in report.pages) and len(report.pages) == 6
+
+
+FADED_PAGES = {
+    "index.html": page('<h1>Faded</h1><p style="opacity:.25">Faded words</p>'
+                       '<p style="filter:opacity(30%)">Filtered words</p>'),
+    "reveal.html": page('<h1>Reveal</h1><p style="color:#cccccc;opacity:0">Shown when scrolled to</p>'),
+    "blend-mode.html": page('<h1>Blend mode</h1><p style="color:#cccccc;mix-blend-mode:multiply">Blended words</p>'),
+    "fade-in.html": page('<style>@keyframes in { from { opacity: 0 } to { opacity: 1 } }</style>'
+                         '<h1>Fade in</h1><p style="animation: in 3s forwards">Words that fade in</p>'),
+}
+
+
+def test_faded_text_is_measured_as_it_shows_and_hidden_text_is_not_passed():
+    report = visual_check.check_site(FADED_PAGES, timeout_s=120)
+    for size in ("phone", "computer"):
+        faded = result(report, "index.html", size)
+        contrast = [p for p in faded.problems if p.kind == "contrast"]
+        assert contrast and contrast[0].count == 2, faded.to_dict()
+        assert '"Faded words"' in contrast[0].examples and '"Filtered words"' in contrast[0].examples
+        for path in ("reveal.html", "blend-mode.html"):
+            check = result(report, path, size)
+            assert not check.problems and check.unknown_contrast >= 1, check.to_dict()
+        # Animations are measured at their end, as the picture shows them: no false failure mid-fade.
+        assert not result(report, "fade-in.html", size).problems
+
+
+OVERLAY = page("""<style>
+.hero { position: relative; padding: 24px; }
+.hero .bg { position: absolute; inset: 0; background: #111111; }
+.hero h1, .hero p { position: relative; }
+.hero h1 { color: #ffffff; }
+.hero p { color: #333333; }
+.cover { position: relative; padding: 24px; }
+.cover::before { content: ""; position: absolute; inset: 0; background: #000000; }
+.cover h2 { position: relative; color: #ffffff; }
+</style>
+<section class="hero"><div class="bg"></div><h1>Welcome to the shop</h1><p>Dark words on the dark box</p></section>
+<section class="cover"><h2>Before overlay title</h2></section>""")
+
+
+def test_text_on_a_box_laid_under_it_is_measured_against_that_box():
+    report = visual_check.check_site({"index.html": OVERLAY}, timeout_s=60)
+    for size in ("phone", "computer"):
+        check = result(report, "index.html", size)
+        contrast = [p for p in check.problems if p.kind == "contrast"]
+        # Light words on the dark box are fine; dark words on it are not; on a ::before box: not known.
+        assert contrast and contrast[0].examples == ['"Dark words on the dark box"'], check.to_dict()
+        assert "on #111111" in contrast[0].fix_text and "on #ffffff" not in contrast[0].fix_text
+        assert check.unknown_contrast >= 1
+
+
+def test_text_in_a_box_with_a_tight_line_height_is_not_cut_off():
+    logo = page('<h1 class="logo" style="overflow:hidden;line-height:1;font-size:32px">BAKERY HOME</h1>'
+                '<h2 style="overflow:hidden;line-height:1;font-size:64px">Bakery</h2>')
+    report = visual_check.check_site({"index.html": logo, "cut.html": PAGES["cut.html"]}, timeout_s=60)
+    for size in ("phone", "computer"):
+        assert not result(report, "index.html", size).problems, result(report, "index.html", size).to_dict()
+        assert {p.kind for p in result(report, "cut.html", size).problems} == {"cut_off"}
+
+
+def test_pictures_far_down_are_checked_too():
+    far = page('<h1>Far</h1><div style="height:9000px"></div>'
+               '<img loading="lazy" src="https://images.example.org/photo-1.jpg" alt="Far cake" width="80" height="80">')
+    near_enough = page('<h1>Far but ours</h1><div style="height:9000px"></div>'
+                       '<img loading="lazy" src="cake.svg" alt="Our cake" width="80" height="80">')
+    report = visual_check.check_site({"index.html": far, "ours.html": near_enough, "cake.svg": PICTURE}, timeout_s=60)
+    for size in ("phone", "computer"):
+        broken = [p for p in result(report, "index.html", size).problems if p.kind == "broken_image"]
+        assert broken and 'the picture "Far cake"' in broken[0].builder_text
+        ours = result(report, "ours.html", size)
+        assert not ours.problems and ours.unknown_images == 0 and "broken_image" in ours.passed
+    assert "broken_image" not in report.passed_checks()
+
+
+def test_a_browser_that_stops_part_way_leaves_no_page_unmentioned(monkeypatch):
+    real, launches = visual_check._launch, [0]
+
+    async def once_only(*args, **kwargs):
+        launches[0] += 1
+        if launches[0] > 1:
+            raise RuntimeError("the browser would not start again")
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(visual_check, "_launch", once_only)
+    loop = page("<h1>Loop</h1><script>while (true) {}</script>")
+    pale = page('<h1>Contact</h1><p style="color:#eeeeee">Call us</p>')
+    report = visual_check.check_site({"index.html": GOOD, "about.html": loop, "contact.html": pale,
+                                      "cake.svg": PICTURE}, timeout_s=60, page_timeout_s=3)
+    pairs = {(p.path, p.size) for p in report.pages}
+    assert pairs == {(path, size["name"]) for path in ("index.html", "about.html", "contact.html")
+                     for size in visual_check.SIZES}
+    assert all(p.checked for p in report.pages if p.path == "index.html")
+    contact = [p for p in report.pages if p.path == "contact.html"]
+    assert contact and not any(p.checked for p in contact) and all(p.note for p in contact)
+    assert "some pages were not checked" in report.error
+    assert report.passed_checks() == []

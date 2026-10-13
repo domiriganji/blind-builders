@@ -184,6 +184,7 @@ def test_credit_hold_counts_images_by_their_real_cost():
         {"type": "text", "text": "Review the design."}]}]}
     text_only = {"system": "s", "max_tokens": 1000, "messages": [{"role": "user", "content": "Review the design."}]}
     extra = client._worst_case_cents(with_images) - client._worst_case_cents(text_only)
-    # six images cost at most 6 * 1,600 input tokens: about 4 cents on Opus 5.5, not dollars
-    assert 0 < extra <= 5
-    assert IMAGE_MAX_TOKENS == 1_600
+    # six images cost at most 6 * 4,784 input tokens on a high-resolution model: about 11.5 cents on Opus 5.5,
+    # not dollars, and never less than a 1280 by 2400 screenshot can cost (1280 * 2400 / 750 = 4,096 tokens)
+    assert 11 <= extra <= 13
+    assert IMAGE_MAX_TOKENS == 4_784 and IMAGE_MAX_TOKENS >= 1280 * 2400 // 750

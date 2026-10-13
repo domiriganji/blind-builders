@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import os
 import re
 
 import pytest
@@ -10,6 +11,10 @@ from fastapi.testclient import TestClient
 from studio import ai as ai_module
 from studio.app import create_app
 from studio.config import Settings
+
+# Test machines often run as root, where Chromium's sandbox cannot start; real servers must not (see
+# docs/DEVELOPING.md). Without this, the real-browser tests of the visual checks would be skipped.
+os.environ.setdefault("STUDIO_VISUAL_CHECKS_ALLOW_NO_SANDBOX", "1")
 
 CSRF_RE = re.compile(r'name="csrf_token" value="([^"]+)"')
 

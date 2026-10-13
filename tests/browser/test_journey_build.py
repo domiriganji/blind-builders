@@ -222,7 +222,8 @@ def test_build_journey_from_idea_to_delete(live, browser):
     expect(page.get_by_role("heading", name="An AI looked at pictures of the pages")).to_be_visible()
     expect(page.get_by_text("This is the AI's opinion, not a check by the site.")).to_be_visible()
     expect(page.get_by_text(REVIEW_OK["summary_for_builder"])).to_be_visible()
-    expect(page.get_by_text("Fixed before you saw it: the AI fixed 1 problem the checks found.")).to_be_visible()
+    expect(page.get_by_role("heading", name="Fixed before you saw it")).to_be_visible()
+    expect(page.get_by_text("The AI fixed 1 problem the checks found, and the site measured the pages again")).to_be_visible()
     assert len([p for p in fake.purposes() if p == "build.visual_repair"]) == repairs_before + 1
     repair = last_call(fake, "build.visual_repair")["prompt"]
     assert 'name="viewport"' in repair and "about.html" in repair

@@ -9,7 +9,8 @@ What is measured on every page and size, with JavaScript in the page itself:
 - on the phone: buttons, links that are not inside a sentence, and form fields smaller than 24 by 24
   pixels (WCAG 2.2 target size), and text smaller than 12 pixels;
 - pictures that did not load.
-Each page is also photographed (PNG, at most 2400 pixels tall) so an AI can look at it.
+Each page is also photographed (PNG, or JPEG when the PNG would be too large to send, at most 2400 pixels tall
+and SCREENSHOT_MAX_BYTES) so an AI can look at it.
 
 Every problem has two texts: builder_text, for the member, about the effect on visitors in plain words and
 never naming colours; and fix_text, for the AI that fixes it, which may name colours and CSS.
@@ -17,12 +18,16 @@ never naming colours; and fix_text, for the AI that fixes it, which may name col
 The built pages are untrusted code. They are written to a fresh temporary directory and opened from file://
 in a fresh browser context per page and size. Every request that is not a file inside that directory is
 blocked, as are WebSockets, downloads, service workers and permissions; the browser has no working proxy and
-no network. Each page has a hard time limit, the whole check has one too, and the browser is always closed
-and the directory always deleted.
+no network. Pages cannot open new windows. Each page has a hard time limit, the whole check has one too, and
+the browser is always closed and the directory always deleted. Chromium runs with its own sandbox, never
+without it unless the operator allows that (STUDIO_VISUAL_CHECKS_ALLOW_NO_SANDBOX=1), with a minimal
+environment (none of the site's secrets), a cap on renderer processes and script memory, and only one check
+runs at a time across all jobs.
 """
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import re
 import shutil
@@ -41,6 +46,7 @@ MAX_PAGES = 12
 MAX_PLACES = 3             # example places reported per kind of problem
 MAX_BLOCKED = 20           # blocked addresses remembered per check
 SCREENSHOT_MAX_HEIGHT = 2400
+SCREENSHOT_MAX_BYTES = 3_500_000   # under the AI's 5 MB per picture once base64 encoded
 PAGE_TIMEOUT_S = 15        # the most one page at one size may take, from opening to its picture
 LAUNCH_TIMEOUT_S = 30
 
@@ -71,7 +77,27 @@ CHROMIUM_ARGS = [
     "--dns-prefetch-disable",
     "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
     "--webrtc-ip-handling-policy=disable_non_proxied_udp",
+    # A page is untrusted: few processes, and little memory for its scripts.
+    "--renderer-process-limit=2",
+    "--js-flags=--max-old-space-size=256",
 ]
+# Run before any script of the page (and of any frame): no new windows. window.open does nothing, and links
+# and forms that would open a new window open in the same one. Any window that still appears is closed.
+NO_NEW_WINDOWS_JS = r"""(() => {
+  const none = () => null;
+  try { Object.defineProperty(window, 'open', {value: none, writable: false, configurable: false}); }
+  catch (e) { window.open = none; }
+  const here = (e) => {
+    const t = e.target;
+    const holder = t && t.closest && t.closest('a, area, form');
+    if (holder) holder.target = '_self';
+  };
+  window.addEventListener('click', here, true);
+  window.addEventListener('submit', here, true);
+  const submit = HTMLFormElement.prototype.submit;
+  HTMLFormElement.prototype.submit = function () { this.target = '_self'; return submit.call(this); };
+})();"""
+log = logging.getLogger(__name__)
 # A proxy that does not exist: if anything ever got past the request blocking, it would go nowhere.
 DEAD_PROXY = {"server": "http://127.0.0.1:9"}
 
@@ -100,14 +126,16 @@ class PageCheck:
     height: int
     problems: list[Problem] = field(default_factory=list)
     passed: list[str] = field(default_factory=list)   # kinds of check passed
-    unknown_contrast: int = 0    # text on a picture or a blend: contrast not measured
+    unknown_contrast: int = 0    # text on a picture, a blend, an overlay or faded out: contrast not measured
+    unknown_images: int = 0      # pictures still loading when measured: not known whether they load
     checked: bool = True         # False if the page could not be measured (time limit or an error)
     note: str = ""               # why it was not checked, in plain words
 
     def to_dict(self) -> dict:
         return {"path": self.path, "size": self.size, "width": self.width, "height": self.height,
                 "problems": [p.to_dict() for p in self.problems], "passed": list(self.passed),
-                "unknown_contrast": self.unknown_contrast, "checked": self.checked, "note": self.note}
+                "unknown_contrast": self.unknown_contrast, "unknown_images": self.unknown_images,
+                "checked": self.checked, "note": self.note}
 
 
 @dataclass
@@ -116,7 +144,8 @@ class Screenshot:
     size: str
     width: int
     height: int
-    png: bytes
+    png: bytes                   # the picture's bytes, in media_type
+    media_type: str = "image/png"
 
 
 @dataclass
@@ -126,6 +155,7 @@ class VisualReport:
     screenshots: list[Screenshot] = field(default_factory=list)
     skipped_pages: list[str] = field(default_factory=list)   # HTML pages not checked (over the page limit)
     blocked_requests: list[str] = field(default_factory=list)
+    dropped_screenshots: list[str] = field(default_factory=list)  # pictures too large to send, by page and size
     error: str = ""              # plain words, if the check as a whole could not run
 
     @property
@@ -136,12 +166,9 @@ class VisualReport:
         return len(self.problems)
 
     def passed_checks(self) -> list[str]:
-        """The kinds of check no measured page failed (empty if nothing was measured)."""
-        measured = [p for p in self.pages if p.checked]
-        if not measured:
-            return []
-        failed = {problem.kind for _, problem in self.problems}
-        return [kind for kind in CHECKS if kind not in failed]
+        """The kinds of check that ran on every page and size and found nothing (empty if any page was not
+        measured)."""
+        return passed_kinds([p.to_dict() for p in self.pages])
 
     def to_dict(self) -> dict:
         """Everything but the pictures, for storing as JSON."""
@@ -156,15 +183,42 @@ class VisualReport:
             "blocked_requests": list(self.blocked_requests),
             "screenshots": [{"path": s.path, "size": s.size, "width": s.width, "height": s.height}
                             for s in self.screenshots],
+            "dropped_screenshots": list(self.dropped_screenshots),
             "error": self.error,
         }
+
+
+def passed_kinds(pages: list[dict], *, measured_only: bool = False) -> list[str]:
+    """The kinds of check that ran on every page and size (as stored dicts) and found nothing there. Empty when
+    no page was measured, or, unless measured_only, when any page was not measured."""
+    measured = [p for p in pages if p.get("checked")]
+    if not measured or (not measured_only and len(measured) != len(pages)):
+        return []
+    failed = {problem.get("kind") for page in pages for problem in page.get("problems", [])}
+    out = []
+    for kind in CHECKS:
+        relevant = [p for p in measured if p.get("size") == "phone" or kind not in PHONE_ONLY]
+        if kind not in failed and relevant and all(kind in p.get("passed", []) for p in relevant):
+            out.append(kind)
+    return out
 
 
 # ----- is a browser available? ---------------------------------------------------------------------
 
 _lock = threading.Lock()
 _available: bool | None = None
-_sandbox = True  # Chromium's own sandbox; off only where it cannot start (for example as root in a container)
+_sandbox = True  # Chromium's own sandbox; off only where it cannot start and the operator allowed that
+# One check at a time across all jobs: each one runs a whole browser.
+_one_at_a_time = threading.BoundedSemaphore(1)
+
+
+def _allow_no_sandbox() -> bool:
+    return os.environ.get("STUDIO_VISUAL_CHECKS_ALLOW_NO_SANDBOX", "").strip().lower() in ("1", "on", "yes", "true")
+
+
+def _browser_env(home: str) -> dict[str, str]:
+    """The browser's whole environment: nothing of the site's (no keys or secrets)."""
+    return {"PATH": os.environ.get("PATH") or "/usr/local/bin:/usr/bin:/bin", "HOME": home, "LANG": "C.UTF-8"}
 
 
 def available() -> bool:
@@ -191,17 +245,29 @@ def _probe() -> bool:
     async def launch_once() -> bool:
         global _sandbox
         from playwright.async_api import async_playwright
-        async with async_playwright() as pw:
-            for sandbox in (True, False):
-                try:
-                    browser = await pw.chromium.launch(chromium_sandbox=sandbox, args=CHROMIUM_ARGS,
-                                                       proxy=DEAD_PROXY, timeout=LAUNCH_TIMEOUT_S * 1000)
-                except Exception:  # noqa: BLE001
-                    continue
-                await browser.close()
-                _sandbox = sandbox
-                return True
-        return False
+        home = tempfile.mkdtemp(prefix="studio-visual-home-")
+        try:
+            async with async_playwright() as pw:
+                # Built pages are untrusted: without Chromium's sandbox, a flaw in the browser would let a page
+                # act as the site itself. So never without it, unless the operator chose that.
+                for sandbox in (True, False) if _allow_no_sandbox() else (True,):
+                    try:
+                        browser = await _launch(pw, home, sandbox)
+                    except Exception:  # noqa: BLE001
+                        continue
+                    await browser.close()
+                    _sandbox = sandbox
+                    if not sandbox:
+                        log.warning("Visual checks run Chromium WITHOUT its sandbox, because "
+                                    "STUDIO_VISUAL_CHECKS_ALLOW_NO_SANDBOX is set and the sandbox cannot start "
+                                    "here. Run the site as a user that is not root, with user namespaces.")
+                    return True
+            log.warning("Visual checks are off: Chromium did not start with its sandbox here (the sandbox cannot "
+                        "start when the site runs as root). Run the site as a user that is not root, or set "
+                        "STUDIO_VISUAL_CHECKS_ALLOW_NO_SANDBOX=1 to run without it.")
+            return False
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
 
     def main() -> None:
         try:
@@ -228,9 +294,11 @@ def _html_pages(files: dict[str, str], pages: list[str] | None) -> tuple[list[st
 
 
 def check_site(files: dict[str, str], *, pages: list[str] | None = None, timeout_s: int = 60,
-               page_timeout_s: float = PAGE_TIMEOUT_S) -> VisualReport:
+               page_timeout_s: float = PAGE_TIMEOUT_S, max_screenshots: int | None = None) -> VisualReport:
     """Open the site's HTML pages in Chromium on a phone and a computer, and measure what visitors meet.
-    Never raises: anything that goes wrong is in the report, in plain words."""
+    Pictures are kept for the first max_screenshots page sizes only (all of them if None).
+    Never raises: anything that goes wrong is in the report, in plain words, and every chosen page and size
+    is in report.pages, measured or not."""
     chosen, skipped = _html_pages(files, pages)
     if not available():
         return VisualReport(available=False, skipped_pages=chosen + skipped,
@@ -239,24 +307,53 @@ def check_site(files: dict[str, str], *, pages: list[str] | None = None, timeout
     if not chosen:
         report.error = "There are no HTML pages to check."
         return report
+    if not _one_at_a_time.acquire(timeout=timeout_s + 60):
+        report.error = "The site was busy checking other builds, so the look was not checked."
+        _backfill(report, chosen, "The site was busy checking other builds, so this page was not checked.")
+        return report
     holder: dict = {}
 
     def main() -> None:
         try:
-            holder["report"] = asyncio.run(_check_all(files, chosen, report, timeout_s, page_timeout_s))
+            holder["report"] = asyncio.run(_check_all(files, chosen, report, timeout_s, page_timeout_s,
+                                                      max_screenshots))
         except BaseException:  # noqa: BLE001 - the report says what happened
             if not report.error:
                 report.error = "The browser stopped unexpectedly, so some pages were not checked."
             holder["report"] = report
+        finally:
+            _one_at_a_time.release()  # only once the browser is closed
 
     thread = threading.Thread(target=main, name="visual-check", daemon=True)
-    thread.start()
+    try:
+        thread.start()
+    except BaseException:  # noqa: BLE001
+        _one_at_a_time.release()
+        report.error = "The browser could not be started, so the look was not checked."
+        _backfill(report, chosen, "The browser could not be started, so this page was not checked.")
+        return report
     thread.join(timeout_s + 30)
     if thread.is_alive():
-        report.error = (f"The check took longer than {timeout_s} seconds, so it was stopped and some pages were "
-                        "not checked.")
-        return report
-    return holder.get("report", report)
+        # The thread still changes its report: hand back a copy of what is known now.
+        out = VisualReport(pages=list(report.pages), screenshots=list(report.screenshots),
+                           skipped_pages=list(report.skipped_pages), blocked_requests=list(report.blocked_requests),
+                           dropped_screenshots=list(report.dropped_screenshots))
+        out.error = (f"The check took longer than {timeout_s} seconds, so it was stopped and some pages were "
+                     "not checked.")
+        _backfill(out, chosen, "The time for checking ran out before this page, so it was not checked.")
+        return out
+    out = holder.get("report", report)
+    _backfill(out, chosen, "The browser stopped before this page, so it was not checked.")
+    return out
+
+
+def _backfill(report: VisualReport, chosen: list[str], note: str) -> None:
+    """Every chosen page and size the check never reached is in the report, as not checked."""
+    done = {(p.path, p.size) for p in report.pages}
+    for path in chosen:
+        for size in SIZES:
+            if (path, size["name"]) not in done:
+                report.pages.append(_not_checked(path, size, note))
 
 
 def _inside(url: str, root: Path) -> bool:
@@ -281,7 +378,7 @@ def _write_files(files: dict[str, str], root: Path) -> None:
 
 
 async def _check_all(files: dict[str, str], chosen: list[str], report: VisualReport, timeout_s: float,
-                     page_timeout_s: float) -> VisualReport:
+                     page_timeout_s: float, max_screenshots: int | None = None) -> VisualReport:
     from playwright.async_api import async_playwright
 
     loop = asyncio.get_running_loop()
@@ -289,6 +386,7 @@ async def _check_all(files: dict[str, str], chosen: list[str], report: VisualRep
     loop.set_exception_handler(lambda _loop, _context: None)
     deadline = loop.time() + timeout_s
     root = Path(tempfile.mkdtemp(prefix="studio-visual-")).resolve()
+    home = tempfile.mkdtemp(prefix="studio-visual-home-")  # the browser's own, apart from the pages
     try:
         _write_files(files, root)
         async with async_playwright() as pw:
@@ -306,10 +404,22 @@ async def _check_all(files: dict[str, str], chosen: list[str], report: VisualRep
                             report.pages.append(_not_checked(path, size, (
                                 "The time for checking ran out before this page, so it was not checked.")))
                             continue
-                        if browser is None:
-                            browser = await asyncio.wait_for(_launch(pw), min(LAUNCH_TIMEOUT_S, remaining))
                         limit = min(page_timeout_s, remaining)
-                        page_check, healthy = await _check_one(browser, root, path, size, limit, report)
+                        picture = max_screenshots is None or len(report.screenshots) < max_screenshots
+                        try:
+                            if browser is None:
+                                browser = await asyncio.wait_for(_launch(pw, home),
+                                                                 min(LAUNCH_TIMEOUT_S, remaining))
+                            page_check, healthy = await _check_one(browser, root, path, size, limit, report,
+                                                                   picture)
+                        except Exception:  # noqa: BLE001 - the browser did not start or stopped: go on
+                            report.error = "The browser stopped part way through, so some pages were not checked."
+                            report.pages.append(_not_checked(path, size, (
+                                "The browser stopped before this page, so it was not checked.")))
+                            if browser is not None:
+                                await _close_quietly(browser)
+                                browser = None
+                            continue
                         report.pages.append(page_check)
                         if any(p.kind == TIMEOUT_KIND for p in page_check.problems):
                             hung = limit
@@ -320,15 +430,17 @@ async def _check_all(files: dict[str, str], chosen: list[str], report: VisualRep
                 if browser is not None:
                     await _close_quietly(browser)
     except asyncio.TimeoutError:
-        report.error = "The browser did not start in time, so the pages were not checked."
+        report.error = ("The browser did not start in time, so " + ("some pages were" if report.pages else
+                                                                     "the pages were") + " not checked.")
     finally:
         shutil.rmtree(root, ignore_errors=True)
+        shutil.rmtree(home, ignore_errors=True)
     return report
 
 
-async def _launch(pw):
-    return await pw.chromium.launch(chromium_sandbox=_sandbox, args=CHROMIUM_ARGS, proxy=DEAD_PROXY,
-                                    timeout=LAUNCH_TIMEOUT_S * 1000)
+async def _launch(pw, home: str, sandbox: bool | None = None):
+    return await pw.chromium.launch(chromium_sandbox=_sandbox if sandbox is None else sandbox, args=CHROMIUM_ARGS,
+                                    proxy=DEAD_PROXY, env=_browser_env(home), timeout=LAUNCH_TIMEOUT_S * 1000)
 
 
 async def _close_quietly(thing) -> None:
@@ -344,7 +456,7 @@ def _not_checked(path: str, size: dict, note: str) -> PageCheck:
 
 
 async def _check_one(browser, root: Path, path: str, size: dict, limit: float,
-                     report: VisualReport) -> tuple[PageCheck, bool]:
+                     report: VisualReport, picture: bool = True) -> tuple[PageCheck, bool]:
     """One page at one size, in its own context. Returns the result and whether the browser is still sound."""
     phone = size["name"] == "phone"
     context = await asyncio.wait_for(browser.new_context(
@@ -371,10 +483,11 @@ async def _check_one(browser, root: Path, path: str, size: dict, limit: float,
         asyncio.ensure_future(ws.close())
 
     try:
+        await context.add_init_script(NO_NEW_WINDOWS_JS)
         await context.route("**/*", guard)
         await context.route_web_socket(re.compile(".*"), no_sockets)
-        measured, png, shot_width, shot_height = await asyncio.wait_for(
-            _measure(context, (root / path).as_uri(), size, limit), limit)
+        measured, png, media_type, shot_width, shot_height = await asyncio.wait_for(
+            _measure(context, (root / path).as_uri(), size, limit, root, picture), limit)
     except asyncio.TimeoutError:
         healthy = False
         result = _timeout_check(path, size, limit)
@@ -384,7 +497,9 @@ async def _check_one(browser, root: Path, path: str, size: dict, limit: float,
     else:
         if png:
             report.screenshots.append(Screenshot(path=path, size=size["name"], width=shot_width,
-                                                 height=shot_height, png=png))
+                                                 height=shot_height, png=png, media_type=media_type))
+        elif picture:
+            report.dropped_screenshots.append(f"{path} {size['label']}")
         result = _page_check(path, size, measured, root)
     try:
         await asyncio.wait_for(context.close(), 5)
@@ -393,21 +508,31 @@ async def _check_one(browser, root: Path, path: str, size: dict, limit: float,
     return result, healthy
 
 
-async def _measure(context, url: str, size: dict, limit: float):
+async def _measure(context, url: str, size: dict, limit: float, root: Path, picture: bool = True):
     page = await context.new_page()
-    page.on("popup", lambda popup: asyncio.ensure_future(popup.close()))
+    # Any other window (none should open: see NO_NEW_WINDOWS_JS) is closed at once, whoever opened it.
+    context.on("page", lambda other: other is not page and asyncio.ensure_future(other.close()))
     page.on("dialog", lambda dialog: asyncio.ensure_future(dialog.dismiss()))
     ms = max(1000, int(limit * 1000)) + 2000  # the asyncio limit around this always comes first
     await page.goto(url, wait_until="load", timeout=ms)
     await page.wait_for_timeout(150)  # let scripts that run on load finish their first paint
     measured = await page.evaluate(MEASURE_JS, {"phone": size["name"] == "phone", "width": size["width"],
-                                                "maxPlaces": MAX_PLACES})
+                                                "maxPlaces": MAX_PLACES, "root": root.as_uri() + "/"})
     height = max(1, min(int(measured.get("page_height") or size["height"]), SCREENSHOT_MAX_HEIGHT))
     # A page not set up for phones is laid out wider than the phone and shrunk: photograph all of it.
     width = max(size["width"], min(int(measured.get("layout_width") or size["width"]), 1600))
-    png = await page.screenshot(type="png", full_page=True, animations="disabled", caret="hide", timeout=ms,
-                                clip={"x": 0, "y": 0, "width": width, "height": height})
-    return measured, png, width, height
+    if not picture:
+        return measured, None, "", width, height
+    shot = dict(full_page=True, animations="disabled", caret="hide", timeout=ms,
+                clip={"x": 0, "y": 0, "width": width, "height": height})
+    data, media_type = await page.screenshot(type="png", **shot), "image/png"
+    for quality in (80, 60, 40):  # a busy picture (noise, photographs) makes a huge PNG: try JPEG
+        if len(data) <= SCREENSHOT_MAX_BYTES:
+            break
+        data, media_type = await page.screenshot(type="jpeg", quality=quality, **shot), "image/jpeg"
+    if len(data) > SCREENSHOT_MAX_BYTES:
+        return measured, None, "", width, height
+    return measured, data, media_type, width, height
 
 
 def _public_url(url: str, root: Path) -> str:
@@ -556,10 +681,13 @@ def _page_check(path: str, size: dict, m: dict, root: Path) -> PageCheck:
                       "project's own files (or inline SVG); remove images from other sites and missing files.")))
 
     failed = {p.kind for p in problems}
+    pending = int(img.get("pending", 0) or 0)
+    if pending:
+        failed.add("broken_image")  # not passed either: some pictures were still loading
     applicable = [k for k in CHECKS if phone or k not in PHONE_ONLY]
     return PageCheck(path=path, size=size["name"], width=size["width"], height=size["height"], problems=problems,
                      passed=[k for k in applicable if k not in failed],
-                     unknown_contrast=int(con.get("unknown", 0) or 0))
+                     unknown_contrast=int(con.get("unknown", 0) or 0), unknown_images=pending)
 
 
 def names_a_colour(text: str) -> bool:
@@ -586,6 +714,16 @@ async (opts) => {
     s = (s || '').replace(/\s+/g, ' ').trim();
     return s.length > n ? s.slice(0, n - 3).trimEnd() + '...' : s;
   };
+  // Measure what visitors see once things settle, as in the picture: animations and transitions at their end,
+  // endless ones stopped.
+  try {
+    for (const a of document.getAnimations()) {
+      try {
+        const timing = a.effect && a.effect.getComputedTiming();
+        if (timing && Number.isFinite(timing.endTime)) a.finish(); else a.cancel();
+      } catch (e) { try { a.cancel(); } catch (e2) {} }
+    }
+  } catch (e) {}
 
   const styles = new Map();
   const cs = (el) => { let s = styles.get(el); if (!s) { s = getComputedStyle(el); styles.set(el, s); } return s; };
@@ -608,8 +746,8 @@ async (opts) => {
     hiddenMemo.set(el, v);
     return v;
   }
-  function shown(el) {
-    if (el.checkVisibility && !el.checkVisibility({visibilityProperty: true, opacityProperty: true})) return false;
+  function shown(el, opacity = true) {
+    if (el.checkVisibility && !el.checkVisibility({visibilityProperty: true, opacityProperty: opacity})) return false;
     const r = el.getBoundingClientRect();
     if (r.width < 1 || r.height < 1) return false;
     if (r.right <= 0 || r.bottom <= 0) return false;  // parked off the page, like a skip link
@@ -712,27 +850,96 @@ async (opts) => {
   }
   const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
   const hex = (c) => '#' + c.slice(0, 3).map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
-  const bgMemo = new Map();
-  function background(el) {   // null when it sits on a picture or a gradient
-    if (bgMemo.has(el)) return bgMemo.get(el);
+  const all = [...body.querySelectorAll('*')].slice(0, MAX_ELEMENTS);
+  const painted = (s) => (s.backgroundImage && s.backgroundImage !== 'none') || rgba(s.backgroundColor)[3] > 0;
+  const layered = (stack) => {   // the colour of boxes painted one on another, top first; null on a picture
     const layers = [];
-    let unknown = false;
-    for (let e = el; e && e.nodeType === 1; e = e.parentElement) {
+    for (const e of stack) {
       const s = cs(e);
-      if (s.backgroundImage && s.backgroundImage !== 'none') { unknown = true; break; }
+      if (s.backgroundImage && s.backgroundImage !== 'none') return null;
       const c = rgba(s.backgroundColor);
       if (c[3] > 0) { layers.push(c); if (c[3] >= 1) break; }
     }
-    let out = null;
-    if (!unknown) {
-      out = [255, 255, 255, 1];  // the browser's own page colour
-      for (let i = layers.length - 1; i >= 0; i--) out = blend(layers[i], out);
+    let out = [255, 255, 255, 1];  // the browser's own page colour
+    for (let i = layers.length - 1; i >= 0; i--) out = blend(layers[i], out);
+    return out;
+  };
+  // Boxes placed over or under other content (position absolute or fixed) that paint a background, and
+  // ::before and ::after boxes that do (the page does not say where those are: their element's box stands in).
+  let overlays = null;
+  function overlayList() {
+    if (overlays) return overlays;
+    overlays = [];
+    for (const e of all) {
+      if (SKIP.has(e.tagName) || e.closest('svg')) continue;
+      const s = cs(e);
+      if ((s.position === 'absolute' || s.position === 'fixed') && painted(s) && shown(e)) {
+        overlays.push({el: e, r: e.getBoundingClientRect(), pseudo: false});
+      }
+      for (const which of ['::before', '::after']) {
+        const ps = getComputedStyle(e, which);
+        if (!ps.content || ps.content === 'none' || ps.display === 'none') continue;
+        if ((ps.position === 'absolute' || ps.position === 'fixed') && painted(ps) && ps.visibility !== 'hidden'
+            && parseFloat(ps.opacity) !== 0) {
+          overlays.push({el: e, r: e.getBoundingClientRect(), pseudo: true});
+        }
+      }
+    }
+    return overlays;
+  }
+  const meets = (a, b) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 &&
+                          Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1;
+  const bgMemo = new Map();
+  function background(el, rects) {   // null when it sits on a picture, a gradient or an overlay it cannot tell
+    if (bgMemo.has(el)) return bgMemo.get(el);
+    const chain = [];
+    for (let e = el; e && e.nodeType === 1; e = e.parentElement) chain.push(e);
+    let out = layered(chain);
+    // A box that is not one of its ancestors may be painted under (or over) the text: then what is under the
+    // text is what the browser finds at the text, or, where it cannot tell, unknown.
+    const near = out && overlayList().filter(o => (o.pseudo || (o.el !== el && !o.el.contains(el)))
+                                              && rects.some(r => meets(o.r, r)));
+    if (out && near.length) {
+      out = null;
+      const r = rects[0];
+      const x = (r.left + r.right) / 2, y = (r.top + r.bottom) / 2;
+      const at = (o) => o.r.left <= x && x <= o.r.right && o.r.top <= y && y <= o.r.bottom;
+      if (!near.some(o => o.pseudo) && x >= 0 && y >= 0 && x < innerWidth && y < innerHeight && near.every(at)) {
+        const stack = document.elementsFromPoint(x, y);
+        const i = stack.indexOf(el);
+        // Every overlay must be found under the text (one that lets clicks through is not found: unknown).
+        if (i >= 0 && near.every(o => stack.indexOf(o.el) > i)) out = layered([el, ...stack.slice(i + 1)]);
+      }
     }
     bgMemo.set(el, out);
     return out;
   }
+  // How see-through text is, from opacity and filter: opacity() on it and its ancestors. null when the site
+  // cannot tell: other filters, blend modes, or a faded box that has its own background.
+  function seeThrough(el) {
+    let alpha = 1, backed = false;
+    for (let e = el; e && e.nodeType === 1; e = e.parentElement) {
+      const s = cs(e);
+      if (s.mixBlendMode && s.mixBlendMode !== 'normal') return null;
+      let o = parseFloat(s.opacity);
+      if (isNaN(o)) o = 1;
+      if (s.filter && s.filter !== 'none') {
+        const parts = s.filter.match(/[a-z-]+\([^()]*\)/g) || [];
+        if (!parts.length || parts.join(' ') !== s.filter.trim().replace(/\s+/g, ' ')) return null;
+        for (const f of parts) {
+          const m = /^opacity\(\s*([\d.]+)(%?)\s*\)$/.exec(f);
+          if (!m) return null;
+          o *= m[2] ? parseFloat(m[1]) / 100 : parseFloat(m[1]);
+        }
+      }
+      if (painted(s)) backed = true;
+      if (o < 1) { if (backed) return null; alpha *= o; }
+    }
+    return alpha;
+  }
 
-  // Every visible piece of text, by the element that holds it, with the boxes of its lines.
+  // Every piece of text on show, by the element that holds it, with the boxes of its lines. Text faded out
+  // completely (opacity 0) is kept apart: it is not measured, and not counted as passing.
   const owners = new Map();
   const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
   let node, scanned = 0;
@@ -741,22 +948,29 @@ async (opts) => {
     if (!node.nodeValue || !node.nodeValue.trim()) continue;
     const el = node.parentElement;
     if (!el || SKIP.has(el.tagName) || el.closest('svg')) continue;
-    let rects = owners.get(el);
-    if (rects === undefined) { rects = shown(el) ? [] : null; owners.set(el, rects); }
-    if (rects === null) continue;
+    let entry = owners.get(el);
+    if (entry === undefined) {
+      entry = shown(el, false) ? {rects: [], faded: !shown(el)} : null;
+      owners.set(el, entry);
+    }
+    if (entry === null) continue;
     const range = document.createRange();
     range.selectNodeContents(node);
-    for (const r of range.getClientRects()) if (r.width > 0.5 && r.height > 0.5) rects.push(r);
+    for (const r of range.getClientRects()) if (r.width > 0.5 && r.height > 0.5) entry.rects.push(r);
   }
-  const texts = [...owners].filter(([, rects]) => rects && rects.length).slice(0, 3000);
+  const everyText = [...owners].filter(([, e]) => e && e.rects.length).slice(0, 3000);
+  const texts = everyText.filter(([, e]) => !e.faded).map(([el, e]) => [el, e.rects]);
 
   // (b) contrast
   const contrast = Object.assign(bucket(), {unknown: 0});
-  for (const [el] of texts) {
+  for (const [el, entry] of everyText) {
+    if (entry.faded) { contrast.unknown++; continue; }
     const s = cs(el);
-    const fg = rgba(s.webkitTextFillColor || s.color);
-    const bg = background(el);
-    if (fg[3] === 0 || !bg) { contrast.unknown++; continue; }
+    const colour = rgba(s.webkitTextFillColor || s.color);
+    const alpha = seeThrough(el);
+    const bg = alpha === null ? null : background(el, entry.rects);
+    if (colour[3] === 0 || !alpha || !bg) { contrast.unknown++; continue; }
+    const fg = [colour[0], colour[1], colour[2], colour[3] * alpha];
     const text = blend(fg, bg);
     const r = ratio(text, bg);
     const px = parseFloat(s.fontSize) || 16;
@@ -769,7 +983,6 @@ async (opts) => {
 
   // (c) text cut off by a box that hides what does not fit
   const cut = bucket();
-  const all = [...body.querySelectorAll('*')].slice(0, MAX_ELEMENTS);
   const scrolls = (s) => ['auto', 'scroll'].includes(s.overflowX) || ['auto', 'scroll'].includes(s.overflowY);
   for (const el of all) {
     if (SKIP.has(el.tagName) || el.closest('svg') || ['INPUT', 'SELECT', 'IMG'].includes(el.tagName)) continue;
@@ -790,8 +1003,13 @@ async (opts) => {
         if (es.position === 'fixed' || scrolls(es)) { skip = true; break; }
       }
       if (skip) continue;
+      // A line's box is the font's whole height, which is taller than the line when line-height is small (a
+      // logo at line-height 1): the letters fit, so only clipping into the line itself counts.
+      const ts = cs(t);
+      const lh = parseFloat(ts.lineHeight) || (parseFloat(ts.fontSize) || 16) * 1.2;
       for (const r of rects) {
-        if ((cx && (r.right > right + 1 || r.left < left - 1)) || (cy && (r.bottom > bottom + 1 || r.top < top - 1))) { culprit = t; break; }
+        const tol = Math.max(1, (r.height - lh) / 2 + 1);
+        if ((cx && (r.right > right + 1 || r.left < left - 1)) || (cy && (r.bottom > bottom + tol || r.top < top - tol))) { culprit = t; break; }
       }
       if (culprit) break;
     }
@@ -888,14 +1106,38 @@ async (opts) => {
   }
 
   // (g) pictures that did not load
-  const broken = bucket();
-  for (const img of [...document.images].slice(0, 500)) {
-    if (!img.getAttribute('src') && !img.getAttribute('srcset')) continue;
+  // A picture from outside the project's own files never loads here, and may not for visitors: broken,
+  // without waiting. Pictures that load later (loading="lazy", far down the page) are asked for now and given
+  // a moment; any still loading after that are counted as not known, never as loading.
+  const broken = Object.assign(bucket(), {pending: 0});
+  const outside = (u) => {
+    try {
+      const url = new URL(u, location.href);
+      if (url.protocol === 'data:' || url.protocol === 'blob:') return false;
+      return !(url.protocol === 'file:' && url.href.startsWith(opts.root));
+    } catch (e) { return true; }
+  };
+  const pictures = [...document.images].slice(0, 500).filter(img => img.getAttribute('src') || img.getAttribute('srcset'));
+  for (const img of pictures) if (img.loading === 'lazy') img.loading = 'eager';
+  const loading = pictures.filter(img => !img.complete);
+  if (loading.length) {
+    await Promise.race([
+      Promise.all(loading.map(img => new Promise(done => {
+        img.addEventListener('load', done, {once: true}); img.addEventListener('error', done, {once: true});
+      }))),
+      new Promise(done => setTimeout(done, 1500))]);
+  }
+  for (const img of pictures) {
     if (img.checkVisibility && !img.checkVisibility()) continue;
-    if (!img.complete) continue;  // still waiting (for example a picture far down that loads later)
-    let bad = img.naturalWidth === 0;
-    if (bad) {
-      try { await Promise.race([img.decode(), new Promise((_, no) => setTimeout(no, 1000))]); bad = false; } catch (e) { bad = true; }
+    const sources = [img.getAttribute('src') || '',
+                     ...(img.getAttribute('srcset') || '').split(',').map(c => c.trim().split(/\s+/)[0])].filter(Boolean);
+    let bad = sources.some(outside);
+    if (!bad) {
+      if (!img.complete) { broken.pending++; continue; }
+      bad = img.naturalWidth === 0;
+      if (bad) {
+        try { await Promise.race([img.decode(), new Promise((_, no) => setTimeout(no, 1000))]); bad = false; } catch (e) { bad = true; }
+      }
     }
     if (bad) addPlace(broken, img, `${sel(img)} src="${clean(img.getAttribute('src') || img.getAttribute('srcset'), 150)}"`);
   }

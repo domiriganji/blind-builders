@@ -101,12 +101,14 @@ class FakeVisual:
         self.is_available = True
         self.reports: list = []
         self.calls: list[dict] = []
+        self.kwargs: list[dict] = []
 
     def available(self) -> bool:
         return self.is_available
 
     def check_site(self, files, **kwargs):
         self.calls.append(dict(files))
+        self.kwargs.append(kwargs)
         if self.reports:
             report = self.reports.pop(0)
             return report(files) if callable(report) else report
@@ -945,7 +947,7 @@ def test_the_repair_runs_once_when_the_checks_find_problems(user_client, fake_ai
     assert json.loads(stored["repaired_json"])["fixed"] == 1
     section = plain(look_section(r.text))
     assert "passed all 7 visual checks" in section
-    assert "Fixed before you saw it: the AI fixed 1 problem the checks found." in section
+    assert "Fixed before you saw it The AI fixed 1 problem the checks found" in section
     assert "#1a1a1a" not in r.text and "#bbbbbb" not in r.text
 
 
@@ -1022,7 +1024,9 @@ def test_the_ai_review_asking_for_work_leads_to_one_repair(user_client, fake_ai,
     repairs = calls_for(fake_ai, "build.visual_repair")
     assert len(repairs) == 1 and "Give .menu li 12px of padding" in repairs[0]["prompt"]
     section = plain(look_section(r.text))
-    assert "Improved before you saw it" in section
+    # Only the AI's opinion asked for this repair: the page says the design was changed, not that it improved.
+    assert "Changed before you saw it After an AI looked at pictures of the pages, the AI changed the design once." in section
+    assert "Fixed before you saw it" not in section and "improved" not in section
     assert REVIEW_OK["summary_for_builder"] in section
 
 
@@ -1101,7 +1105,7 @@ def test_the_look_is_checked_again_after_a_change(user_client, fake_ai, fake_vis
     assert_page_ok(r)
     assert h1(r) == "Kemi Kitchen: version 2 is ready"
     assert len(calls_for(fake_ai, "build.visual_repair")) == 1
-    assert "Fixed before you saw it: the AI fixed 1 problem the checks found." in plain(look_section(r.text))
+    assert "Fixed before you saw it The AI fixed 1 problem the checks found" in plain(look_section(r.text))
     assert len(fake_visual.calls) == 3
 
 
@@ -1119,6 +1123,148 @@ def test_builder_facing_words_never_name_colours(user_client, fake_ai, fake_visu
     assert section and not visual_check.names_a_colour(section), section
     not_checked = plain(re.search(r"<h2>Not checked</h2>(.*?)</ul>", r.text, re.S).group(1))
     assert not visual_check.names_a_colour(not_checked)
+
+
+def cut_off_problem():
+    return Problem(kind="cut_off", count=1, examples=['"Opening hours"'],
+                   builder_text="Some text is cut off, so visitors cannot read all of it.",
+                   fix_text="index.html at 390px wide (phone): a box cuts off text. Remove overflow: hidden.")
+
+
+def with_pages_unmeasured(report, path, note="This page did not finish opening within 15 seconds."):
+    """The report with `path` not measured at either size (as when it hangs, or the check stops first)."""
+    for page in report.pages:
+        if page.path == path:
+            page.checked, page.passed, page.problems, page.note = False, [], [], note
+    return report
+
+
+def timed_out(files, path="index.html"):
+    report = with_pages_unmeasured(visual_report(files), path)
+    for page in report.pages:
+        if page.path == path:
+            page.problems = [Problem(kind=visual_check.TIMEOUT_KIND, count=1, examples=[],
+                                     builder_text="This page did not finish opening within 15 seconds.",
+                                     fix_text="index.html did not finish loading: an endless loop.")]
+    return report
+
+
+def test_a_repair_that_makes_a_page_unmeasurable_is_not_kept(user_client, fake_ai, fake_visual):
+    # The repair adds a script that never stops: index.html cannot be measured again, which hides its problems.
+    fake_visual.reports = [lambda files: visual_report(files, [contrast_problem(), cut_off_problem()]), timed_out]
+    looping = repaired_files()
+    looping["files"].append({"path": "app.js", "content": "while (true) {}"})
+    fake_ai.on("build.visual_repair", looping)
+    project_id, r = build_v1(user_client, fake_ai)
+    assert_page_ok(r)
+    assert "app.js" not in json.loads(saved_version(project_id)["files_json"])
+    repaired = json.loads(saved_version(project_id)["repaired_json"])
+    assert repaired["kept"] is False and repaired["fixed"] == 0
+    section = plain(look_section(r.text))
+    assert "could not measure every page of its new files, so this version keeps the files it made first" in section
+    assert "An automatic repair was tried before you saw it" in section and "Fixed before you saw it" not in section
+    assert "passed 5 of 7 visual checks. It found 2 problems:" in section
+
+
+def test_a_repair_that_removes_a_page_is_not_kept(user_client, fake_ai, fake_visual):
+    fake_visual.reports = [lambda files: visual_report(files, [contrast_problem()])]
+    fewer = repaired_files()
+    fewer["files"] = [f for f in fewer["files"] if f["path"] != "about.html"]
+    fake_ai.on("build.visual_repair", fewer)
+    project_id, r = build_v1(user_client, fake_ai)
+    assert "about.html" in json.loads(saved_version(project_id)["files_json"])
+    assert json.loads(saved_version(project_id)["repaired_json"])["kept"] is False
+
+
+def test_problems_on_a_page_not_measured_again_are_not_counted_as_fixed(user_client, fake_ai, fake_visual):
+    # index.html hung the first time; the second check ran out of time before it: nothing is known to be fixed.
+    fake_visual.reports = [timed_out, lambda files: with_pages_unmeasured(
+        visual_report(files), "index.html", "The time for checking ran out before this page, so it was not checked.")]
+    fake_ai.on("build.visual_repair", repaired_files())
+    project_id, r = build_v1(user_client, fake_ai)
+    assert_page_ok(r)
+    assert json.loads(saved_version(project_id)["repaired_json"])["fixed"] == 0
+    section = plain(look_section(r.text))
+    assert "Fixed before you saw it" not in section and "the AI fixed" not in section
+    # A page that was not measured never reads as passing.
+    assert "passed all" not in section and "of 7 visual checks." not in section.split("On the pages")[0]
+    assert "but not every page could be measured" in section
+    assert "Not fully checked: Text stands out clearly" in section
+    not_checked = plain(re.search(r"<h2>Not checked</h2>(.*?)</ul>", r.text, re.S).group(1))
+    assert "index.html on a phone" in not_checked and "index.html on a computer" in not_checked
+
+
+def test_pages_the_check_never_reached_are_listed_and_its_error_is_shown(user_client, fake_ai, fake_visual):
+    error = "The browser stopped part way through, so some pages were not checked."
+
+    def cut_short(files):
+        report = visual_report(files)
+        report.pages = [p for p in report.pages if p.path == "index.html"]  # about.html never reached
+        report.error = error
+        return report
+
+    fake_visual.reports = [cut_short]
+    project_id, r = build_v1(user_client, fake_ai)
+    assert_page_ok(r)
+    section = plain(look_section(r.text))
+    assert error in section and "passed all" not in section
+    assert "Passed:" not in section and "Not fully checked: No text is cut off." in section
+    not_checked = plain(re.search(r"<h2>Not checked</h2>(.*?)</ul>", r.text, re.S).group(1))
+    assert "about.html on a phone" in not_checked and "about.html on a computer" in not_checked
+
+
+@pytest.mark.parametrize("answer, why", [
+    (AIError("The AI is busy right now (rate limit). Please try again in a minute."), "the AI could not finish"),
+    ("worse", "were not better"),
+])
+def test_a_repair_that_fixed_nothing_is_never_headed_fixed(user_client, fake_ai, fake_visual, answer, why):
+    fake_visual.reports = [lambda files: visual_report(files, [contrast_problem()]),
+                           lambda files: visual_report(files, [contrast_problem(), cut_off_problem()])]
+    fake_ai.on("build.visual_repair", repaired_files() if answer == "worse" else answer)
+    _, r = build_v1(user_client, fake_ai)
+    section = look_section(r.text)
+    assert "<h3>An automatic repair was tried before you saw it</h3>" in section
+    assert "Fixed before you saw it" not in section and why in plain(section)
+    for sentence in (build._repair_sentence(1, 1, 0), build._repair_sentence(0, 0, 0)):
+        assert "Fixed before you saw it" not in sentence and "improved" not in sentence
+    assert build.repair_heading({"kept": True, "before": 1, "fixed": 0}) == "An automatic repair was tried before you saw it"
+    assert build.repair_heading({"kept": True, "before": 0, "fixed": 0}) == "Changed before you saw it"
+    assert build.repair_heading({"kept": True, "before": 1, "fixed": 1}) == "Fixed before you saw it"
+
+
+def test_the_ais_review_never_shows_colour_names(user_client, fake_ai, fake_visual):
+    colourful = {"verdict": "needs_work",
+                 "summary_for_builder": "The dark blue header looks good but some text is pale grey.",
+                 "problems": [{"page": "index.html", "builder_text": "The light grey text is hard to read.",
+                               "fix_text": "Set .note to #333333."},
+                              {"page": "index.html", "builder_text": "The menu feels crowded on a phone.",
+                               "fix_text": "Give .menu li 12px of padding."}]}
+    review = build.normalize_review(colourful)
+    assert review["summary"] == build.REVIEW_SUMMARY_WITHHELD and review["withheld"] == 2
+    assert [p["builder_text"] for p in review["problems"]] == [build.REVIEW_PROBLEM_WITHHELD,
+                                                                "The menu feels crowded on a phone."]
+    assert review["problems"][0]["fix_text"] == "Set .note to #333333."  # the repair still gets the details
+    fake_ai.on("build.design_review", colourful)
+    fake_ai.on("build.visual_repair", repaired_files())
+    _, r = build_v1(user_client, fake_ai)
+    section = plain(look_section(r.text))
+    assert build.REVIEW_PROBLEM_WITHHELD in section and "The menu feels crowded on a phone." in section
+    assert not visual_check.names_a_colour(section), section
+    assert "Set .note to #333333." in calls_for(fake_ai, "build.visual_repair")[0]["prompt"]
+
+
+def test_pictures_go_to_the_ai_in_their_own_format_and_only_as_many_as_it_reads(user_client, fake_ai, fake_visual):
+    def jpeg_pictures(files):
+        report = visual_report(files)
+        for shot in report.screenshots:
+            shot.png, shot.media_type = b"\xff\xd8\xff\xe0jpeg", "image/jpeg"
+        return report
+
+    fake_visual.reports = [jpeg_pictures]
+    build_v1(user_client, fake_ai)
+    images = [b for b in calls_for(fake_ai, "build.design_review")[0]["prompt"] if b["type"] == "image"]
+    assert images and all(b["source"]["media_type"] == "image/jpeg" for b in images)
+    assert all(kwargs.get("max_screenshots") == build.MAX_REVIEW_SHOTS for kwargs in fake_visual.kwargs)
 
 
 # ----- how it should feel ------------------------------------------------------------------------

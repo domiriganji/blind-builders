@@ -17,7 +17,7 @@
 {% if look.check_lines %}
 <p>What the site checked on every page:</p>
 <ul>
-{% for c in look.check_lines %}<li>{% if c.passed %}<span class="status-pass">Passed:</span>{% else %}<span class="status-fail">Not passed:</span>{% endif %} {{ c.label }}.</li>
+{% for c in look.check_lines %}<li>{% if c.state == 'passed' %}<span class="status-pass">Passed:</span>{% elif c.state == 'failed' %}<span class="status-fail">Not passed:</span>{% else %}Not fully checked:{% endif %} {{ c.label }}.</li>
 {% endfor %}
 </ul>
 {% endif %}
@@ -36,7 +36,7 @@
 <p>{{ look.review_note }}</p>
 {% endif %}
 {% if look.repaired %}
-<h3>Fixed before you saw it</h3>
+<h3>{{ look.repaired_heading }}</h3>
 <p>{{ look.repaired }}</p>
 {% endif %}
 

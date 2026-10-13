@@ -358,6 +358,10 @@ DESIGN_REVIEW_SCHEMA = {
     },
 }
 REVIEW_VERDICTS = {"looks_finished", "needs_work"}
+# Said instead of the AI's words when they name colours (the member is never told colours).
+REVIEW_SUMMARY_WITHHELD = ("The AI described the look by its colours, which this page does not show. Its opinion "
+                           "is below.")
+REVIEW_PROBLEM_WITHHELD = "The AI found something on this page that may be hard for visitors to see or read."
 MAX_REVIEW_SHOTS = 6
 MAX_REVIEW_PROBLEMS = 10
 
@@ -495,15 +499,23 @@ def normalize_review(raw: object) -> dict:
         return {"state": "error", "message": "The AI's answer about the pictures was not in the expected form."}
     verdict = raw.get("verdict") if raw.get("verdict") in REVIEW_VERDICTS else ""
     problems = []
+    withheld = 0
     items = raw.get("problems")
     for item in items if isinstance(items, list) else []:
         if not isinstance(item, dict):
             continue
         builder_text, fix_text = _text(item.get("builder_text"), 1000), _text(item.get("fix_text"), 3000)
+        if builder_text and visual_check.names_a_colour(builder_text):
+            builder_text = REVIEW_PROBLEM_WITHHELD  # fix_text, for the AI, keeps the details
+            withheld += 1
         if builder_text or fix_text:
             problems.append({"page": _text(item.get("page"), 200), "builder_text": builder_text, "fix_text": fix_text})
-    return {"state": "done", "verdict": verdict, "summary": _text(raw.get("summary_for_builder"), 3000),
-            "problems": problems[:MAX_REVIEW_PROBLEMS]}
+    summary = fix_summary = _text(raw.get("summary_for_builder"), 3000)
+    if summary and visual_check.names_a_colour(summary):
+        summary = REVIEW_SUMMARY_WITHHELD
+        withheld += 1
+    return {"state": "done", "verdict": verdict, "summary": summary, "fix_summary": fix_summary,
+            "problems": problems[:MAX_REVIEW_PROBLEMS], "withheld": withheld}
 
 
 def run_checks(files: dict[str, str]) -> dict:
@@ -551,12 +563,9 @@ def _visual_measured(visual: dict) -> bool:
     return any(page.get("checked") for page in visual.get("pages", []))
 
 
-def _visual_passed(visual: dict) -> list[str]:
-    """The kinds of visual check no page failed, from the stored report."""
-    if not _visual_measured(visual):
-        return []
-    failed = {problem.get("kind") for page in visual.get("pages", []) for problem in page.get("problems", [])}
-    return [kind for kind in visual_check.CHECKS if kind not in failed]
+def _measured_sizes(visual: dict) -> set[tuple[str, str]]:
+    """(path, size) of every page the site measured."""
+    return {(page.get("path"), page.get("size")) for page in visual.get("pages", []) if page.get("checked")}
 
 
 def visual_fix_lines(visual: dict, review: dict | None = None) -> list[str]:
@@ -565,8 +574,9 @@ def visual_fix_lines(visual: dict, review: dict | None = None) -> list[str]:
     if review and review.get("state") == "done" and review.get("verdict") == "needs_work":
         from_review = [f"{p['page'] or 'All pages'} (from a designer who looked at pictures of the pages): "
                        f"{p['fix_text']}" for p in review.get("problems", []) if p.get("fix_text")]
-        if not from_review and review.get("summary"):
-            from_review = [f"All pages (from a designer who looked at pictures of the pages): {review['summary']}"]
+        summary = review.get("fix_summary") or review.get("summary")
+        if not from_review and summary:
+            from_review = [f"All pages (from a designer who looked at pictures of the pages): {summary}"]
         lines += from_review
     return lines
 
@@ -1144,7 +1154,7 @@ def _design_review(ctx, ai, project: dict, report) -> dict:
     for i, shot in enumerate(shots, start=1):
         blocks.append({"type": "text", "text": f"Picture {i}: {shot.path} {visual_check.SIZE_LABELS.get(shot.size, '')}"
                                                 f" ({shot.width} pixels wide)."})
-        blocks.append({"type": "image", "source": {"type": "base64", "media_type": "image/png",
+        blocks.append({"type": "image", "source": {"type": "base64", "media_type": shot.media_type,
                                                    "data": base64.b64encode(shot.png).decode("ascii")}})
     blocks.append({"type": "text", "text": (
         f"What it is: {KIND_LABELS.get(project['kind'], 'Something else')}\n"
@@ -1170,14 +1180,26 @@ def _accessibility_errors(files: dict[str, str]) -> int:
 
 def _repair_sentence(fixed: int, before: int, after: int) -> str:
     if fixed:
-        sentence = f"Fixed before you saw it: the AI fixed {_plural(fixed, 'problem')} the checks found."
+        sentence = (f"The AI fixed {_plural(fixed, 'problem')} the checks found, and the site measured the pages "
+                    "again to make sure.")
         if after:
             sentence += f" {_plural(after, 'problem')} {'is' if after == 1 else 'are'} still there, listed in this section."
         return sentence
     if before:
         return ("Before you saw it, the AI tried once to fix what the checks found, but the problems are still "
                 "there.")
-    return "Improved before you saw it: after an AI looked at pictures of the pages, the AI improved the design once."
+    # Only the AI's look at the pictures asked for this: whether it is better is the AI's opinion, not a fact.
+    return ("After an AI looked at pictures of the pages, the AI changed the design once. The site measured the "
+            "changed pages again, and the AI's opinion of them is above.")
+
+
+def repair_heading(repaired: dict) -> str:
+    """The heading over what the one repair did: it says fixed only when the site measured a fix."""
+    if repaired.get("kept") and repaired.get("fixed"):
+        return "Fixed before you saw it"
+    if repaired.get("kept") and not repaired.get("before"):
+        return "Changed before you saw it"
+    return "An automatic repair was tried before you saw it"
 
 
 def _look_and_repair(ctx, ai, project_id: int, token: str, files: dict[str, str]) -> tuple[dict[str, str], dict]:
@@ -1190,9 +1212,10 @@ def _look_and_repair(ctx, ai, project_id: int, token: str, files: dict[str, str]
     if project is None:
         raise AIError(DELETED_MESSAGE)
     ctx.progress("Checking how it looks on a phone and a computer")
-    report = visual_check.check_site(files)
+    report = visual_check.check_site(files, max_screenshots=MAX_REVIEW_SHOTS)
     visual = report.to_dict()
     review = _design_review(ctx, ai, project, report)
+    report.screenshots = []  # sent: let the pictures go before the second check
     before = visual_problems(visual)
     fix_lines = visual_fix_lines(visual, review)
     if not fix_lines:
@@ -1225,17 +1248,28 @@ def _look_and_repair(ctx, ai, project_id: int, token: str, files: dict[str, str]
         return files, {"visual": visual, "review": review, "repaired": repaired}
 
     ctx.progress("Checking how it looks again")
-    new_report = visual_check.check_site(new_files)
+    new_report = visual_check.check_site(new_files, max_screenshots=MAX_REVIEW_SHOTS)
     new_visual = new_report.to_dict()
     after = visual_problems(new_visual)
-    worse = (_accessibility_errors(new_files) > _accessibility_errors(files) or len(after) > len(before)
-             or (_visual_measured(visual) and not _visual_measured(new_visual)))
-    if worse:
+    measured_after = _measured_sizes(new_visual)
+    # A page measured before that cannot be measured now (it hangs, crashes, is gone, or time ran out) hides
+    # its problems: that is never better.
+    lost = _measured_sizes(visual) - measured_after
+    if lost:
+        repaired["summary"] = ("Before you saw it, the AI tried once to fix what the checks found, but the site could "
+                               "not measure every page of its new files, so this version keeps the files it made "
+                               "first.")
+        return files, {"visual": visual, "review": review, "repaired": repaired}
+    if _accessibility_errors(new_files) > _accessibility_errors(files) or len(after) > len(before):
         repaired["summary"] = ("Before you saw it, the AI tried once to fix what the checks found, but its new files "
                                "were not better, so this version keeps the files it made first.")
         return files, {"visual": visual, "review": review, "repaired": repaired}
     new_review = _design_review(ctx, ai, project, new_report)
-    fixed = len({(p["path"], p["kind"]) for p in before} - {(p["path"], p["kind"]) for p in after})
+    new_report.screenshots = []
+    after_keys = {(p["path"], p["kind"]) for p in after}
+    # Fixed only where the site measured that page again, at every size the problem was found, and it is gone.
+    fixed = sum(1 for p in before if (p["path"], p["kind"]) not in after_keys
+                and all((p["path"], size) in measured_after for size in p["sizes"]))
     repaired.update(kept=True, after=len(after), fixed=fixed,
                     summary=_repair_sentence(fixed, len(before), len(after)))
     return new_files, {"visual": new_visual, "review": new_review, "repaired": repaired}
@@ -1426,7 +1460,9 @@ def _look_context(version: dict) -> dict:
     repaired = _stored_json(version.get("repaired_json"))
     total = len(visual_check.CHECKS)
     look: dict = {"total": total, "problems": [], "check_lines": [], "unchecked_pages": [], "unknown_contrast": 0,
-                  "review": None, "review_note": "", "repaired": repaired.get("summary", "") if repaired else ""}
+                  "unknown_images": 0, "review": None, "review_note": "",
+                  "repaired": repaired.get("summary", "") if repaired else "",
+                  "repaired_heading": repair_heading(repaired) if repaired else ""}
     if not visual:
         look.update(state="not_run", sentence=LOOK_NOT_RUN)
     elif not visual.get("available", True):
@@ -1437,20 +1473,39 @@ def _look_context(version: dict) -> dict:
                     sentence=("The site tried to check how it looks on a phone and a computer, but could not "
                               "measure any page. " + (visual.get("error") or "")).strip())
     else:
+        pages = visual.get("pages", [])
         problems = visual_problems(visual)
-        passed = _visual_passed(visual)
-        unchecked = [f"{page['path']} {visual_check.SIZE_LABELS.get(page['size'], page['size'])}"
-                     for page in visual.get("pages", []) if not page.get("checked")]
-        if not problems and not unchecked:
+        label = visual_check.SIZE_LABELS
+        unchecked = [f"{page['path']} {label.get(page['size'], page['size'])}" for page in pages if not page.get("checked")]
+        # Pages the check should have reached but never mentions (an older report, or one cut short).
+        listed = {(page.get("path"), page.get("size")) for page in pages}
+        files = _stored_json(version.get("files_json"))
+        expected, _ = visual_check._html_pages(files, None)
+        unchecked += [f"{path} {size['label']}" for path in expected if path not in visual.get("skipped_pages", [])
+                      for size in visual_check.SIZES if (path, size["name"]) not in listed]
+        error = visual.get("error") or ""
+        complete = not unchecked and not error
+        passed = visual_check.passed_kinds(pages, measured_only=True)
+        failed = {p["kind"] for p in problems}
+        lines = [{"label": text, "state": "failed" if kind in failed else
+                  "passed" if kind in passed and complete else "partial"}
+                 for kind, text in visual_check.CHECKS.items()]
+        n_passed = sum(line["state"] == "passed" for line in lines)
+        if complete and not problems and n_passed == total:
             sentence = f"Checked by the site on a phone and a computer: passed all {total} visual checks."
+        elif complete:
+            sentence = f"Checked by the site on a phone and a computer: passed {n_passed} of {total} visual checks."
         else:
-            sentence = f"Checked by the site on a phone and a computer: passed {len(passed)} of {total} visual checks."
-            if problems:
-                sentence += f" It found {_plural(len(problems), 'problem')}:"
+            sentence = ("Checked by the site on a phone and a computer, but not every page could be measured, so no "
+                        "check is passed on every page. " + (error + " " if error else "") +
+                        f"On the pages it measured, {len([k for k in passed if k not in failed])} of {total} "
+                        "visual checks found nothing wrong.")
+        if problems:
+            sentence += f" It found {_plural(len(problems), 'problem')}:"
         look.update(
-            state="checked", sentence=sentence, problems=problems, unchecked_pages=unchecked,
-            check_lines=[{"label": label, "passed": kind in passed} for kind, label in visual_check.CHECKS.items()],
-            unknown_contrast=sum(int(page.get("unknown_contrast") or 0) for page in visual.get("pages", [])),
+            state="checked", sentence=sentence, problems=problems, unchecked_pages=unchecked, check_lines=lines,
+            unknown_contrast=sum(int(page.get("unknown_contrast") or 0) for page in pages),
+            unknown_images=sum(int(page.get("unknown_images") or 0) for page in pages),
             skipped_pages=visual.get("skipped_pages", []))
     if review.get("state") == "done":
         look["review"] = {
@@ -1498,10 +1553,15 @@ def _version_context(project: dict, version: dict) -> dict:
         n = look["unknown_contrast"]
         not_checked.append(("How well 1 piece of text stands out from what is behind it. It sits" if n == 1 else
                             f"How well {n} pieces of text stand out from what is behind them. They sit")
-                           + " on a picture or a blend, which the site cannot measure.")
+                           + " on a picture, a blend or a box laid over the page, or are faded out, which the site "
+                             "cannot measure.")
+    if look.get("unknown_images"):
+        n = look["unknown_images"]
+        not_checked.append(f"Whether {_plural(n, 'picture')} {'loads' if n == 1 else 'load'}: "
+                           f"{'it was' if n == 1 else 'they were'} still loading when the site measured the page.")
     if look.get("unchecked_pages"):
-        not_checked.append("How these pages look, because they did not finish opening in time: "
-                           + ", ".join(look["unchecked_pages"]) + ".")
+        not_checked.append("How these pages look, because the site could not measure them (they did not finish "
+                           "opening in time, or the check stopped first): " + ", ".join(look["unchecked_pages"]) + ".")
     if look.get("skipped_pages"):
         not_checked.append(f"How these pages look, because the site checks the first {visual_check.MAX_PAGES} pages "
                            "only: " + ", ".join(look["skipped_pages"]) + ".")
