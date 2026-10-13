@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Peer checks</h1>
-<p class="lead">Ask other blind members to try your website or app with their own screen reader, and ask sighted friends, family or volunteers to check how it looks. Check other members' work in return. Every check goes into a public record that says who checked and what they found.</p>
+<p class="lead">Ask blind and low-vision members to try your website or app with their own screen reader, braille display or magnifier, and ask sighted friends, family or volunteers to check how it looks. Check other members' work in return. Every check goes into a public record that says who checked and what they found.</p>
 {% if user %}
 <p class="actions"><a class="button button-primary" href="/checks/new">Ask for a check</a></p>
 {% else %}
@@ -9,13 +9,22 @@
 {% endif %}
 
 {% if user %}
+{% if new_checks %}
+<h2>New checks on your requests ({{ new_total }})</h2>
+<p>These came in since you last opened the record.</p>
+<ul class="item-list">
+{% for r in new_checks %}
+  <li><a href="/checks/{{ r.id }}/record">Check record: {{ label(r) }}</a>. {{ r.new_count }} new {{ 'check' if r.new_count == 1 else 'checks' }}.</li>
+{% endfor %}
+</ul>
+{% endif %}
+
 <h2>Check someone's work</h2>
 {% if queue %}
 <p>{{ queue|length }} {{ 'request is' if queue|length == 1 else 'requests are' }} waiting for a check.</p>
 <ul class="item-list">
 {% for r in queue %}
-  <li><a href="/checks/{{ r.id }}">{{ r.title }}</a>.
-    {{ wanted_short[r.wanted] }}
+  <li><a href="/checks/{{ r.id }}">{{ label(r) }}</a>.
     {% if r.reward_cents %}Reward: {{ money(r.reward_cents) }} in credits.{% else %}No reward.{% endif %}
     <span class="meta">{{ r.done }} of {{ r.max_checks }} checks done.</span></li>
 {% endfor %}
@@ -30,8 +39,8 @@
 <h3>{{ heading }} ({{ group|length }})</h3>
 <ul class="item-list">
 {% for r in group %}
-  <li><a href="/checks/{{ r.id }}">{{ r.title }}</a>: {{ r.done }} of {{ r.max_checks }} checks done, {{ 'open' if r.status == 'open' else 'closed' }}.
-    <a href="/checks/{{ r.id }}/record">Check record for {{ r.title }}</a></li>
+  <li><a href="/checks/{{ r.id }}">{{ label(r) }}</a>. {{ r.done }} of {{ r.max_checks }} checks done. Asked on {{ r.created_at|date_words }}.
+    <a href="/checks/{{ r.id }}/record">Check record: {{ label(r) }}</a></li>
 {% endfor %}
 </ul>
 {% endfor %}
@@ -43,7 +52,7 @@
 {% if done_by_me %}
 <ul class="item-list">
 {% for r in done_by_me %}
-  <li><a href="/checks/{{ r.id }}/record">Check record: {{ r.title }}</a> <span class="meta">(checked {{ r.checked_at[:10] }})</span></li>
+  <li><a href="/checks/{{ r.id }}/record">Check record: {{ label(r) }}</a>. <span class="meta">You checked it on {{ r.checked_at|date_words }}.</span></li>
 {% endfor %}
 </ul>
 {% else %}
@@ -53,14 +62,14 @@
 
 <h2>How peer checks work</h2>
 <ol>
-  <li>You give the web address and the task to try, for example: find the opening hours and book a table. You choose who should check it: people who use screen readers, sighted people, or both.</li>
-  <li>Up to 5 people check it. People who use screen readers try the task and write what they heard first, whether they could do it, and the problems they found. Sighted people say whether it looks finished and professional, whether anything is broken or hard to read, whether they would trust it, and what would make it better.</li>
-  <li>Each check is saved in a public record with a fingerprint. If anyone changes an entry later, the record page says so.</li>
+  <li>You give the web address and the task to try, for example: find the opening hours and book a table. You choose who should check it: blind and low-vision people, sighted people, or both.</li>
+  <li>Up to 5 people check it. Blind and low-vision members try the task and write what their screen reader said or showed first, whether they could do it, and the problems they found. Sighted people say whether it looks finished and professional, whether anything is broken or hard to read, whether they would trust it, and what would make it better.</li>
+  <li>Each check is saved in a public record with a fingerprint. If anyone changes a check later, the record page says so.</li>
 </ol>
 <h3>Rewards</h3>
-<p>You can offer a reward in credits for each check. The whole amount is held from your credits when you ask. Each checker gets their reward the moment they send their check. If you close the request early, the rest comes back to you. <a href="/pricing">Read how paying works</a>.</p>
+<p>You can offer a reward in credits for each check. The whole amount is set aside from your credits when you ask. Each checker gets their reward the moment they send their check. If you close the request early, the rest comes back to you. <a href="/pricing">Read how paying works</a>.</p>
 <h3>What a peer check does not cover</h3>
-<p>A check is one person's honest report of one try. It is not a full accessibility audit. How the page looks is only checked when a sighted person checks it, and then only on the screen they used.</p>
+<p>A check is one person's report of one try. It is not a full accessibility audit. How the page looks is only checked when a sighted person checks it, and then only on the screen they used.</p>
 <h3>For sighted friends and volunteers</h3>
 <p>If a member asked you to check how their page looks, create a free account, open the address they sent you, and choose Check this now. You answer three questions and can say what would make it better. Describe what a visitor would notice and why it matters, for example: the prices are hard to read on a phone. The member may not see the page, so say what effect something has, not only what it looks like.</p>
 
@@ -68,7 +77,7 @@
 <h2>Recent check records</h2>
 <ul class="item-list">
 {% for r in recent %}
-  <li><a href="/checks/{{ r.id }}/record">Check record: {{ r.title }}</a> <span class="meta">({{ r.done }} {{ 'check' if r.done == 1 else 'checks' }})</span></li>
+  <li><a href="/checks/{{ r.id }}/record">Check record: {{ label(r) }}</a>. <span class="meta">{{ r.done }} {{ 'check' if r.done == 1 else 'checks' }}.</span></li>
 {% endfor %}
 </ul>
 {% endif %}
