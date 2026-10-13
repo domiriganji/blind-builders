@@ -488,3 +488,39 @@ class CompatClient(BilledClient):
             except ValueError:
                 pass
             _sleep(wait)
+
+
+# ----- checking a typed model name ---------------------------------------------------------------------
+
+MODEL_CHECK_TIMEOUT = httpx.Timeout(20.0, connect=10.0)
+
+
+def model_check(provider: providers.Provider, api_key: str, model: str) -> bool | None:
+    """Ask the provider for a very short answer from this model (16 tokens at most, as some models refuse fewer),
+    before a typed model name is saved. True when the model answers, False when the provider says it has no such model, None when the site
+    could not tell (the provider could not be reached, was busy, or refused for another reason)."""
+    url = f"{provider.base_url.rstrip('/')}/chat/completions"
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json", "Accept": "application/json"}
+    token_param = provider.token_param
+    for _ in range(2):  # a second try only with the other name for the longest-answer field
+        try:
+            providers.check_before_request(provider)
+            with providers.http_client(MODEL_CHECK_TIMEOUT, provider) as client:
+                response = client.post(url, headers=headers, json={
+                    "model": model, "messages": [{"role": "user", "content": "Hi"}], token_param: 16})
+        except (providers.ProviderError, httpx.HTTPError):
+            return None
+        status = response.status_code
+        if status < 300:
+            return True
+        if status not in (400, 404, 422):
+            return None
+        error = _error_text(response)
+        if _model_missing(error):
+            return False
+        if _param_unsupported(error, token_param):
+            token_param = "max_tokens" if token_param == "max_completion_tokens" else "max_completion_tokens"
+            continue
+        # A 404 that does not say why is the usual answer for a model the provider does not have.
+        return False if status == 404 else None
+    return None

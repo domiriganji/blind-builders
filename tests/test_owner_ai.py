@@ -52,8 +52,11 @@ def test_the_page_explains_how_the_key_is_kept_safe(owner):
 def test_saving_the_key_needs_the_password_and_keeps_it_encrypted(owner, app):
     r = post(owner, "/account/admin/ai/key", {"api_key": GOOD_KEY, "password": "wrong password"})
     assert r.status_code == 400
-    assert h1(r.text) == "Please check 1 answer: AI settings for your key"
+    # The key was fine, but its box comes back empty, and the page says so.
+    assert h1(r.text) == "Please check 2 answers: AI settings for your key"
     assert 'href="#field-password"' in r.text and site_ai.get("site_key_enc") == ""
+    assert "The box was emptied so your key is not kept on the page. Please paste it again." in r.text
+    assert GOOD_KEY not in r.text
     assert owner.checked == []  # Anthropic is not asked until the password is right
 
     r = post(owner, "/account/admin/ai/key", {"api_key": GOOD_KEY, "password": PASSWORD})
@@ -98,7 +101,7 @@ def test_a_saved_key_takes_the_place_of_the_server_setting(app):
 def test_model_payment_and_limits_are_saved(owner):
     r = post(owner, "/account/admin/ai", {"model": "claude-sonnet-5-5", "pay_mode": "free",
                                           "site_month": "50", "member_month": "2.50"})
-    assert r.status_code == 200 and h1(r.text) == "Your AI settings are saved"
+    assert r.status_code == 200 and h1(r.text) == "Your model, payment and limits are saved"
     assert site_ai.get("model") == "claude-sonnet-5-5" and site_ai.pay_mode() == "free"
     assert site_ai.site_month_limit() == 5000 and site_ai.member_month_limit() == 250
     page = owner.get("/account/admin/ai").text
@@ -260,3 +263,45 @@ def test_holds_left_by_a_restart_are_released(app):
         conn.execute("INSERT INTO ai_spend_holds (user_id, cents, created_at) VALUES (1, 500, 'now')")
     site_ai.release_all_holds()
     assert site_ai.spent_this_month() == 0
+
+
+def test_each_part_of_the_page_says_it_saves_only_itself(owner):
+    page = unescape(owner.get("/account/admin/ai").text)
+    assert "Each part of this page has its own Save button, and that button saves only its own part." in page
+    for button in ("Check and save the Claude key", "Check and save the company's key",
+                   "Save the main AI and pictures choice", "Save model, payment and limits"):
+        assert f">{button}</button>" in page
+    assert ">Save the AI settings<" not in page
+
+
+def test_limits_can_be_written_with_commas(owner):
+    r = post(owner, "/account/admin/ai", {"model": "claude-opus-5-5", "pay_mode": "credits",
+                                          "site_month": "$1,000", "member_month": "1,000.50"})
+    assert r.status_code == 200 and site_ai.site_month_limit() == 100000 and site_ai.member_month_limit() == 100050
+    page = owner.get("/account/admin/ai").text
+    assert 'value="1000.00"' in page and 'value="1000.50"' in page
+    # Saving the page again as it is works.
+    r = post(owner, "/account/admin/ai", {"model": "claude-opus-5-5", "pay_mode": "credits",
+                                          "site_month": "1000.00", "member_month": "1000.50"})
+    assert r.status_code == 200 and site_ai.site_month_limit() == 100000
+
+
+def test_the_owner_is_told_what_members_pay(owner, app):
+    page = unescape(owner.get("/account/admin/ai").text)
+    # Buying credits is off without Stripe, and the choice says so.
+    assert ("Members pay with credits that you give them (buying credits is off: set STRIPE_SECRET_KEY on the "
+            "server to turn it on)") in page
+    assert "Members pay with credits they buy" not in page
+    assert "Web search steps also cost $10 per 1,000 searches." in page
+    assert "pay the AI companies' prices plus 25 percent, which pays for running the site." in page
+    # The model hint is short, and "recommended" is said once.
+    assert 'id="hint-model">Prices per million tokens. A token is about three quarters of a word.</p>' in page
+    assert page.count("recommended") == page.count("The recommended choice.") + page.count("Claude (recommended)")
+    assert "$0.50 in and $2.50 out for prompts over 100,000 tokens" in page
+    app.state.settings.stripe_secret_key = "sk_test_x"
+    try:
+        site_ai.save_key(app.state.settings, GOOD_KEY, None)
+        page = unescape(owner.get("/account/admin/ai").text)
+        assert "Members pay with credits they buy, or that you give them<" in page
+    finally:
+        app.state.settings.stripe_secret_key = None

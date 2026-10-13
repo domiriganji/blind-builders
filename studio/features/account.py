@@ -31,7 +31,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
-from .. import credits, db, limits, providers, site_ai
+from .. import compat_ai, credits, db, limits, providers, site_ai
 from ..ai import PRICES, WEB_SEARCH_DOLLARS, cost_cents
 from ..auth import PASSWORD_MAX, PASSWORD_MIN, clean_text, secret_problem
 from ..security import decrypt_secret, encrypt_secret, hash_password, verify_password
@@ -514,12 +514,13 @@ def _key_check_problem(request: Request, user: dict) -> str | None:
 
 
 def _render_key(request: Request, user: dict, error: str = "", status_code: int = 200, *,
-                errors: dict | None = None, values: dict | None = None):
+                errors: dict | None = None, values: dict | None = None, form_title: str = ""):
     """The AI key page. It can ask the provider for its model list over the network, so async handlers call it
-    with run_in_threadpool, never on the event loop."""
+    with run_in_threadpool, never on the event loop. form_title: the heading of the form that came back with
+    something to check, when it is not the page's own subject."""
     settings = _settings(request)
     errors = errors if errors is not None else ({"api_key": error} if error else {})
-    page_title = key_page_title(user)
+    page_title = form_title or key_page_title(user)
     title = error_title(page_title, errors) if errors else _done_title(request, page_title)
     site_model = site_ai.site_model(settings)
     model_options = [("", f"The site's choice, now {site_ai.model_name(site_model)}")] + [
@@ -572,6 +573,9 @@ async def key_save(request: Request, user: dict = Depends(require_user)):
         if result is not True:
             error = str(result) if result else "Anthropic did not accept this key, so it was not saved."
     if error:
+        if key:
+            from .owner_ai import KEY_CLEARED  # here, not at the top: owner_ai imports this module
+            error = f"{error} {KEY_CLEARED}"
         return await run_in_threadpool(_render_key, request, user, error, status_code=400)
     settings = _settings(request)
     with db.session() as conn:
@@ -608,8 +612,13 @@ async def other_key_save(request: Request, user: dict = Depends(require_user)):
         except providers.ProviderError as exc:
             errors["other_api_key"] = exc.user_message
     if errors:
+        from .owner_ai import with_key_cleared  # here, not at the top: owner_ai imports this module
+        with_key_cleared(errors, "other_api_key", key)
+        saved = own_provider(user)
+        heading = (f"Replace your key from {saved.name}" if user.get("own_api_key_enc") and saved.id != providers.ANTHROPIC
+                   else "Use a key from another AI company")
         return await run_in_threadpool(
-            _render_key, request, user, status_code=400, errors=errors,
+            _render_key, request, user, status_code=400, errors=errors, form_title=heading,
             values={"other_provider": provider_id, "own_model": "", "own_model_typed": "", "own_price_in": "",
                     "own_price_out": "", "prices_for": "", "own_vision": False})
     settings = _settings(request)
@@ -653,7 +662,10 @@ async def _other_model_save(request: Request, user: dict, form, provider: provid
               "own_vision": form.get("own_vision") == "yes", "other_provider": ""}
     errors: dict[str, str] = {}
     model = values["own_model_typed"] or values["own_model"]
-    problem = providers.model_problem(model)
+    from .owner_ai import list_models  # here, not at the top: owner_ai imports this module
+    key = decrypt_secret(_settings(request).secret_key, user["own_api_key_enc"])
+    models, _ = await run_in_threadpool(list_models, provider, key)
+    problem = providers.model_problem(model, provider.name, listed=bool(models))
     if problem:
         errors["own_model_typed" if values["own_model_typed"] else "own_model"] = problem
     prices: dict[str, float | None] = {}
@@ -673,9 +685,6 @@ async def _other_model_save(request: Request, user: dict, form, provider: provid
             prices[n] is not None and providers.price_text(prices[n]) == old
             for (n, _), old in zip(OWN_PRICE_WORDS, stored)))
         if carried:
-            from .owner_ai import list_models  # here, not at the top: owner_ai imports this module
-            key = decrypt_secret(_settings(request).secret_key, user["own_api_key_enc"])
-            models, _ = await run_in_threadpool(list_models, provider, key)
             listed = next((m for m in models if m["id"] == model and m.get("prices")), None)
             if listed:
                 prices = {"own_price_in": listed["prices"][0], "own_price_out": listed["prices"][1]}
@@ -687,6 +696,16 @@ async def _other_model_save(request: Request, user: dict, form, provider: provid
                 errors["own_price_in"] = (f"These prices were for the model {prices_for}. Enter {provider.name}'s "
                                           f"prices for {model}, or leave both empty. If they are the same, save again "
                                           "as they are.")
+    if not errors and key and not any(m["id"] == model for m in models):
+        # A name that is not in a list the company gave: ask the company for a very short answer from it first.
+        works = await run_in_threadpool(compat_ai.model_check, provider, key, model)
+        if works is False:
+            errors["own_model_typed" if values["own_model_typed"] or not models else "own_model"] = (
+                f"{provider.name} did not recognise the model {model}, so nothing was saved. Check the name on "
+                f"{provider.name}'s models page.")
+        elif works is None:
+            note += (f" The site could not check this model name with {provider.name}. If your work fails, check "
+                     "the name here.")
     if errors:
         return await run_in_threadpool(_render_key, request, user, status_code=400, errors=errors, values=values)
     text = {k: providers.price_text(v) if v is not None else "" for k, v in prices.items()}

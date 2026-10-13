@@ -336,8 +336,8 @@ def _list_problem(provider: Provider, status: int | None, kind: str, checking: b
         fallback = "Please try again in a minute."
     else:
         outcome = "so its list of models could not be read"
-        fallback = "Please try again in a minute, or type the model name below."
-    address = "Check the provider's address. " if custom else ""
+        fallback = "Please try again in a minute, or type the model name in this box."
+    address = "Check the company's address. " if custom else ""
     if kind == "timeout":
         text = f"{name} did not answer in time, {outcome}. {fallback}"
     elif kind == "unreachable":
@@ -358,12 +358,12 @@ def _list_problem(provider: Provider, status: int | None, kind: str, checking: b
         where = ("Check that the address is the one for the OpenAI-compatible API. " if custom
                  else "Please try again later. ")
         text = f"{name} has no list of models at this address, {outcome}. {where}" + (
-            "" if checking else "You can type the model name below.")
+            "" if checking else "You can type the model name in this box.")
     elif kind == "not_a_list":
         where = ("Check that the address is the one for the OpenAI-compatible API. " if custom
                  else "Please try again later. ")
         text = f"{name}'s answer was not a list of models, {outcome}. {where}" + (
-            "" if checking else "You can type the model name below.")
+            "" if checking else "You can type the model name in this box.")
     else:
         text = f"{name} had a problem (code {status}), {outcome}. {fallback}"
     return ProviderError(text.strip(), status)
@@ -472,11 +472,15 @@ def key_problem(key: str, provider_name: str) -> str | None:
     return None
 
 
-def model_problem(model: str) -> str | None:
+def model_problem(model: str, provider_name: str = "the company", *, listed: bool = True) -> str | None:
+    """A plain message if the text cannot be a model name. listed: the page showed a list of models to choose from
+    (without one, the message speaks only of typing the name)."""
     if not model:
-        return "Choose a model from the list, or type its name."
+        if listed:
+            return "Choose a model from the list, or type its name."
+        return f"Type the model name exactly as {provider_name} writes it on its models page."
     if len(model) > 200 or not all(ch.isalnum() or ch in "._:/@+-" for ch in model):
-        return ("Type the model name exactly as the provider writes it, with no spaces, for example "
+        return (f"Type the model name exactly as {provider_name} writes it, with no spaces, for example "
                 "provider-model-1.")
     return None
 

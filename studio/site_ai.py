@@ -30,7 +30,7 @@ MODELS = [
      "Strong, at half the price of Opus 5.5. $2 per million tokens in, $10 out."),
     ("claude-haiku-5-5", "Claude Haiku 5.5",
      "The lowest cost. Good for short answers, weaker at building whole websites and at research. "
-     "$0.10 per million tokens in, $0.50 out."),
+     "$0.10 per million tokens in, $0.50 out, and $0.50 in and $2.50 out for prompts over 100,000 tokens."),
     ("claude-fable-5-1", "Claude Fable 5.1",
      "Anthropic's most capable model, and the most expensive. $10 per million tokens in, $50 out."),
 ]

@@ -519,7 +519,7 @@ def test_a_key_the_provider_does_not_accept_is_not_saved(owner, fake_provider):
 
 
 def test_models_come_from_the_providers_list_and_prices_are_required(owner, fake_provider):
-    fake_provider(Provider(models=[{"id": "gpt-6.2-sol"}, {"id": "gpt-6-mini"}, {"id": "text-embedding-9"},
+    listed = fake_provider(Provider(models=[{"id": "gpt-6.2-sol"}, {"id": "gpt-6-mini"}, {"id": "text-embedding-9"},
                                    {"id": "whisper-2"}]))
     _save_other(owner)
     page = owner.get("/account/admin/ai")
@@ -535,7 +535,10 @@ def test_models_come_from_the_providers_list_and_prices_are_required(owner, fake
     r = post(owner, "/account/admin/ai/main", {"main_ai": "other", "other_model": "gpt-6.2-sol",
                                                "other_price_in": "$1.75", "other_price_out": "14", "vision": "main"})
     assert h1(r.text) == "The main AI is saved"
-    assert "now uses OpenAI, model gpt-6.2-sol. Web search steps still use Claude." in unescape(r.text)
+    # No Claude key is saved, so the notice says web search steps cannot be used yet.
+    assert ("now uses OpenAI, model gpt-6.2-sol. Web search steps need a Claude key, and none is saved, so members "
+            "on your keys cannot use them yet. Save one under Your Claude API key.") in unescape(r.text)
+    assert listed.bodies() == []  # a model from the list is not checked again
     assert (site_ai.main_choice(), site_ai.other_model(), site_ai.other_prices(), site_ai.vision_choice()) == (
         "other", "gpt-6.2-sol", (1.75, 14.0), "main")
     # A typed name is used instead of the list, for a model the list does not show.
@@ -551,7 +554,7 @@ def test_models_come_from_the_providers_list_and_prices_are_required(owner, fake
 
 def test_the_main_ai_needs_a_saved_key_and_a_model(owner):
     r = post(owner, "/account/admin/ai/main", {"main_ai": "other", "vision": "claude"})
-    assert r.status_code == 400 and "Save a key for another provider first" in unescape(r.text)
+    assert r.status_code == 400 and "Save a key from another company first" in unescape(r.text)
     _save_other(owner)
     r = post(owner, "/account/admin/ai/main", {"main_ai": "other", "other_model_typed": "has space",
                                                "other_price_in": "1", "other_price_out": "1", "vision": "maybe"})
@@ -679,11 +682,19 @@ def test_a_list_that_cannot_be_read_leaves_a_box_to_type_in(user_client, fake_pr
     page = user_client.get("/account/ai-key")
     assert_accessible(page)
     text = unescape(page.text)
-    assert ("DeepSeek had a problem (code 503), so its list of models could not be read. Please try again in a "
-            "minute, or type the model name below.") in text
+    # The reason is the hint of the only box, so it is read with the box, whose label does not begin with "Or".
+    assert ('id="hint-own_model_typed">DeepSeek had a problem (code 503), so its list of models could not be read. '
+            "Please try again in a minute, or type the model name in this box. Type it exactly as DeepSeek writes "
+            "it.") in text
+    assert '<label for="field-own_model_typed">Model name from DeepSeek</label>' in text
+    assert 'aria-describedby="hint-own_model_typed"' in text and "Or type the model name" not in text
     assert "or saved" not in text and "Check the address" not in text
+    r = post(user_client, "/account/ai-key/model", {})
+    assert "Type the model name exactly as DeepSeek writes it on its models page." in unescape(r.text)
+    assert "from the list" not in unescape(r.text)
     r = post(user_client, "/account/ai-key/model", {"own_model_typed": "deepseek-v9"})
     assert h1(r.text) == "Your model choice is saved" and _user()["own_model"] == "deepseek-v9"
+    assert "The site could not check this model name with DeepSeek." in unescape(r.text)
 
 
 def test_the_preset_list_is_complete_and_has_no_model_names():
@@ -1046,7 +1057,7 @@ def test_the_owner_page_says_what_the_claude_key_does_with_another_main_ai(owner
 
 def test_the_owner_pages_headings_are_all_different(owner):
     headings = re.findall(r"<h3>(.*?)</h3>", unescape(owner.get("/account/admin/ai").text))
-    assert headings == ["Save a Claude key", "Save a provider's key"]
+    assert headings == ["Save a Claude key", "Save a company's key"]
 
 
 def test_after_saving_another_companys_key_its_model_comes_next(user_client, fake_provider):
@@ -1098,3 +1109,82 @@ def test_a_claude_key_model_error_still_links_to_the_claude_model_choice(user_cl
     post(user_client, "/account/ai-key", {"api_key": GOOD_KEY})
     r = post(user_client, "/account/ai-key/model", {"own_model": "not-a-model"})
     assert r.status_code == 400 and 'href="#field-own_model"' in r.text and 'id="field-own_model"' in r.text
+
+
+def test_a_typed_model_is_checked_with_the_company_before_it_is_saved(owner, fake_provider):
+    missing = error(404, "The model `gpt-5-mni` does not exist", code="model_not_found")
+    provider = fake_provider(Provider(missing, chat("ok")))
+    _save_other(owner)
+    form = {"main_ai": "other", "other_model_typed": "gpt-5-mni", "other_price_in": "0.25", "other_price_out": "2",
+            "vision": "claude"}
+    r = post(owner, "/account/admin/ai/main", form)
+    assert r.status_code == 400 and 'href="#field-other_model_typed"' in r.text
+    assert ("OpenAI did not recognise the model gpt-5-mni, so nothing was saved. Check the name on OpenAI's models "
+            "page.") in unescape(r.text)
+    assert site_ai.main_is_claude() and site_ai.other_model() == ""
+    body = provider.bodies()[0]
+    assert body["model"] == "gpt-5-mni" and body["max_completion_tokens"] == 16
+    form["other_model_typed"] = "gpt-5-mini"
+    r = post(owner, "/account/admin/ai/main", form)
+    assert h1(r.text) == "The main AI is saved" and site_ai.other_model() == "gpt-5-mini"
+    assert "could not check" not in r.text
+
+
+def test_a_typed_model_is_saved_with_a_warning_when_the_company_cannot_be_reached(owner, fake_provider, app):
+    fake_provider(Provider())
+    _save_other(owner)
+    providers.forget_cache()
+    site_ai.save_key(app.state.settings, GOOD_KEY, None)
+    fake_provider(type("Down", (Provider,), {"__call__": lambda self, r: error(503, "down")})())
+    page = unescape(owner.get("/account/admin/ai").text)
+    assert '<label for="field-other_model_typed">Model name from OpenAI</label>' in page
+    assert 'id="hint-other_model_typed">OpenAI had a problem (code 503)' in page
+    r = post(owner, "/account/admin/ai/main", {"main_ai": "other", "vision": "claude", "other_price_in": "1",
+                                               "other_price_out": "2"})
+    assert "Type the model name exactly as OpenAI writes it on its models page." in unescape(r.text)
+    r = post(owner, "/account/admin/ai/main", {"main_ai": "other", "other_model_typed": "gpt-5-mini",
+                                               "other_price_in": "1", "other_price_out": "2", "vision": "claude"})
+    text = unescape(r.text)
+    assert h1(r.text) == "The main AI is saved" and site_ai.other_model() == "gpt-5-mini"
+    assert "Web search steps still use Claude." in text
+    assert ("The site could not check this model name with OpenAI. If members' work fails, check the name here."
+            in text)
+
+
+def test_a_member_is_told_the_key_box_was_emptied(user_client, fake_provider):
+    r = post(user_client, "/account/ai-key/other", {"other_provider": "openai", "other_api_key": "sk-proj-abc123"})
+    text = unescape(r.text)
+    assert ("This is shorter than an API key. Check you copied the whole key. The box was emptied so your key is "
+            "not kept on the page. Please paste it again.") in text
+    assert h1(r.text) == "Please check 1 answer: Use a key from another AI company"
+    r = post(user_client, "/account/ai-key", {"api_key": "sk-proj-abc123"})
+    assert ("A Claude API key starts with sk-ant-. Check you copied the whole key. The box was emptied so your key "
+            "is not kept on the page. Please paste it again.") in unescape(r.text)
+    r = post(user_client, "/account/ai-key", {"api_key": ""})
+    assert "The box was emptied" not in r.text  # nothing was pasted, so nothing was emptied
+
+
+def test_kept_words_on_the_owner_page_name_their_part_and_ask_for_the_key_again(owner, fake_provider):
+    from .conftest import csrf
+    token = csrf(owner)
+    with db.session() as conn:  # signed out on every device
+        conn.execute("UPDATE users SET session_epoch = session_epoch + 1")
+    r = owner.post("/account/admin/ai/other-key", data={
+        "other_provider": "mistral", "other_api_key": OTHER_KEY, "other_password": PASSWORD, "csrf_token": token},
+        headers={"referer": "http://testserver/account/admin/ai"}, follow_redirects=False)
+    assert r.status_code == 303
+    r = post(owner, "/login", {"email": "owner@example.com", "password": PASSWORD, "next": "/account/admin/ai"})
+    text = unescape(r.text)
+    assert "You were signed out before this was sent, so nothing was saved yet." in text
+    assert ('Your choices under <a href="#other-key">Another company\'s key</a> are back in the form. For safety, the '
+            "key and your password were not kept: paste the key and type your password again there. Check them, "
+            "then choose Check and save the company's key.") in text
+    assert "Your words are back in the form." not in text  # the general note is not said as well
+    assert OTHER_KEY not in r.text and PASSWORD not in r.text
+    assert re.search(r'value="mistral"[^>]*checked', r.text)
+
+
+def test_the_provider_radios_do_not_repeat_a_note_for_developers(owner):
+    page = owner.get("/account/admin/ai").text
+    assert 'aria-describedby="hint-other_provider"' not in page
+    assert "If one of the listed companies changes its address, the site's code needs updating" in unescape(page)
