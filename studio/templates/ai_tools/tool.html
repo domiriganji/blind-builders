@@ -2,8 +2,8 @@
 {% from "_macros.html" import csrf_input, error_summary, field, textarea, radios, post_button, sources_list %}
 {% block content %}
 <h1>{{ title }}</h1>
-{{ error_summary(errors) }}
-<p class="lead">Member verdict in the last {{ summary_days }} days: {{ recent_verdict }}.
+{{ error_summary(summary_errors) }}
+<p class="lead">{% if recent_total %}Member verdict in the last {{ summary_days }} days: {{ recent_verdict }}.{% elif report_count %}No member reports in the last {{ summary_days }} days. Older reports are below.{% else %}No member reports yet.{% endif %}
 {% if groups %}Most recently reported version: {{ groups[0].version }}, on {{ groups[0].latest }}.{% endif %}</p>
 <p class="meta">{{ tool.kind|capitalize }}{% if tool.vendor %} by {{ tool.vendor }}{% endif %}.{% if tool.url %} <a href="{{ tool.url }}" rel="noopener noreferrer">Official page for {{ tool.name }}</a>.{% endif %}</p>
 {% if regression %}
@@ -11,24 +11,27 @@
 <p><strong>Possible problem after an update.</strong> {{ regression }} This compares member reports only; nobody has tested it on this site.</p>
 </div>
 {% endif %}
-<p><a href="/ai-tools">Back to all AI tools</a>. <a href="#report-form-title">Report how it worked for you</a>.</p>
+<p><a href="/ai-tools">Back to all AI tools</a>. <a href="#report-form-title">Report how {{ tool.name }} worked for you</a>.</p>
 
 <h2>What the research found ({{ research_as_of }})</h2>
-<p class="meta">A summary of public sources as of {{ research_as_of }}, not a member report. Tools change with every update, so check the sources and the newest member reports.</p>
+<p class="meta">{{ research_about }} It is not a member report. Tools change with every update, so check the sources and the newest member reports.</p>
 <p>{{ tool.research_note }}</p>
 {{ sources_list(tool.sources, heading_level=3, heading="Sources for the research") }}
 
+<h2>Member reports: {{ report_count }}</h2>
+<p>{{ reports_about }}</p>
 {% if not groups %}
-<h2>Member reports</h2>
 <p>No reports yet. Be the first to say how {{ tool.name }} works with your screen reader.</p>
+{% else %}
+<p>Reports are grouped by the version of {{ tool.name }} they are about. The version reported most recently comes first.</p>
 {% endif %}
 {% for g in groups %}
-<h2>Version {{ g.version }}: {{ g.reports|length }} {{ 'report' if g.reports|length == 1 else 'reports' }}</h2>
+<h3>Version {{ g.version }}: {{ g.reports|length }} {{ 'report' if g.reports|length == 1 else 'reports' }}</h3>
 <p>{{ g.verdict }}.</p>
 {% for r in g.reports %}
 <article id="report-{{ r.id }}" aria-labelledby="report-{{ r.id }}-title">
-<h3 id="report-{{ r.id }}-title">{{ r.overall_words }}: {{ r.screen_reader }}{% if r.screen_reader_version %} {{ r.screen_reader_version }}{% endif %} on {{ r.os }}</h3>
-<p class="meta">Reported on {{ r.date }} by {% if user and r.user_id == user.id %}you{% else %}{{ r.pseudonym }}{% endif %}.</p>
+<h4 id="report-{{ r.id }}-title">{{ r.overall_words }}: {{ r.screen_reader }}{% if r.screen_reader_version %} {{ r.screen_reader_version }}{% endif %} on {{ r.os }}</h4>
+<p class="meta">Reported on {{ r.date }} by {% if user and r.user_id == user.id %}you{% else %}{{ r.pseudonym }}{% endif %}, about version {{ r.tool_version }}.</p>
 <ul>
   <li>Screen reader: {{ r.screen_reader }}{% if r.screen_reader_version %}, version {{ r.screen_reader_version }}{% endif %}</li>
   <li>Operating system: {{ r.os }}</li>
@@ -37,12 +40,12 @@
   <li>Overall: {{ r.overall_words }}</li>
 </ul>
 {% if r.workarounds %}
-<p><strong>Workarounds:</strong></p>
-{{ r.workarounds|markdown|shift_headings(3) }}
+<p><strong>Workarounds, in the member's words:</strong></p>
+{{ r.workarounds|markdown|shift_headings(4) }}
 {% endif %}
 {% if r.note %}
-<p><strong>Note:</strong></p>
-{{ r.note|markdown|shift_headings(3) }}
+<p><strong>Note, in the member's words:</strong></p>
+{{ r.note|markdown|shift_headings(4) }}
 {% endif %}
 {% if user and r.user_id == user.id %}
 {{ post_button('/ai-tools/' ~ tool.slug ~ '/reports/' ~ r.id ~ '/delete', 'Delete your report for version ' ~ r.tool_version) }}
@@ -51,12 +54,12 @@
 {% endfor %}
 {% endfor %}
 
-<h2 id="report-form-title">Report how it worked for you</h2>
+<h2 id="report-form-title">Report how {{ tool.name }} worked for you</h2>
 {% if user %}
 <p>Tell other members how {{ tool.name }} worked with your screen reader. Your report is public and shows your member name, not your real name. Do not include passwords, API keys or personal details.{% if own_versions %} You have reported version {{ own_versions|join(', ') }}. Reporting the same version again updates that report.{% endif %}</p>
 <form method="post" action="/ai-tools/{{ tool.slug }}/reports" novalidate>
   {{ csrf_input() }}
-  {{ field('tool_version', 'Version of ' ~ tool.name, values.tool_version, hint='As the tool shows it in its About screen, help or settings, for example 2.1.296.', error=errors.tool_version, required=true) }}
+  {{ field('tool_version', 'Version of ' ~ tool.name, values.tool_version, hint='As the tool shows it in its About screen, help or settings, or when you run it with --version. For example 2.1.296.', error=errors.tool_version, required=true) }}
   {{ field('screen_reader', 'Screen reader', values.screen_reader, hint='For example NVDA, JAWS, VoiceOver, TalkBack, Narrator or Orca. Add your braille display if you used one.', error=errors.screen_reader, required=true) }}
   {{ field('screen_reader_version', 'Screen reader version', values.screen_reader_version, hint='For example 2026.2.', error=errors.screen_reader_version) }}
   {{ field('os', 'Operating system', values.os, hint='For example Windows 11, macOS 27, Ubuntu 24.04 or Android 16.', error=errors.os, required=true) }}
@@ -64,12 +67,12 @@
   {{ radios(key, question, answers, values[key], hint=hint, error=errors[key]) }}
   {% endfor %}
   {{ radios('overall', 'Overall, could you use it?', overall_options, values.overall, hint='Usable with workarounds means you got your work done, but only with extra steps or tools.', error=errors.overall) }}
-  {{ textarea('workarounds', 'Workarounds', values.workarounds, hint='What you did to make it work: settings, commands, add-ons or habits. Other members will try them.', error=errors.workarounds, rows=5) }}
-  {{ textarea('note', 'Anything else', values.note, hint='What broke, what improved since the last version, or anything another blind builder should know.', error=errors.note, rows=5) }}
+  {{ textarea('workarounds', 'Workarounds', values.workarounds, hint='What you did to make it work: settings, commands, add-ons or habits. Other members will try them. Up to 4000 characters.', error=errors.workarounds, rows=5) }}
+  {{ textarea('note', 'Anything else', values.note, hint='What broke, what improved since the last version, or anything another blind builder should know. Up to 4000 characters.', error=errors.note, rows=5) }}
   <button type="submit">Publish your report</button>
 </form>
 {% else %}
 <p>Anyone can read these reports. To add yours, <a href="/login?next=/ai-tools/{{ tool.slug }}">sign in</a> or <a href="/register?next=/ai-tools/{{ tool.slug }}">create a free account</a>.</p>
 {% endif %}
-<p><a href="/ai-tools/{{ tool.slug }}/reports.json">These reports as JSON, for other tools to use</a></p>
+<p><a href="/ai-tools/{{ tool.slug }}/reports.json">{{ tool.name }} reports as JSON, for other tools to use</a></p>
 {% endblock %}
