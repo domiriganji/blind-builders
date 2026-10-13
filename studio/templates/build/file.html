@@ -1,9 +1,20 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>{{ title }}</h1>
-<p class="lead">{{ lines }}, {{ size }}. The file is shown as plain text below.</p>
-<p><a href="/build/{{ project.id }}/v/{{ version.number }}/files">All files in version {{ version.number }}</a></p>
+<p class="lead">{{ lines }}, {{ size }}. The file is shown as plain text below, as a numbered list with one item for each line.</p>
+<ul>
+  {% if previous %}<li><a href="{{ previous.url }}">Previous file: {{ previous.path }}</a></li>{% endif %}
+  {% if following %}<li><a href="{{ following.url }}">Next file: {{ following.path }}</a></li>{% endif %}
+  <li><a href="/build/{{ project.id }}/v/{{ version.number }}/files">All files in version {{ version.number }}</a></li>
+</ul>
 <h2>Contents of {{ path }}</h2>
-<pre>{{ content }}</pre>
+{% if numbered %}
+<ol class="code-lines">
+{% for line in numbered %}<li id="L{{ loop.index }}"><code>{{ line }}</code></li>
+{% endfor %}
+</ol>
+{% else %}
+<p>This file is empty.</p>
+{% endif %}
 <p><a href="/build/{{ project.id }}/v/{{ version.number }}">Back to version {{ version.number }}</a></p>
 {% endblock %}

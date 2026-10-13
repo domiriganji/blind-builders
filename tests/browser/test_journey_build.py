@@ -170,8 +170,8 @@ def test_build_journey_from_idea_to_delete(live, browser):
     check("Build a website, app, tool or game")
     expect(page.get_by_text("You have no projects yet.")).to_be_visible()
     button(page, "Send my idea to the AI").click()
-    check("Build a website, app, tool or game: please fix the problems")
-    expect(page.get_by_role("heading", name="Please check 2 answers")).to_be_visible()
+    check("Please check 2 answers: Build a website, app, tool or game")
+    expect(page.get_by_role("heading", name="Please check 2 answers", exact=True)).to_be_visible()
     link(page, "Describe your idea in your own words.").click()
     expect(page.get_by_label("Your idea")).to_be_focused()
 
@@ -188,17 +188,22 @@ def test_build_journey_from_idea_to_delete(live, browser):
     expect(page.get_by_label("A dark colour switch")).not_to_be_checked()
     expect(page.get_by_label("A printable menu page")).not_to_be_checked()
 
-    # Update with nothing written: an error that says how to fix it, and its link focuses the box.
-    button(page, "Update what you understood").click()
-    check("Kemi Kitchen: here is what I understood: please fix the problems")
-    link(page, "Write your corrections or answers first, or choose This is right: build it.").click()
+    # Update with nothing written: an error that says how to fix it, and its link focuses the box. The extra the
+    # member ticked is still ticked.
+    page.get_by_label("A printable menu page").check()
+    button(page, "Send my corrections and read it back again").click()
+    check("Please check 1 answer: Kemi Kitchen: here is what I understood")
+    expect(page.get_by_label("A printable menu page")).to_be_checked()
+    link(page, "Write your corrections or answers first. If everything is right, choose This is right: build it.").click()
     expect(page.get_by_label("Corrections and answers")).to_be_focused()
 
-    # A correction: the AI reads it again, and the person's own words are shown back.
+    # A correction: the AI reads it again, and the person's own words are shown back. The tick is kept.
     fake.on("build.understand", SPEC_2)
     page.get_by_label("Corrections and answers").fill("Prices are in naira.")
-    button(page, "Update what you understood").click()
+    button(page, "Send my corrections and read it back again").click()
     check("Kemi Kitchen: here is what I understood")
+    expect(page.get_by_label("A printable menu page")).to_be_checked()
+    expect(page.get_by_label("A dark colour switch")).not_to_be_checked()
     expect(page.get_by_text("A menu website in naira for Kemi's food stall.")).to_be_visible()
     expect(page.get_by_role("listitem").filter(has_text="Prices are in naira.")).to_be_visible()
 
@@ -216,8 +221,8 @@ def test_build_journey_from_idea_to_delete(live, browser):
     assert "A printable menu page" in last_call(fake, "build.generate")["prompt"]
     assert "A dark colour switch" not in last_call(fake, "build.generate")["prompt"]
 
-    # How it looks to sighted visitors: the site's checks, the AI's opinion, and the repair, in plain outcomes.
-    expect(page.get_by_role("heading", name="How it looks to sighted visitors")).to_be_visible()
+    # How it looks on screen: the site's checks, the AI's opinion, and the repair, in plain outcomes.
+    expect(page.get_by_role("heading", name="How it looks on screen")).to_be_visible()
     expect(page.get_by_text("Checked by the site on a phone and a computer: passed all 7 visual checks.")).to_be_visible()
     expect(page.get_by_role("heading", name="An AI looked at pictures of the pages")).to_be_visible()
     expect(page.get_by_text("This is the AI's opinion, not a check by the site.")).to_be_visible()
@@ -231,6 +236,12 @@ def test_build_journey_from_idea_to_delete(live, browser):
     assert [b["type"] for b in review].count("image") == 4  # two pages, each on a phone and a computer
     sighted = link(page, "Ask a sighted person to check how it looks")
     assert "kind=sighted" in sighted.get_attribute("href")
+    screen_reader = link(page, "Ask members who use screen readers to check it")
+    assert "kind=screen_reader" in screen_reader.get_attribute("href")
+
+    # The checks found a problem: the fix has its own heading, and the summary's link moves focus to it.
+    link(page, "go to the fix").click()
+    expect(page.get_by_role("heading", name="Fix the problems the checks found (1)")).to_be_focused()
 
     # Read the files, one file, and come back.
     link(page, "Read the files").click()
@@ -238,12 +249,17 @@ def test_build_journey_from_idea_to_delete(live, browser):
     link(page, "index.html").click()
     check("Kemi Kitchen: index.html in version 1")
     expect(page.get_by_text("Small chops: 1200 naira")).to_be_visible()
+    expect(page.locator("#L7")).to_have_text("<p>Small chops: 1200 naira</p>")  # line 7 has its own address
+    link(page, "Next file: style.css").click()
+    check("Kemi Kitchen: style.css in version 1")
+    link(page, "Previous file: index.html").click()
+    check("Kemi Kitchen: index.html in version 1")
     link(page, "Back to version 1").click()
     check("Kemi Kitchen: version 1 is ready")
 
     # Download the zip.
     with page.expect_download() as download:
-        link(page, "Download all files as a zip").click()
+        link(page, "Download all files in one zip file (a packed folder)").click()
     assert download.value.suggested_filename == "kemi-kitchen-version-1.zip"
     with zipfile.ZipFile(io.BytesIO(open(download.value.path(), "rb").read())) as zf:
         assert sorted(zf.namelist()) == ["about.html", "index.html", "style.css"]
@@ -261,7 +277,7 @@ def test_build_journey_from_idea_to_delete(live, browser):
 
     # Ask for a change, first with nothing written.
     button(page, "Ask the AI to make this change").click()
-    check("Kemi Kitchen: version 1 is ready: please fix the problems")
+    check("Please check 1 answer: your change to Kemi Kitchen, version 1")
     link(page, "Describe the change you want.").click()
     expect(page.get_by_label("The change you want")).to_be_focused()
     fake.on("build.change", CHANGED)
@@ -274,6 +290,7 @@ def test_build_journey_from_idea_to_delete(live, browser):
     # The changed lines, marked with words.
     link(page, "See the changed lines").click()
     check("Kemi Kitchen: the changed lines in version 2")
+    expect(page.get_by_text('In line 7, "1200" became "1500".')).to_be_visible()
     expect(page.get_by_text("Removed: <p>Small chops: 1200 naira</p>")).to_be_visible()
     expect(page.get_by_text("Added: <p>Small chops: 1500 naira</p>")).to_be_visible()
     link(page, "Back to version 2").click()
@@ -291,7 +308,7 @@ def test_build_journey_from_idea_to_delete(live, browser):
     check("Kemi Kitchen: your project and its versions")
     expect(page.get_by_role("heading", name="All versions (3)")).to_be_visible()
     link(page, "Version 1").click()
-    check("Kemi Kitchen: version 1 is ready")
+    check("Kemi Kitchen: version 1 (older; the latest is version 3)")
     expect(page.get_by_text("This is an older version.")).to_be_visible()
     link(page, "version 3, the latest").click()
     check("Kemi Kitchen: version 3 is ready")
@@ -321,7 +338,7 @@ def test_build_when_the_ai_fails(live, browser):
     fake.on("build.understand", AIError("The AI is busy right now (rate limit). Please try again in a minute."))
     open_build(page)
     send_idea(page, title="Rivers quiz", kind="A game", idea="A quiz about rivers.")
-    check("This did not finish: Reading Rivers quiz")
+    check("This did not finish: Reading back your idea: Rivers quiz")
     expect(page.get_by_text("The AI is busy right now (rate limit).")).to_be_visible()
     open_build(page)
     link(page, "Rivers quiz").click()
@@ -339,7 +356,7 @@ def test_build_when_the_ai_fails(live, browser):
                                                      {"path": "../escape.html", "content": "x"}]))
     button(page, "This is right: build it").click()
     check("This did not finish: Building Rivers quiz")
-    expect(page.get_by_text("cannot accept, so nothing was saved")).to_be_visible()
+    expect(page.get_by_text("The AI made a mistake in the files, so nothing was saved.")).to_be_visible()
     link(page, "Go back and try again").click()
     check("Rivers quiz: here is what I understood")
     check.assert_clean()
@@ -384,7 +401,7 @@ def test_build_works_without_javascript(live, browser):
     open_build(page)
     check("Build a website, app, tool or game")
     button(page, "Send my idea to the AI").click()
-    check("Build a website, app, tool or game: please fix the problems")
+    check("Please check 2 answers: Build a website, app, tool or game")
     fake.on("build.understand", SPEC)
     send_idea(page, title="Quiet menu", idea="A menu that works with no scripts.")
     check("Quiet menu: here is what I understood")

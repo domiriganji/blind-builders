@@ -6,12 +6,14 @@
 {% elif not groups %}
 <p class="lead">Computed by the site, not the AI. Compared with version {{ base_number }}, no files changed.</p>
 {% else %}
-<p class="lead">Computed by the site, not the AI. Compared with version {{ base_number }}, {{ groups|length }} {{ 'file' if groups|length == 1 else 'files' }} changed.{% if groups|length == 1 %} Nothing else changed.{% endif %} Each changed line starts with the word Added or Removed.</p>
+<p class="lead">Computed by the site, not the AI. Compared with version {{ base_number }}, {{ groups|length }} {{ 'file' if groups|length == 1 else 'files' }} changed.{% if groups|length == 1 %} Nothing else changed.{% endif %} Each changed line starts with the word Added or Removed. Where a line changed only a little, a sentence first says which words changed.</p>
 {% for g in groups %}
 <h2>{{ g.path }}</h2>
 <p>{{ g.sentence }}</p>
 {% for group in g.groups %}
 <h3>{{ group.where }}</h3>
+{% for note in group.notes %}<p>{{ note }}</p>
+{% endfor %}
 <pre>{% for kind, line in group.lines %}{{ kind }}: {{ line }}
 {% endfor %}</pre>
 {% else %}

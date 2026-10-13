@@ -2,7 +2,7 @@
 {% block content %}
 <h1>{{ title }}</h1>
 <p class="lead">{{ kind_label }}. Latest: version {{ latest.number }}. Status: {{ status_label }}.</p>
-{% if busy and project.status == 'changing' %}<p>When the AI finishes, the new version appears in the list below. You can follow it in <a href="/jobs">Your recent work</a>.</p>{% endif %}
+{% if busy and project.status == 'changing' %}<p>When the AI finishes, the new version appears in the list below. You can follow it on <a href="{{ job_url }}">the page for this work</a>.</p>{% endif %}
 <h2>Latest version: version {{ latest.number }}</h2>
 <p>Checked by the site: {{ latest_check }}</p>
 <p class="meta">What the AI says it built (written by the AI):</p>
@@ -15,10 +15,13 @@
 <ol reversed class="item-list">
 {% for v in versions %}
   <li><a href="/build/{{ project.id }}/v/{{ v.number }}">Version {{ v.number }}</a>
-    <span class="meta">{{ v.created_at[:10] }}. {{ v.request_text|truncate(160) }}</span></li>
+    <span class="meta">{{ v.created_at|date_words }}. {{ v.request_text|truncate(160) }}</span></li>
 {% endfor %}
 </ol>
 {% include "build/_idea.html" %}
+{% if spec and spec.additions_not_asked and 'chosen_additions' in stored %}
+<p>Extras you chose for version 1: {% if chosen_additions %}{{ chosen_additions|join('; ') }}.{% else %}none.{% endif %}</p>
+{% endif %}
 <h2>Other things you can do</h2>
 <ul>
   <li><a href="/build/{{ project.id }}/delete">Delete this project</a></li>
