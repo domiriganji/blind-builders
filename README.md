@@ -6,6 +6,19 @@ A website where blind and low-vision people turn their ideas into reality with A
 
 There is no phone line and no support staff. The AI does the work, and members help each other. Members use the AI with their own API key (Claude, or another listed AI company), or on the site's keys: with credits, or free within limits the site owner sets. Claude is the default; the site owner and members can choose another provider and model.
 
+**Status:** a working prototype. In the last full run (13 October 2026), all 1,134 automated tests passed. It has not yet been run with real AI keys or tested by blind people: see [Known limits](#known-limits).
+
+On this page:
+
+- [What you can do](#what-you-can-do)
+- [Screenshots](#screenshots)
+- [How the site treats you](#how-the-site-treats-you)
+- [Run it on your computer](#run-it-on-your-computer)
+- [Put it on the internet](#put-it-on-the-internet)
+- [Tests](#tests)
+- [Known limits](#known-limits)
+- [How this was decided](#how-this-was-decided)
+
 ## What you can do
 
 | Section | What it does |
@@ -19,6 +32,48 @@ There is no phone line and no support staff. The AI does the work, and members h
 | AI tools report | Which AI coding tools work with screen readers right now, reported by members after each update. |
 | Tool library | Tools blind people made for each other, and a way to report what broke after an update and volunteer to fix it. |
 | Learn and help | Screen-reader-first guides, and a place to ask the community, with an optional AI-suggested answer while you wait. |
+
+## Screenshots
+
+These are real pages of the site, saved with example data: a member called Amina, who uses NVDA on a Windows laptop, and a site owner called Sam. Every picture has a full text description for screen readers.
+
+The site itself is plain on purpose, so screen readers, braille displays and zoom work well. What members build gets a full visual design for sighted visitors.
+
+### The home page
+
+![Screenshot of the Blind Builders home page after signing in. Under the heading "Build your ideas with AI: websites, apps, writing and research" is a numbered list of next steps: save your recovery code, connect your Claude API key (a typical task costs from about $0.03 to about $0.46), read Start here, and try Build.](docs/screenshots/1-home.jpg)
+
+Headings, lists and links, with nothing that moves or talks over your screen reader.
+
+### A website the AI built
+
+![Screenshot of a website the AI built for a member: Kemi Kitchen, home-style Nigerian food. A large title and the opening hours are at the top. Below, today's menu is shown as cards, each with a dish, a short description and its price in naira.](docs/screenshots/2-built-website.jpg)
+
+A member describes what they want in their own words. The AI reads back what it understood, then designs and builds it.
+
+### Checked before you see it
+
+![Screenshot of the build's version page. It says the site checked the pages on a phone and a computer and they passed all 7 visual checks: nothing scrolls sideways, text stands out clearly, no text is cut off or sits on other text, buttons are big enough to tap, text is big enough to read, and every picture loads. Below, marked as the AI's opinion and not a check by the site, the AI says it looks finished and professional and is easy to read on a phone and a computer.](docs/screenshots/3-build-checks.jpg)
+
+The site says in plain words what it checked, what the AI thinks, and what nobody checked.
+
+### Your words stay yours
+
+![Screenshot of a writing suggestion. It shows your words, "Most writing apps assume you can see the page", the suggested words, "Most writing apps assume that you can see the page", where it is in your text, the AI's reason, "Reads a little more smoothly", and two buttons: Accept suggestion 1 and Reject suggestion 1.](docs/screenshots/4-write-suggestions.jpg)
+
+In Write and publish, the AI only suggests. You accept or reject each change, and every version is kept.
+
+### The site owner's AI settings
+
+![Screenshot of the site owner's page "AI settings for your key". It explains that these settings are for the AI keys the owner pays for, and that members who connect their own key use their own key and their own choice of model, with no limits from the owner. Below is the section "Your Claude API key".](docs/screenshots/5-owner-ai-settings.jpg)
+
+The owner saves the site's AI key, chooses the model, decides who pays, and sets monthly spending limits.
+
+### Free to choose the AI
+
+![Screenshot of the section "Another company's key". It says the owner can use AI from another company for members' everyday work if it offers the OpenAI-compatible API, and that the key is checked by the company, stored encrypted, only its last 4 characters are shown, and saving or removing it needs the owner's password.](docs/screenshots/6-other-ai-companies.jpg)
+
+Claude is the default. The owner and members can choose another AI company and model.
 
 ## How the site treats you
 
