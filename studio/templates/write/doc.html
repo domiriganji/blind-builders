@@ -1,12 +1,14 @@
 {% extends "base.html" %}
-{% from "_macros.html" import csrf_input, error_summary, field, textarea, select, post_button %}
+{% from "_macros.html" import csrf_input, error_summary, field, textarea, select %}
 {% block content %}
 <h1>{{ title }}</h1>
-<p class="lead">{{ doc.kind_name }}. {{ doc.words }} word{{ '' if doc.words == 1 else 's' }}.
-{% if last_version %}Last saved {{ last_version.when }}: {{ last_version.note }}.{% else %}Nothing saved yet.{% endif %}
+<p class="lead">{{ doc.kind_name }}. {{ doc.word_text }}. {{ saved_line }}
 {% if doc.target %}Aiming for: {{ doc.target }}.{% endif %}</p>
+{% if is_cover_letter %}
 {% if last_version and last_version.note == 'Drafted by the AI' %}
-<p class="panel">The AI wrote this draft. Nobody has checked it. Read it carefully, fill in everything in square brackets, and change anything that is not true before you send it.</p>
+<p class="panel">The AI wrote this draft. Nobody has checked it. Fill in everything in square brackets, and change anything that is not true before you send it.</p>
+{% endif %}
+<p>This letter is a new document. {% if drafted_for %}Your text "<a href="/write/{{ drafted_for.id }}">{{ drafted_for.title }}</a>" is unchanged.{% else %}The text it was drafted for is unchanged.{% endif %}</p>
 {% endif %}
 {{ error_summary(errors) }}
 <nav aria-label="On this page">
@@ -15,36 +17,36 @@
   <li><a href="#suggest-title">Get suggestions from the AI</a></li>
   <li><a href="#versions-title">Versions</a></li>
   <li><a href="#export-title">Export</a></li>
+  {% if not is_cover_letter %}
   <li><a href="#publish-title">Find where to publish</a></li>
   <li><a href="#cover-title">Draft a cover letter</a></li>
+  {% endif %}
 </ul>
 </nav>
 
+{# One form, so every AI button saves the text box first and nothing typed is lost. #}
+<form method="post" action="/write/{{ doc.id }}/save" novalidate>
+{{ csrf_input() }}
 <section aria-labelledby="edit-title">
 <h2 id="edit-title">Edit your text</h2>
-<form method="post" action="/write/{{ doc.id }}/save" novalidate>
-  {{ csrf_input() }}
-  {{ textarea('body', 'Your text', values.body, rows=20, error=errors.body, mark_optional=false, hint='Start a line with # to make it a heading, ## for a smaller heading. Each save keeps a version you can go back to.') }}
-  {{ field('target', 'Publication you are aiming for', values.target, error=errors.target, hint='Needed for a cover letter and for preparing the text for a publication.') }}
   {{ field('title', 'Title', values.title, required=true, error=errors.title) }}
-  <button type="submit" class="button button-primary">Save</button>
-</form>
+  {{ textarea('body', 'Your text', values.body, rows=20, error=errors.body, mark_optional=false, hint='Start a line with # for a section heading, and ## for a smaller heading inside it. Exports add your title at the top. Each save keeps a version you can go back to.') }}
+  {{ field('target', 'Publication you are aiming for', values.target, error=errors.target, hint='For example a journal, magazine or website. Needed for a cover letter and for preparing your text for a publication.') }}
+  <button type="submit" class="button button-primary">Save my text</button>
 </section>
 
 <section aria-labelledby="suggest-title">
 <h2 id="suggest-title">Get suggestions from the AI</h2>
-<p>The AI reads the text you last saved, so save first. Each suggestion is shown as what your text was and what it would be, with a reason. Nothing changes until you accept it.</p>
-<form method="post" action="/write/{{ doc.id }}/suggest" novalidate>
-  {{ csrf_input() }}
+<p>Your text is saved first. The AI then suggests changes, each with your words, the suggested words and a reason. Nothing changes until you accept it.</p>
+<p>It uses your credits or your own Claude API key, and usually takes one to three minutes. You can leave the page while it works.</p>
   {{ select('goal', 'What should the AI look for?', goals, values.goal, required=true, error=errors.goal) }}
   {{ textarea('instructions', 'Anything else the AI should know', values.instructions, rows=3, error=errors.instructions, hint='For example: keep British spelling, or the readers are teachers.') }}
-  <button type="submit" class="button button-primary">Get suggestions</button>
-</form>
+  <button type="submit" class="button button-secondary" formaction="/write/{{ doc.id }}/suggest">Save and get suggestions</button>
 {% if batches %}
 <h3>Earlier suggestions</h3>
 <ul class="item-list">
 {% for b in batches %}
-  <li><a href="/write/{{ doc.id }}/suggestions/{{ b.id }}">Suggestions from {{ b.when }}: {{ b.goal_name }}</a> ({{ b.total }} in all, {{ b.waiting }} waiting for your decision)</li>
+  <li><a href="/write/{{ doc.id }}/suggestions/{{ b.id }}">Suggestions from {{ b.when }}: {{ b.goal_name }}</a>. {{ b.total }} in all, {% if b.waiting %}{{ b.waiting }} waiting for your decision{% else %}none waiting{% endif %}.</li>
 {% endfor %}
 </ul>
 {% endif %}
@@ -61,13 +63,15 @@
 
 <section aria-labelledby="export-title">
 <h2 id="export-title">Export</h2>
-<p>Download your text as a Word document, Markdown, plain text, a web page or LaTeX. <a href="/write/{{ doc.id }}/export">Choose a format to export</a>.</p>
+<p>Download your last saved text as a Word document, Markdown, plain text, a web page or LaTeX. <a href="/write/{{ doc.id }}/export">Choose a format to export</a>.</p>
 </section>
 
+{% if not is_cover_letter %}
 <section aria-labelledby="publish-title">
 <h2 id="publish-title">Find where to publish</h2>
-<p>The AI searches the web for journals, magazines or preprint servers that suit your text. It looks for their submission rules, any fees, and anything published about how well their submission systems work with screen readers. It lists its sources. The site does not check what it finds.</p>
-{{ post_button('/write/' ~ doc.id ~ '/venues', 'Find where to publish', 'primary') }}
+<p>Your text is saved first. The AI then searches the web for journals, magazines or preprint servers that suit it. It looks for their submission rules, any fees, and anything published about how well their submission systems work with screen readers. It lists its sources. The site does not check what it finds.</p>
+<p>It uses your credits or your own Claude API key, and usually takes one to three minutes. You can leave the page while it works.</p>
+  <button type="submit" class="button button-secondary" formaction="/write/{{ doc.id }}/venues">Save and search the web for places to publish</button>
 {% if research %}
 <h3>Earlier searches</h3>
 <ul class="item-list">
@@ -81,16 +85,24 @@
 <section aria-labelledby="cover-title">
 <h2 id="cover-title">Draft a cover letter</h2>
 {% if doc.target %}
-<p>The AI drafts a letter to the editor of {{ doc.target }}. It is told to use only what is in your text and your notes, and to leave anything it does not know in square brackets. The letter becomes a new document. The site does not check it, so read and edit it before you send it.</p>
-<form method="post" action="/write/{{ doc.id }}/cover-letter" novalidate>
-  {{ csrf_input() }}
-  {{ textarea('notes', 'Anything the letter should mention', values.notes, rows=3, error=errors.notes, hint='For example: your name, your role, or why you wrote this.') }}
-  <button type="submit" class="button button-primary">Draft a cover letter for {{ doc.target }}</button>
-</form>
+<p>Your text is saved first. The AI then drafts a letter to the editor of {{ doc.target }}. It is told to use only what is in your text and your notes, and to leave anything it does not know in square brackets. The letter becomes a new document, and your text stays as it is. The site does not check the letter, so read and edit it before you send it.</p>
 {% else %}
-<p>To draft a cover letter, first fill in "Publication you are aiming for" under "Edit your text" on this page, and save. <a href="#field-target">Go to the publication field</a>.</p>
+<p>The AI drafts a letter to the editor of the publication you name in "Publication you are aiming for". <a href="#field-target">Go to the publication field</a>. Your text is saved first, and the letter becomes a new document.</p>
+{% endif %}
+<p>It uses your credits or your own Claude API key, and usually takes one to three minutes. You can leave the page while it works.</p>
+  {{ textarea('notes', 'Anything the letter should mention', values.notes, rows=3, error=errors.notes, hint='For example: your name, your role, or why you wrote this.') }}
+  <button type="submit" class="button button-secondary" formaction="/write/{{ doc.id }}/cover-letter">Save and draft a cover letter{% if doc.target %} for {{ doc.target }}{% endif %}</button>
+{% if letters %}
+<h3>Cover letters drafted</h3>
+<ul class="item-list">
+{% for l in letters %}
+  <li><a href="/write/{{ l.id }}">{{ l.title }}</a>, drafted {{ l.when }}</li>
+{% endfor %}
+</ul>
 {% endif %}
 </section>
+{% endif %}
+</form>
 
 <section aria-labelledby="delete-title">
 <h2 id="delete-title">Delete this document</h2>

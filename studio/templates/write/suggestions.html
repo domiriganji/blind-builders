@@ -4,12 +4,21 @@
 <h1>{{ title }}</h1>
 {% set made = n + batch.dropped_count %}
 <p class="lead">You asked the AI to "{{ batch.goal_name }}" on {{ batch.when }}. {% if n %}It made {{ n }} suggestion{{ '' if n == 1 else 's' }} you can use. You decide on each one. Your text changes only when you accept a suggestion, and each accepted change is saved as a version.{% elif made %}None of its suggestions could be used, so there is nothing to decide.{% else %}It made no suggestions.{% endif %}</p>
+<div id="progress" tabindex="-1">
+{% if note and not note.place %}<p class="message message-{{ note.kind }}" role="status">{{ note.text }}</p>{% endif %}
 {% if n %}
-<p>{{ counts.pending }} waiting for your decision, {{ counts.accepted }} accepted, {{ counts.rejected }} rejected, {{ counts.stale }} out of date.
+<p>{{ counts_sentence }}
 {% if next_pending %}<a href="#suggestion-{{ next_pending.number }}">Go to suggestion {{ next_pending.number }}, the next one to decide</a>.{% endif %}</p>
 {% endif %}
+</div>
 {% if batch.dropped_count %}
-<p>Checked by the site: {{ batch.dropped_count }} of the AI's {{ made }} suggestion{{ '' if made == 1 else 's' }} {{ 'was' if batch.dropped_count == 1 else 'were' }} left out. The site checks that each suggestion quotes your text word for word, and that the quoted words appear only once, so that a change can only go in the right place. {{ 'That one' if batch.dropped_count == 1 else 'Those' }} quoted words that are not in your text or appear in it more than once, repeated another suggestion, changed nothing, or came back incomplete.</p>
+<p>Checked by the site: {{ batch.dropped_count }} of the AI's {{ made }} suggestion{{ '' if made == 1 else 's' }} {{ 'was' if batch.dropped_count == 1 else 'were' }} left out, so that a change can only go in the right place. A suggestion is left out when:</p>
+<ul>
+  <li>the words it quotes are not in your saved text, or are in it more than once,</li>
+  <li>it repeats another suggestion or changes nothing,</li>
+  <li>or it came back incomplete.</li>
+</ul>
+<p>The AI reads the text as it was saved when you asked.{% if n %} The site does not check whether the AI's changes are good; that is for you to decide.{% endif %}</p>
 {% elif n %}
 <p>Checked by the site: each suggestion quotes your text word for word, and the quoted words appear only once in it, so a change can only go in the right place. The site does not check whether the AI's changes are good; that is for you to decide.</p>
 {% endif %}
@@ -18,42 +27,58 @@
 <h2 id="note-title">The AI's overall note</h2>
 <p class="meta">Written by the AI. Nobody has checked it.</p>
 {% if batch.overall_note %}
-{{ batch.overall_note|markdown|shift_headings(2) }}
+{{ batch.overall_note|markdown|nest_headings(3) }}
 {% else %}
 <p>The AI did not write an overall note.</p>
 {% endif %}
 </section>
 
-{% if counts.pending %}
-<section aria-labelledby="all-title">
-<h2 id="all-title">Decide on all waiting suggestions</h2>
-<p>"Accept all that still match" applies every waiting suggestion whose words are still in your text, in order, and saves one new version.</p>
-<div class="actions">
-{{ post_button('/write/' ~ doc.id ~ '/suggestions/' ~ batch.id ~ '/accept-all', 'Accept all that still match', 'primary') }}
-{{ post_button('/write/' ~ doc.id ~ '/suggestions/' ~ batch.id ~ '/reject-all', 'Reject all remaining') }}
-</div>
-</section>
-{% endif %}
-
 {% for s in items %}
-<section aria-labelledby="suggestion-{{ s.number }}-title" id="suggestion-{{ s.number }}">
+{% set fits = s.matches or s.status != 'pending' %}
+<section aria-labelledby="suggestion-{{ s.number }}-title" id="suggestion-{{ s.number }}" tabindex="-1">
+{% if note and note.place == s.number %}<p class="message message-{{ note.kind }}" role="status">{{ note.text }}</p>{% endif %}
 <h2 id="suggestion-{{ s.number }}-title">Suggestion {{ s.number }} of {{ n }}</h2>
 <p><strong>{{ status_text[s.status] }}</strong></p>
-{% if s.status == 'pending' and not s.matches %}
-<p class="field-error">This no longer matches your text: the words it would change have been edited since. If you accept it, nothing will change and it will be marked out of date.</p>
+{% if not fits %}
+<p>This no longer matches your text. The words it would change are not there any more, or are now there more than once, so it cannot be used.</p>
 {% endif %}
-<p><strong>Was:</strong> {{ s.original }}</p>
-<p><strong>Now:</strong> {% if s.proposed %}{{ s.proposed }}{% else %}(remove these words){% endif %}</p>
-{% if s.context %}<p><strong>Where it is in your text:</strong> {{ s.context }}</p>{% endif %}
+<p><strong>Change, computed by the site:</strong> {{ s.change }}</p>
+{% if s.status == 'accepted' %}
+<p><strong>Before:</strong> {{ s.original }}</p>
+<p><strong>After (now in your text):</strong> {% if s.proposed %}{{ s.proposed }}{% else %}(these words were removed){% endif %}</p>
+{% elif s.status == 'rejected' %}
+<p><strong>Your words (kept):</strong> {{ s.original }}</p>
+<p><strong>Suggested, not used:</strong> {% if s.proposed %}{{ s.proposed }}{% else %}(remove these words){% endif %}</p>
+{% elif not fits or s.status == 'stale' %}
+<p><strong>Quoted from your earlier text:</strong> {{ s.original }}</p>
+<p><strong>Suggested, not used:</strong> {% if s.proposed %}{{ s.proposed }}{% else %}(remove these words){% endif %}</p>
+{% else %}
+<p><strong>Your words:</strong> {{ s.original }}</p>
+<p><strong>Suggested:</strong> {% if s.proposed %}{{ s.proposed }}{% else %}(remove these words){% endif %}</p>
+{% endif %}
+{% if s.place %}<p><strong>Where it is in your text:</strong> {{ s.place }}</p>{% endif %}
 <p><strong>The AI's reason:</strong> {{ s.reason or 'The AI gave no reason.' }}</p>
 {% if s.status == 'pending' %}
 <div class="actions">
+{% if fits %}
 {{ post_button('/write/' ~ doc.id ~ '/suggestions/' ~ batch.id ~ '/' ~ s.id ~ '/accept', 'Accept suggestion ' ~ s.number, 'primary') }}
 {{ post_button('/write/' ~ doc.id ~ '/suggestions/' ~ batch.id ~ '/' ~ s.id ~ '/reject', 'Reject suggestion ' ~ s.number) }}
+{% else %}
+{{ post_button('/write/' ~ doc.id ~ '/suggestions/' ~ batch.id ~ '/' ~ s.id ~ '/reject', 'Dismiss suggestion ' ~ s.number ~ ' (no longer matches your text)', 'secondary', {'dismiss': 'yes'}) }}
+{% endif %}
 </div>
 {% endif %}
 </section>
 {% endfor %}
+
+{% if counts.pending %}
+<section aria-labelledby="all-title">
+<h2 id="all-title">Decide on all waiting suggestions</h2>
+<p><a href="/write/{{ doc.id }}/suggestions/{{ batch.id }}/accept-all">Accept {{ all_waiting }}</a>. You are asked to confirm first.</p>
+<p>"Reject all remaining" leaves your text as it is.</p>
+{{ post_button('/write/' ~ doc.id ~ '/suggestions/' ~ batch.id ~ '/reject-all', 'Reject all remaining') }}
+</section>
+{% endif %}
 
 <p><a href="/write/{{ doc.id }}">Back to {{ doc.title }}</a></p>
 {% endblock %}

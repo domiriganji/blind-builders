@@ -4,14 +4,15 @@
 <h1>{{ title }}</h1>
 {% if user %}
 <p class="lead">{% if docs %}You have {{ docs|length }} document{{ '' if docs|length == 1 else 's' }}. The most recently changed is first.{% else %}You have no documents yet. Start one under "Start a new document" on this page.{% endif %}</p>
-<p>Write or paste your text. When you ask, the AI suggests changes one at a time, shown as before and after. Nothing changes until you accept it, and every saved change is kept as a version.</p>
+<p>Write or paste your text. When you ask, the AI suggests changes one at a time, each shown as your words and the suggested words. Nothing changes until you accept it, and every saved change is kept as a version.</p>
 {% if docs %}
 <h2>Your documents</h2>
 <table>
+  <caption>Your documents, most recently changed first</caption>
   <thead><tr><th scope="col">Title</th><th scope="col">Kind</th><th scope="col">Words</th><th scope="col">Last changed</th></tr></thead>
   <tbody>
   {% for d in docs %}
-  <tr><td><a href="/write/{{ d.id }}">{{ d.title }}</a></td><td>{{ d.kind_name }}</td><td>{{ d.words }}</td><td>{{ d.updated }}</td></tr>
+  <tr><th scope="row"><a href="/write/{{ d.id }}">{{ d.title }}</a></th><td>{{ d.kind_name }}</td><td>{{ d.words }}</td><td>{{ d.updated_day }}</td></tr>
   {% endfor %}
   </tbody>
 </table>
@@ -24,7 +25,7 @@
 <h2>What you can do here</h2>
 <ul>
   <li>Write or paste your text in a plain text box that works with screen readers and braille displays.</li>
-  <li>Ask the AI for suggestions: spelling and grammar, clearer wording, structure, a shorter version, or fitting a publication. Each one is shown as "was" and "now" with a reason, and you accept or reject it. The AI never changes your words by itself.</li>
+  <li>Ask the AI for suggestions: spelling and grammar, clearer wording, structure, a shorter version, or fitting a publication. Each one is shown as "your words" and "suggested" with a reason, and you accept or reject it. The AI never changes your words by itself.</li>
   <li>Every change is saved as a version, so you can go back to any earlier text.</li>
   <li>Export to Word, Markdown, plain text, a web page or LaTeX.</li>
   <li>Ask the AI to search the web for journals, magazines or preprint servers, with their rules, fees and what is known about their submission systems.</li>

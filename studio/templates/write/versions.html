@@ -3,11 +3,12 @@
 <h1>{{ title }}</h1>
 {% if versions %}
 <p class="lead">{{ versions|length }} version{{ '' if versions|length == 1 else 's' }} saved. The newest is first, grouped by the day it was saved. Open a version to read it or restore it. Restoring never loses your current text: it is kept as a version too.</p>
+<p>Times are in UTC, the same as London time in winter.</p>
 {% for day, day_versions in days %}
 <h2>Saved on {{ day }} ({{ day_versions|length }} version{{ '' if day_versions|length == 1 else 's' }})</h2>
 <ul class="item-list">
 {% for v in day_versions %}
-  <li><a href="/write/{{ doc.id }}/versions/{{ v.id }}">Version {{ v.number }}</a>, {{ v.when }}: {{ v.note }}. {{ v.words }} word{{ '' if v.words == 1 else 's' }}.{% if v.body == doc.body and v.id == versions[0].id %} This is your current text.{% endif %}</li>
+  <li><a href="/write/{{ doc.id }}/versions/{{ v.id }}">{{ v.link }}</a>. {{ v.words }} word{{ '' if v.words == 1 else 's' }}.</li>
 {% endfor %}
 </ul>
 {% endfor %}

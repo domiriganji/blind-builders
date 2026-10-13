@@ -2,10 +2,10 @@
 {% from "_macros.html" import post_button %}
 {% block content %}
 <h1>{{ title }}</h1>
-<p class="lead">This deletes "{{ doc.title }}" ({{ doc.words }} word{{ '' if doc.words == 1 else 's' }}), its {{ version_count }} version{{ '' if version_count == 1 else 's' }}, its suggestions and its publishing searches. It cannot be undone.</p>
+<p class="lead">{% if version_count %}This deletes "{{ doc.title }}" ({{ doc.word_text }}), its {{ version_count }} version{{ '' if version_count == 1 else 's' }}, its suggestions and its publishing searches.{% else %}This deletes "{{ doc.title }}". Nothing has been saved in it yet.{% endif %} This cannot be undone.</p>
 <p>If you want a copy, <a href="/write/{{ doc.id }}/export">export it first</a>.</p>
 <div class="actions">
-{{ post_button('/write/' ~ doc.id ~ '/delete', 'Delete this document for good', 'primary') }}
+{{ post_button('/write/' ~ doc.id ~ '/delete', 'Delete this document forever', 'primary') }}
 <a href="/write/{{ doc.id }}">Keep it and go back</a>
 </div>
 {% endblock %}

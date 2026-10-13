@@ -13,6 +13,7 @@ import re
 import time
 import unicodedata
 from datetime import datetime, timezone
+from difflib import SequenceMatcher
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -20,7 +21,8 @@ from fastapi.responses import Response
 
 from .. import db, jobs, sensitive
 from ..ai import AIError, AINotAvailable
-from ..web import checked_form, current_user, flash, get_ai, markdown, redirect, render, require_user, shift_headings
+from ..web import (checked_form, current_user, date_words, error_title, flash, get_ai, markdown, nest_headings,
+                   redirect, render, require_user)
 
 router = APIRouter(prefix="/write")
 NAV = {"label": 'Write and publish', "url": '/write', "description": 'Write articles, papers and letters. The AI suggests changes one at a time and never silently rewords you. Get help finding a journal and submitting.'}
@@ -119,7 +121,7 @@ MAX_REASON = 1000
 MAX_NOTE = 10_000
 GONE = "This document was deleted before the AI started, so there was nothing to work on."
 GONE_DURING = "This document was deleted while the AI was working, so the result was not kept."
-BAD_ANSWER = "The AI's answer was incomplete, so nothing was saved and your text was not changed. Please try again."
+BAD_ANSWER = "The AI's answer came back incomplete, so nothing was saved and your text was not changed. Please try again."
 JOB_FRESH_SECONDS = 15 * 60    # a job older than this that never finished is treated as abandoned
 OUTCOME_KEY = "write_outcome"
 OUTCOME_SECONDS = 300
@@ -131,11 +133,19 @@ STATUS_TEXT = {
     "stale": "Out of date. The words it would change are no longer in your text, so nothing was changed.",
 }
 
-SYSTEM_BASE = (
-    "You help a writer on Blind Creators Studio. The writer is blind or has low vision and uses a screen reader. "
-    "Put the summary first. Use plain language and short headings. Do not use tables unless asked. Do not use emoji. "
-    "Never claim something was checked or tested unless it was."
+# The shared member note (ai.member_voice: who the writer is, tone, plain words, summary first) is put before
+# every system prompt by AIClient, so these add only what each task needs (docs/VOICE.md, 4.18).
+SUGGEST_SYSTEM = (
+    "You suggest edits to a writer's own text on Blind Creators Studio. The writer accepts or rejects each one, "
+    "so every suggestion must quote the text exactly. Respect the writer's voice. Never change the words the writer "
+    "uses about disability or about themselves, such as \"blind\" or \"disabled\", and never suggest euphemisms "
+    "for them."
 )
+VENUES_SYSTEM = "You help a writer on Blind Creators Studio choose where to submit their work."
+COVER_LETTER_SYSTEM = ("You draft cover letters for a writer on Blind Creators Studio. The writer edits the letter "
+                       "and sends it themselves.")
+DRAFTED_NOTE = "Drafted by the AI"
+COVER_PREFIX = "Cover letter: "
 
 SUGGEST_SCHEMA = {
     "type": "object",
@@ -167,10 +177,30 @@ _LANG_RE = re.compile(r"^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})?$")
 # ----- small helpers ---------------------------------------------------------------------------
 
 def when(iso: str | None) -> str:
-    """'2026-10-12T14:03:22+00:00' -> '2026-10-12 14:03 UTC'."""
+    """'2026-10-12T14:03:22+00:00' -> '12 October 2026, 14:03 UTC'."""
+    return date_words(iso, with_time=True) if iso else ""
+
+
+def on_at(iso: str | None) -> str:
+    """'2026-10-12T14:03:22+00:00' -> 'on 12 October 2026 at 14:03 UTC', for use inside a sentence."""
     if not iso:
         return ""
-    return iso[:16].replace("T", " ") + " UTC"
+    day = date_words(iso)
+    clock = iso[11:16] if len(iso) >= 16 and iso[13:14] == ":" else ""
+    return f"on {day} at {clock} UTC" if clock else f"on {day}"
+
+
+def _lower_first(text: str) -> str:
+    return text[:1].lower() + text[1:] if text[:2] != "AI" else text
+
+
+def saved_sentence(note: str, iso: str | None, prefix: str = "Last saved") -> str:
+    """'Last saved by you on 13 October 2026 at 12:29 UTC.' or 'Last saved on ...: accepted suggestion 1.'"""
+    if note == "Saved by you":
+        return f"{prefix} by you {on_at(iso)}."
+    if note == DRAFTED_NOTE:
+        return f"Drafted by the AI {on_at(iso)}."
+    return f"{prefix} {on_at(iso)}: {_lower_first(note)}." if note else f"{prefix} {on_at(iso)}."
 
 
 def word_count(text: str) -> int:
@@ -241,18 +271,24 @@ def _xml_safe(text: str) -> str:
     return _XML_ILLEGAL.sub("", _DOCX_BREAKS.sub("\n", text or ""))
 
 
-def _say(request: Request, url: str, text: str) -> None:
-    """Remember what just happened, so the next page's h1 (the first thing a screen reader reads) says it."""
-    request.session[OUTCOME_KEY] = {"url": url, "text": text[:300], "at": int(time.time())}
+def _say(request: Request, url: str, text: str, note: str = "", kind: str = "success", place: int = 0) -> None:
+    """Remember what just happened, so the next page's h1 (the first thing a screen reader reads) says it.
+    `note` is a fuller sentence shown where the page opens (`place`: a suggestion number, or 0 for the top)."""
+    request.session[OUTCOME_KEY] = {"url": url, "text": text[:300], "at": int(time.time()),
+                                    "note": note[:600], "kind": kind, "place": place}
 
 
-def _heard(request: Request, url: str) -> str:
+def _heard_all(request: Request, url: str) -> dict:
     """The outcome _say saved for this page, once. Empty if there is none."""
     outcome = request.session.pop(OUTCOME_KEY, None)
     if (isinstance(outcome, dict) and outcome.get("url") == url
             and time.time() - float(outcome.get("at") or 0) < OUTCOME_SECONDS):
-        return str(outcome.get("text") or "")
-    return ""
+        return outcome
+    return {}
+
+
+def _heard(request: Request, url: str) -> str:
+    return str(_heard_all(request, url).get("text") or "")
 
 
 def _begin_write(conn) -> None:
@@ -274,20 +310,31 @@ def _running_job(user_id: int, kind: str) -> str | None:
     return row["id"] if age < JOB_FRESH_SECONDS else None
 
 
-def _start_job(request: Request, user: dict, doc: dict, kind: str, title: str, fn, *args):
-    """Start AI work for a document, or send the person to the same work if it is already running."""
+def _start_job(request: Request, user: dict, doc: dict, kind: str, title: str, fn, *args, saved: str = ""):
+    """Start AI work for a document, or send the person to the same work if it is already running.
+    `saved` says the text was saved first ("Saved your text as version 3"), so the next page can say so."""
     kind = f"{kind}:{doc['id']}"
     running = _running_job(user["id"], kind)
     if running:
-        flash(request, "The AI is already working on this. Nothing new was started, so you are not charged twice.", "info")
+        if saved:
+            flash(request, f"{saved}. The AI is already working on your earlier text, so nothing new was started and "
+                           "you are not charged twice. When it is done, you can ask again.", "info")
+        else:
+            flash(request, "The AI is already working on this. Nothing new was started, so you are not charged twice.",
+                  "info")
         return redirect(jobs.job_url(running))
     try:
         ai = get_ai(request, user)
     except AINotAvailable as exc:
+        if saved:
+            flash(request, f"{saved}.", "success")
         flash(request, exc.user_message, "error")
         _say(request, f"/write/{doc['id']}", f"{doc['title']}: the AI is not available")
         return redirect(f"/write/{doc['id']}")
-    return redirect(jobs.job_url(jobs.submit(user["id"], kind, title, fn, ai, *args, item_ref=_item_ref(doc))))
+    if saved:
+        flash(request, f"{saved}, then asked the AI.", "success")
+    return redirect(jobs.job_url(jobs.submit(user["id"], kind, title, fn, ai, *args, back_url=f"/write/{doc['id']}",
+                                             item_ref=_item_ref(doc))))
 
 
 def _item_ref(doc: dict) -> str:
@@ -365,7 +412,7 @@ def _versions_by_day(versions: list[dict]) -> list[tuple[str, list[dict]]]:
     """Versions grouped under the day they were saved, newest day first (versions should already be newest first)."""
     groups: list[tuple[str, list[dict]]] = []
     for v in versions:
-        day = (v["created_at"] or "")[:10] or "Unknown date"
+        day = date_words((v["created_at"] or "")[:10]) or "an unknown date"
         if not groups or groups[-1][0] != day:
             groups.append((day, []))
         groups[-1][1].append(v)
@@ -422,9 +469,41 @@ def _research_list(doc_id: int) -> list[dict]:
 def _doc_view(doc: dict) -> dict:
     view = dict(doc)
     view["words"] = word_count(doc["body"])
+    view["word_text"] = plural(view["words"], "word")
     view["kind_name"] = KIND_NAMES.get(doc["kind"], doc["kind"])
     view["updated"] = when(doc["updated_at"])
+    view["updated_day"] = date_words(doc["updated_at"])
     return view
+
+
+def _first_note(conn, doc_id: int) -> str:
+    row = conn.execute("SELECT note FROM write_versions WHERE doc_id = ? ORDER BY id LIMIT 1", (doc_id,)).fetchone()
+    return row["note"] if row else ""
+
+
+def _drafted_for(doc: dict) -> tuple[bool, dict | None]:
+    """Whether this document is a cover letter the AI drafted, and if so the document it was drafted for
+    (found by its title, so it is None if either was renamed or deleted)."""
+    with db.session() as conn:
+        if doc["kind"] != "letter" or _first_note(conn, doc["id"]) != DRAFTED_NOTE:
+            return False, None
+        if not doc["title"].startswith(COVER_PREFIX):
+            return True, None
+        row = conn.execute("SELECT id, title FROM write_docs WHERE user_id = ? AND title = ? AND id != ?"
+                           " AND created_at <= ? ORDER BY id DESC LIMIT 1",
+                           (doc["user_id"], doc["title"][len(COVER_PREFIX):], doc["id"], doc["created_at"])).fetchone()
+    return True, dict(row) if row else None
+
+
+def _letters_for(doc: dict) -> list[dict]:
+    """Cover letters the AI drafted for this document, newest first."""
+    with db.session() as conn:
+        rows = conn.execute(
+            "SELECT d.id, d.title, d.created_at FROM write_docs d WHERE d.user_id = ? AND d.kind = 'letter'"
+            " AND d.title = ? AND d.id != ? AND (SELECT v.note FROM write_versions v WHERE v.doc_id = d.id"
+            " ORDER BY v.id LIMIT 1) = ? ORDER BY d.id DESC",
+            (doc["user_id"], (COVER_PREFIX + doc["title"])[:MAX_TITLE], doc["id"], DRAFTED_NOTE)).fetchall()
+    return [dict(r, when=when(r["created_at"])) for r in rows]
 
 
 # ----- pages: list and create ------------------------------------------------------------------
@@ -473,7 +552,7 @@ async def create(request: Request, user: dict = Depends(require_user)):
             errors[field] = _secret_error(values[field])
             values[field] = ""  # never show the secret again
     if errors:
-        return render(request, "write/new.html", title="Start a new document: please fix the problems",
+        return render(request, "write/new.html", title=error_title("Start a new document", errors),
                       values=values, errors=errors, kinds=KINDS, status_code=400)
     now = db.now()
     with db.session() as conn:
@@ -481,12 +560,17 @@ async def create(request: Request, user: dict = Depends(require_user)):
             "INSERT INTO write_docs (user_id, title, kind, body, target, created_at, updated_at) VALUES (?, ?, ?, '', ?, ?, ?)",
             (user["id"], values["title"], values["kind"], values["target"], now, now))
         doc_id = cur.lastrowid
-    flash(request, f"Your document \"{values['title']}\" is ready. Write or paste your text, then save.", "success")
+    flash(request, f"Your document \"{values['title']}\" is ready. Write or paste your text, then save it.", "success")
     _say(request, f"/write/{doc_id}", f"{values['title']}: new document started")
     return redirect(f"/write/{doc_id}")
 
 
 # ----- the document page -----------------------------------------------------------------------
+
+# The document page is one form: "Save my text" and each AI button send the text box with them, so the AI
+# always works on what the member sees, and nothing typed is lost when they choose an AI button.
+AI_FIELDS = ("goal", "instructions", "notes")
+
 
 def _render_doc(request: Request, doc: dict, *, title: str | None = None, values: dict | None = None,
                 errors: dict | None = None, status_code: int = 200):
@@ -494,13 +578,18 @@ def _render_doc(request: Request, doc: dict, *, title: str | None = None, values
     vals = {"title": doc["title"], "body": doc["body"], "target": doc["target"], "goal": "spelling",
             "instructions": "", "notes": ""}
     vals.update(values or {})
+    is_letter, drafted_for = _drafted_for(doc)
+    saved_line = (saved_sentence(last_version["note"], last_version["created_at"]) if last_version
+                  else "Nothing saved yet.")
     return render(request, "write/doc.html", title=title or doc["title"], doc=_doc_view(doc), values=vals,
                   errors=errors or {}, goals=GOALS, version_count=version_count, last_version=last_version,
+                  saved_line=saved_line, is_cover_letter=is_letter, drafted_for=drafted_for,
+                  letters=[] if is_letter else _letters_for(doc),
                   batches=_batches(doc["id"]), research=_research_list(doc["id"]), status_code=status_code)
 
 
 def _fix_problems(request: Request, doc: dict, values: dict, errors: dict):
-    return _render_doc(request, doc, title=f"{doc['title']}: please fix the problems", values=values, errors=errors,
+    return _render_doc(request, doc, title=error_title(doc["title"], errors), values=values, errors=errors,
                        status_code=400)
 
 
@@ -511,16 +600,35 @@ def doc_page(request: Request, doc_id: int, user: dict = Depends(require_user)):
     return _render_doc(request, doc, title=outcome or None)
 
 
-@router.post("/{doc_id}/save")
-async def save(request: Request, doc_id: int, user: dict = Depends(require_user)):
-    doc = _owned_doc(doc_id, user)
-    form = await checked_form(request)
-    body = _text(form, "body").replace("\r\n", "\n").replace("\r", "\n")
-    new_title = _text(form, "title").strip()
-    target = _text(form, "target").strip()
+@router.get("/{doc_id}/save")
+@router.get("/{doc_id}/suggest")
+@router.get("/{doc_id}/venues")
+@router.get("/{doc_id}/cover-letter")
+def back_to_document(doc_id: int, user: dict = Depends(require_user)):
+    """A reload or a restored tab after a form came back with a question lands here: go to the document."""
+    _owned_doc(doc_id, user)
+    return redirect(f"/write/{doc_id}")
+
+
+def _edit_values(form: dict) -> dict:
+    return {"body": _text(form, "body").replace("\r\n", "\n").replace("\r", "\n"),
+            "title": _text(form, "title").strip(), "target": _text(form, "target").strip()}
+
+
+def _kept_values(form: dict) -> dict:
+    """Everything the member typed on the document page, to show again if something needs checking."""
+    kept = {k: _text(form, k).strip() for k in AI_FIELDS if k in form}
+    if "body" in form:
+        kept.update(_edit_values(form))
+    return kept
+
+
+def _edit_errors(values: dict) -> dict[str, str]:
+    body, new_title, target = values["body"], values["title"], values["target"]
     errors: dict[str, str] = {}
     if len(body) > MAX_BODY:
-        errors["body"] = f"Your text is too long to save here ({len(body):,} characters). The limit is {MAX_BODY:,}. Split it into two documents."
+        errors["body"] = (f"Your text has {len(body):,} characters, and one document can hold up to {MAX_BODY:,}. "
+                          "Please split it into two documents.")
     elif _secret_error(body):
         errors["body"] = _secret_error(body) + " Then save again."
     if not new_title:
@@ -533,59 +641,97 @@ async def save(request: Request, doc_id: int, user: dict = Depends(require_user)
         errors["target"] = _secret_error(target)
     if "title" not in errors and _secret_error(new_title):
         errors["title"] = _secret_error(new_title)
-    if errors:
-        return _fix_problems(request, doc, {"body": body, "title": new_title, "target": target}, errors)
+    return errors
+
+
+def _store_edits(doc_id: int, values: dict) -> int:
+    """Save the title, publication and text. Returns the new version's number, or 0 if the text had not changed."""
     with db.session() as conn:
         _begin_write(conn)
         # Read the text again under the lock: a second press of Save must not save a second identical version.
         current = conn.execute("SELECT body FROM write_docs WHERE id = ?", (doc_id,)).fetchone()["body"]
         conn.execute("UPDATE write_docs SET title = ?, target = ?, updated_at = ? WHERE id = ?",
-                     (new_title, target, db.now(), doc_id))
+                     (values["title"], values["target"], db.now(), doc_id))
         last = conn.execute("SELECT body FROM write_versions WHERE doc_id = ? ORDER BY id DESC LIMIT 1",
                             (doc_id,)).fetchone()
-        text_changed = body != current or (last is None and body != "")
-        if text_changed:
-            _set_body(conn, doc_id, body, "Saved by you")
-            count = conn.execute("SELECT COUNT(*) AS n FROM write_versions WHERE doc_id = ?", (doc_id,)).fetchone()["n"]
-    if text_changed:
-        flash(request, f"Saved as version {count}. {plural(word_count(body), 'word')}.", "success")
-        _say(request, f"/write/{doc_id}", f"{new_title}: saved as version {count}")
+        if values["body"] == current and not (last is None and values["body"] != ""):
+            return 0
+        _set_body(conn, doc_id, values["body"], "Saved by you")
+        return conn.execute("SELECT COUNT(*) AS n FROM write_versions WHERE doc_id = ?", (doc_id,)).fetchone()["n"]
+
+
+async def _save_first(request: Request, doc_id: int, user: dict) -> tuple[dict, dict, dict, str]:
+    """For the AI buttons: check the form, then save the text box first if it came with the form and is fine,
+    so the AI works on what the member sees. Returns (the document as saved, what the member typed, problems
+    with the text box, and "Saved your text as version 3" or "")."""
+    form = await checked_form(request)
+    doc = _owned_doc(doc_id, user)
+    kept = _kept_values(form)
+    if "body" not in form:
+        return doc, kept, {}, ""
+    errors = _edit_errors(kept)
+    if errors:
+        return doc, kept, errors, ""
+    version = _store_edits(doc_id, kept)
+    return _owned_doc(doc_id, user), kept, {}, (f"Saved your text as version {version}" if version else "")
+
+
+def _ai_problems(request: Request, doc: dict, kept: dict, errors: dict, saved: str):
+    """Show the document again with what needs checking before the AI can start."""
+    if saved:
+        flash(request, f"{saved}. The AI has not started yet.", "success")
+    return _fix_problems(request, doc, kept, errors)
+
+
+@router.post("/{doc_id}/save")
+async def save(request: Request, doc_id: int, user: dict = Depends(require_user)):
+    doc = _owned_doc(doc_id, user)
+    form = await checked_form(request)
+    kept = _kept_values(form)
+    values = _edit_values(form)
+    errors = _edit_errors(values)
+    if errors:
+        return _fix_problems(request, doc, kept, errors)
+    version = _store_edits(doc_id, values)
+    if version:
+        flash(request, f"Saved as version {version}. {plural(word_count(values['body']), 'word')}.", "success")
+        _say(request, f"/write/{doc_id}", f"{values['title']}: saved as version {version}")
     else:
         flash(request, "Saved. Your text had not changed, so no new version was needed.", "success")
-        _say(request, f"/write/{doc_id}", f"{new_title}: saved, the text had not changed")
-    return redirect(f"/write/{doc_id}")
+        _say(request, f"/write/{doc_id}", f"{values['title']}: saved, the text had not changed")
+    return redirect(f"/write/{doc_id}#edit-title")
 
 
 # ----- suggestions -----------------------------------------------------------------------------
 
 @router.post("/{doc_id}/suggest")
 async def suggest(request: Request, doc_id: int, user: dict = Depends(require_user)):
-    doc = _owned_doc(doc_id, user)
-    form = await checked_form(request)
-    goal = _text(form, "goal").strip()
-    instructions = _text(form, "instructions").strip()
-    errors: dict[str, str] = {}
-    if not doc["body"].strip():
-        errors["body"] = "Your document has no saved text yet. Write or paste your text here and save it, then ask for suggestions."
-    elif len(doc["body"]) > MAX_AI_BODY:
-        errors["body"] = (f"Your text is too long for one round of suggestions ({len(doc['body']):,} characters; the limit is "
-                          f"{MAX_AI_BODY:,}). Split it into two documents and ask about each one.")
+    doc, kept, errors, saved = await _save_first(request, doc_id, user)
+    goal = kept.get("goal", "")
+    instructions = kept.get("instructions", "")
+    if not errors:  # the text box is saved, so check the saved document
+        if not doc["body"].strip():
+            errors["body"] = ("Your document has no text yet. Write or paste it in \"Your text\", "
+                              "then choose \"Save and get suggestions\".")
+        elif len(doc["body"]) > MAX_AI_BODY:
+            errors["body"] = (f"Your text has {len(doc['body']):,} characters, and one round of suggestions can take up "
+                              f"to {MAX_AI_BODY:,}. Split it into two documents and ask about each one.")
+        if goal == "publication" and not doc["target"]:
+            errors["target"] = ("Fill in the publication you are aiming for, so the AI knows what to prepare your text "
+                                "for. Or choose another goal.")
+        for field, problem in _stored_secret_errors(doc).items():
+            errors.setdefault(field, problem)
     if goal not in GOAL_NAMES:
         errors["goal"] = "Choose what you want the AI to look for."
-    elif goal == "publication" and not doc["target"]:
-        errors["target"] = ("Fill in the publication you are aiming for and save, so the AI knows what to prepare your text for. "
-                            "Or choose another goal.")
     if len(instructions) > MAX_INSTRUCTIONS:
         errors["instructions"] = (f"Your instructions are {len(instructions):,} characters long. "
                                   f"Shorten them to {MAX_INSTRUCTIONS:,} characters or fewer.")
     elif _secret_error(instructions):
         errors["instructions"] = _secret_error(instructions)
-    for field, problem in _stored_secret_errors(doc).items():
-        errors.setdefault(field, problem)
     if errors:
-        return _fix_problems(request, doc, {"goal": goal, "instructions": instructions}, errors)
+        return _ai_problems(request, doc, kept, errors, saved)
     return _start_job(request, user, doc, "write.suggest", f"Suggestions for {doc['title']}", _suggest_job, doc_id,
-                      doc["created_at"], goal, instructions)
+                      doc["created_at"], goal, instructions, saved=saved)
 
 
 def filter_suggestions(body: str, raw: list[dict]) -> tuple[list[dict], int]:
@@ -642,10 +788,8 @@ def _suggest_job(ctx, ai, doc_id: int, created_at: str, goal: str, instructions:
         "overall_note: two to four plain sentences about the text as a whole, summary first. Do not repeat the suggestions."
     )
     prompt_parts.append(f"The text:\n<text>\n{body}\n</text>")
-    result = ai.structured(
-        system=SYSTEM_BASE + " You suggest edits. The writer accepts or rejects each one, so every suggestion must quote "
-                             "the text exactly. Respect the writer's voice.",
-        prompt="\n\n".join(prompt_parts), schema=SUGGEST_SCHEMA, purpose="write.suggest")
+    result = ai.structured(system=SUGGEST_SYSTEM, prompt="\n\n".join(prompt_parts), schema=SUGGEST_SCHEMA,
+                           purpose="write.suggest")
     ctx.progress("Checking each suggestion against your text")
     if not isinstance(result, dict) or not isinstance(result.get("suggestions"), list):
         # Showing "no suggestions" here would wrongly tell the writer their text needs nothing.
@@ -670,14 +814,27 @@ def _suggest_job(ctx, ai, doc_id: int, created_at: str, goal: str, instructions:
     return f"/write/{doc_id}/suggestions/{batch_id}"
 
 
+def _counts_sentence(counts: dict) -> str:
+    """'2 waiting for your decision, 1 accepted.' Only the counts that are not zero."""
+    parts = [f"{counts['pending']} waiting for your decision" if counts["pending"] else ""]
+    parts += [f"{counts[k]} {word}" for k, word in (("accepted", "accepted"), ("rejected", "rejected"),
+                                                    ("stale", "out of date")) if counts[k]]
+    parts = [p for p in parts if p]
+    if not parts:
+        return ""
+    text = ", ".join(parts[:-1]) + (" and " if len(parts) > 1 else "") + parts[-1]
+    return text[:1].upper() + text[1:] + "."
+
+
 @router.get("/{doc_id}/suggestions/{batch_id}")
 def suggestions_page(request: Request, doc_id: int, batch_id: int, user: dict = Depends(require_user)):
     doc = _owned_doc(doc_id, user)
     batch = _owned_batch(doc, batch_id)
     items = _suggestions(batch_id)
     for s in items:
-        s["matches"] = s["original"] in doc["body"]
-        s["context"] = in_context(doc["body"], s["original"]) if s["status"] == "pending" else ""
+        s["matches"] = doc["body"].count(s["original"]) == 1
+        s["change"] = describe_change(s["original"], s["proposed"])
+        s["place"] = where_in_text(doc["body"], s["original"]) if s["status"] == "pending" and s["matches"] else ""
     n = len(items)
     counts = {k: sum(1 for s in items if s["status"] == k) for k in ("pending", "accepted", "rejected", "stale")}
     next_pending = next((s for s in items if s["status"] == "pending"), None)
@@ -685,29 +842,110 @@ def suggestions_page(request: Request, doc_id: int, batch_id: int, user: dict = 
         title = f"No suggestions for {doc['title']}"
     else:
         title = f"{plural(n, 'suggestion')} for {doc['title']}"
-    outcome = _heard(request, f"/write/{doc_id}/suggestions/{batch_id}")
-    if outcome:
-        title = f"{title}: {outcome}"
+    outcome = _heard_all(request, f"/write/{doc_id}/suggestions/{batch_id}")
+    if outcome.get("text"):
+        title = f"{title}: {outcome['text']}"
+    note = ({"text": outcome["note"], "kind": outcome.get("kind") or "success", "place": int(outcome.get("place") or 0)}
+            if outcome.get("note") else None)
+    if note and note["place"] and not any(s["number"] == note["place"] and s["status"] == "pending" for s in items):
+        note["place"] = 0
     return render(request, "write/suggestions.html", title=title, doc=_doc_view(doc),
                   batch=dict(batch, when=when(batch["created_at"]), goal_name=GOAL_NAMES.get(batch["goal"], batch["goal"])),
-                  items=items, n=n, counts=counts, next_pending=next_pending, status_text=STATUS_TEXT)
+                  items=items, n=n, counts=counts, counts_sentence=_counts_sentence(counts), next_pending=next_pending,
+                  status_text=STATUS_TEXT, note=note, all_waiting=_all_waiting(counts["pending"]))
 
 
-def in_context(body: str, excerpt: str, width: int = 60) -> str:
-    """The excerpt with a few words either side, so a short change like one word can be found by ear."""
+@router.get("/{doc_id}/suggestions/{batch_id}/accept-all")
+def accept_all_confirm(request: Request, doc_id: int, batch_id: int, user: dict = Depends(require_user)):
+    """Accepting every suggestion rewrites a lot of text at once, so it is confirmed first."""
+    doc = _owned_doc(doc_id, user)
+    batch = _owned_batch(doc, batch_id)
+    waiting = sum(1 for s in _suggestions(batch_id) if s["status"] == "pending")
+    if waiting:
+        title = f"Accept {_all_waiting(waiting)} for {doc['title']}?"
+    else:
+        title = f"No suggestions are waiting for {doc['title']}"
+    return render(request, "write/accept_all.html", title=title, doc=_doc_view(doc), batch=batch, waiting=waiting)
+
+
+def _all_waiting(count: int) -> str:
+    """'all 3 waiting suggestions', or 'the 1 waiting suggestion'."""
+    return f"all {count} waiting suggestions" if count != 1 else "the 1 waiting suggestion"
+
+
+_QUOTE_MAX = 80
+
+
+def _quote(words: list[str]) -> str:
+    text = " ".join(words)
+    return f'"{text[:_QUOTE_MAX - 3]}..."' if len(text) > _QUOTE_MAX else f'"{text}"'
+
+
+def describe_change(original: str, proposed: str) -> str:
+    """What a suggestion changes, word by word, worked out by the site (not the AI), so a short change can be
+    found without comparing two long sentences: 'replaces "teh" with "the".'"""
+    old, new = original.split(), proposed.split()
+    if old == new:
+        return "changes only spaces or line breaks."
+    if not new:
+        text = f"removes {_quote(old)}"
+        return text if text.endswith(('."', '!"', '?"')) else text + "."
+    ops = [op for op in SequenceMatcher(None, old, new, autojunk=False).get_opcodes() if op[0] != "equal"]
+    if len(ops) > 3:
+        return f"makes {len(ops)} changes in this passage."
+    parts = []
+    for tag, i1, i2, j1, j2 in ops:
+        if tag == "replace":
+            parts.append(f"replaces {_quote(old[i1:i2])} with {_quote(new[j1:j2])}")
+        elif tag == "delete":
+            parts.append(f"removes {_quote(old[i1:i2])}")
+        elif i1 > 0:
+            parts.append(f"adds {_quote(new[j1:j2])} after {_quote(old[i1 - 1:i1])}")
+        elif old:
+            parts.append(f"adds {_quote(new[j1:j2])} before {_quote(old[:1])}")
+        else:
+            parts.append(f"adds {_quote(new[j1:j2])}")
+    text = "; ".join(parts)
+    return text if text.endswith(('."', '!"', '?"')) else text + "."
+
+
+_MD_HEADING = re.compile(r"^\s*#{1,6}\s+")
+
+
+def where_in_text(body: str, excerpt: str, width: int = 60) -> str:
+    """Where the excerpt is, place first, with a few words either side and no Markdown marks, so a short
+    change like one word can be found: 'In the section "Methods", paragraph 2: ...we paid teh fee...'."""
     pos = body.find(excerpt) if excerpt else -1
     if pos < 0:
         return ""
-    start, end = max(0, pos - width), min(len(body), pos + len(excerpt) + width)
-    before, after = body[start:pos], body[pos + len(excerpt):end]
-    if start > 0 and " " in before:
+    section, paragraph, in_paragraph, para_start = "", 0, False, 0
+    offset = 0
+    for line in body.split("\n"):
+        end = offset + len(line)
+        heading = _heading(line.strip())
+        if heading:
+            if offset <= pos <= end:
+                return f'In the heading "{heading[1]}".'
+            section, paragraph, in_paragraph = heading[1], 0, False
+        elif not line.strip():
+            in_paragraph = False
+        elif not in_paragraph:
+            paragraph, in_paragraph, para_start = paragraph + 1, True, offset
+        if offset <= pos <= end:
+            break
+        offset = end + 1
+    para_end = body.find("\n\n", pos + len(excerpt))
+    para_end = len(body) if para_end < 0 else para_end
+    start, stop = max(para_start, pos - width), min(para_end, pos + len(excerpt) + width)
+    before, after = body[start:pos], body[pos + len(excerpt):stop]
+    if start > para_start and " " in before:
         before = before[before.index(" ") + 1:]
-    if end < len(body) and " " in after:
+    if stop < para_end and " " in after:
         after = after[:after.rindex(" ")]
-    if not before.strip() and not after.strip():
-        return ""
-    text = ("..." if start > 0 else "") + before + excerpt + after + ("..." if end < len(body) else "")
-    return " ".join(text.split())
+    text = (("..." if start > para_start else "") + before + excerpt + after + ("..." if stop < para_end else ""))
+    text = " ".join(_MD_HEADING.sub("", ln) for ln in text.split("\n")).split()
+    place = (f'In the section "{section}", paragraph {paragraph}' if section else f"Paragraph {paragraph}")
+    return f"{place}: {' '.join(text)}"
 
 
 def _owned_suggestion(doc: dict, batch_id: int, suggestion_id: int) -> dict:
@@ -719,13 +957,35 @@ def _owned_suggestion(doc: dict, batch_id: int, suggestion_id: int) -> dict:
     return dict(row)
 
 
+def _next_place(conn, batch_id: int, after: int) -> int:
+    """The next suggestion still waiting after this one (or the first waiting one), or 0 if none are left."""
+    rows = [r["number"] for r in conn.execute(
+        "SELECT number FROM write_suggestions WHERE batch_id = ? AND status = 'pending' ORDER BY number", (batch_id,))]
+    return next((n for n in rows if n > after), rows[0] if rows else 0)
+
+
+def _back_to(doc_id: int, batch_id: int, place: int) -> str:
+    """The suggestions page, opened at the next suggestion to decide, or at the counts when none are left."""
+    return f"/write/{doc_id}/suggestions/{batch_id}" + (f"#suggestion-{place}" if place else "#progress")
+
+
+@router.get("/{doc_id}/suggestions/{batch_id}/{suggestion_id}/accept")
+@router.get("/{doc_id}/suggestions/{batch_id}/{suggestion_id}/reject")
+@router.get("/{doc_id}/suggestions/{batch_id}/reject-all")
+def back_to_suggestions(doc_id: int, batch_id: int, user: dict = Depends(require_user)):
+    doc = _owned_doc(doc_id, user)
+    _owned_batch(doc, batch_id)
+    return redirect(f"/write/{doc_id}/suggestions/{batch_id}")
+
+
 @router.post("/{doc_id}/suggestions/{batch_id}/{suggestion_id}/accept")
 async def accept(request: Request, doc_id: int, batch_id: int, suggestion_id: int, user: dict = Depends(require_user)):
     await checked_form(request)
     doc = _owned_doc(doc_id, user)
     _owned_batch(doc, batch_id)
     s = _owned_suggestion(doc, batch_id, suggestion_id)
-    back = f"/write/{doc_id}/suggestions/{batch_id}"
+    here = f"/write/{doc_id}/suggestions/{batch_id}"
+    kind = "success"
     with db.session() as conn:
         # Under the write lock, so pressing Accept twice cannot apply the change twice (to a second "teh", say).
         _begin_write(conn)
@@ -737,36 +997,47 @@ async def accept(request: Request, doc_id: int, batch_id: int, suggestion_id: in
         elif body.count(s["original"]) == 1:
             _set_body(conn, doc_id, body.replace(s["original"], s["proposed"], 1), f"Accepted suggestion {s['number']}")
             conn.execute("UPDATE write_suggestions SET status = 'accepted' WHERE id = ?", (s["id"],))
+            version = conn.execute("SELECT COUNT(*) AS n FROM write_versions WHERE doc_id = ?", (doc_id,)).fetchone()["n"]
             outcome = f"suggestion {s['number']} accepted"
-            message, kind = f"Suggestion {s['number']} accepted. Your text has the change and is saved as a new version.", "success"
+            message = f"Suggestion {s['number']} accepted. Your text has the change and is saved as version {version}."
         else:
+            # The member edited their own text since. That is information, not an error (docs/VOICE.md, 4.12).
             conn.execute("UPDATE write_suggestions SET status = 'stale' WHERE id = ?", (s["id"],))
             outcome = f"suggestion {s['number']} is out of date, nothing changed"
             message, kind = (f"Suggestion {s['number']} no longer matches your text, because the words it would change "
-                             "are not there any more, or are now there more than once. Nothing was changed.", "error")
-    flash(request, message, kind)
-    _say(request, back, outcome)
-    return redirect(back)
+                             "are not there any more, or are now there more than once. Nothing was changed.", "info")
+        place = _next_place(conn, batch_id, s["number"])
+    _say(request, here, outcome, message, kind, place)
+    return redirect(_back_to(doc_id, batch_id, place))
 
 
 @router.post("/{doc_id}/suggestions/{batch_id}/{suggestion_id}/reject")
 async def reject(request: Request, doc_id: int, batch_id: int, suggestion_id: int, user: dict = Depends(require_user)):
-    await checked_form(request)
+    form = await checked_form(request)
     doc = _owned_doc(doc_id, user)
     _owned_batch(doc, batch_id)
     s = _owned_suggestion(doc, batch_id, suggestion_id)
-    back = f"/write/{doc_id}/suggestions/{batch_id}"
+    here = f"/write/{doc_id}/suggestions/{batch_id}"
+    dismiss = _text(form, "dismiss") == "yes"
     with db.session() as conn:
-        changed = conn.execute("UPDATE write_suggestions SET status = 'rejected' WHERE id = ? AND status = 'pending'",
-                               (s["id"],)).rowcount
+        _begin_write(conn)
+        body = conn.execute("SELECT body FROM write_docs WHERE id = ?", (doc_id,)).fetchone()["body"]
+        # Dismissing a suggestion that no longer fits marks it out of date; one that fits again is rejected.
+        new_status = "stale" if dismiss and body.count(s["original"]) != 1 else "rejected"
+        changed = conn.execute("UPDATE write_suggestions SET status = ? WHERE id = ? AND status = 'pending'",
+                               (new_status, s["id"])).rowcount
         status = conn.execute("SELECT status FROM write_suggestions WHERE id = ?", (s["id"],)).fetchone()["status"]
-    if changed:
-        flash(request, f"Suggestion {s['number']} rejected. Your text is unchanged.", "success")
-        _say(request, back, f"suggestion {s['number']} rejected")
+        place = _next_place(conn, batch_id, s["number"])
+    if changed and new_status == "stale":
+        _say(request, here, f"suggestion {s['number']} dismissed",
+             f"Suggestion {s['number']} dismissed. Your text is unchanged.", "success", place)
+    elif changed:
+        _say(request, here, f"suggestion {s['number']} rejected",
+             f"Suggestion {s['number']} rejected. Your text is unchanged.", "success", place)
     else:
-        flash(request, f"Suggestion {s['number']} was already decided: {STATUS_TEXT[status]}", "info")
-        _say(request, back, f"suggestion {s['number']} was already decided")
-    return redirect(back)
+        _say(request, here, f"suggestion {s['number']} was already decided",
+             f"Suggestion {s['number']} was already decided: {STATUS_TEXT[status]}", "info", place)
+    return redirect(_back_to(doc_id, batch_id, place))
 
 
 def _join_numbers(numbers: list[int]) -> str:
@@ -783,6 +1054,7 @@ async def accept_all(request: Request, doc_id: int, batch_id: int, user: dict = 
     _owned_batch(doc, batch_id)
     accepted: list[int] = []
     stale: list[int] = []
+    version = 0
     with db.session() as conn:
         _begin_write(conn)
         body = conn.execute("SELECT body FROM write_docs WHERE id = ?", (doc_id,)).fetchone()["body"]
@@ -800,23 +1072,24 @@ async def accept_all(request: Request, doc_id: int, batch_id: int, user: dict = 
             note = (f"Accepted suggestion {accepted[0]}" if len(accepted) == 1
                     else f"Accepted suggestions {_join_numbers(accepted)}")
             _set_body(conn, doc_id, body, note)
+            version = conn.execute("SELECT COUNT(*) AS n FROM write_versions WHERE doc_id = ?", (doc_id,)).fetchone()["n"]
     parts = []
     if accepted:
-        parts.append(f"Accepted {plural(len(accepted), 'suggestion')} and saved your text as a new version.")
+        parts.append(f"Accepted {plural(len(accepted), 'suggestion')} and saved your text as version {version}.")
     if stale:
         parts.append(f"{plural(len(stale), 'suggestion')} no longer matched your text, so "
-                     f"{'it was' if len(stale) == 1 else 'they were'} not applied: number {_join_numbers(stale)}.")
+                     f"{'it was' if len(stale) == 1 else 'they were'} not used: number {_join_numbers(stale)}.")
     if not parts:
         parts.append("There were no suggestions waiting for a decision. Nothing was changed.")
-    flash(request, " ".join(parts), "success" if accepted else "info")
     outcomes = []
     if accepted:
         outcomes.append(f"{plural(len(accepted), 'suggestion')} accepted")
     if stale:
         outcomes.append(f"{len(stale)} out of date")
-    back = f"/write/{doc_id}/suggestions/{batch_id}"
-    _say(request, back, ", ".join(outcomes) if outcomes else "nothing was waiting, nothing changed")
-    return redirect(back)
+    here = f"/write/{doc_id}/suggestions/{batch_id}"
+    _say(request, here, ", ".join(outcomes) if outcomes else "nothing was waiting, nothing changed",
+         " ".join(parts), "success" if accepted else "info")
+    return redirect(_back_to(doc_id, batch_id, 0))
 
 
 @router.post("/{doc_id}/suggestions/{batch_id}/reject-all")
@@ -828,22 +1101,31 @@ async def reject_all(request: Request, doc_id: int, batch_id: int, user: dict = 
         cur = conn.execute("UPDATE write_suggestions SET status = 'rejected' WHERE batch_id = ? AND status = 'pending'",
                            (batch_id,))
         count = cur.rowcount
-    back = f"/write/{doc_id}/suggestions/{batch_id}"
+    here = f"/write/{doc_id}/suggestions/{batch_id}"
     if count:
-        flash(request, f"Rejected {plural(count, 'suggestion')}. Your text is unchanged.", "success")
-        _say(request, back, f"{plural(count, 'suggestion')} rejected")
+        _say(request, here, f"{plural(count, 'suggestion')} rejected",
+             f"Rejected {plural(count, 'suggestion')}. Your text is unchanged.")
     else:
-        flash(request, "There were no suggestions waiting for a decision. Nothing was changed.", "info")
-        _say(request, back, "nothing was waiting, nothing changed")
-    return redirect(back)
+        _say(request, here, "nothing was waiting, nothing changed",
+             "There were no suggestions waiting for a decision. Nothing was changed.", "info")
+    return redirect(_back_to(doc_id, batch_id, 0))
 
 
 # ----- versions --------------------------------------------------------------------------------
+
+def _clock(iso: str | None) -> str:
+    return f"{iso[11:16]} UTC" if iso and len(iso) >= 16 and iso[13:14] == ":" else ""
+
 
 @router.get("/{doc_id}/versions")
 def versions_page(request: Request, doc_id: int, user: dict = Depends(require_user)):
     doc = _owned_doc(doc_id, user)
     versions = list(reversed(_versions(doc_id)))
+    for i, v in enumerate(versions):
+        v["current"] = i == 0 and v["body"] == doc["body"]
+        name = f"Version {v['number']}: {_lower_first(v['note'])}" if v["note"] else f"Version {v['number']}"
+        clock = _clock(v["created_at"])
+        v["link"] = name + (f", {clock}" if clock else "") + (" (current text)" if v["current"] else "")
     return render(request, "write/versions.html", title=f"Versions of {doc['title']}", doc=_doc_view(doc),
                   versions=versions, days=_versions_by_day(versions))
 
@@ -858,15 +1140,56 @@ def _owned_version(doc: dict, version_id: int) -> dict:
                               (doc["id"], version_id)).fetchone()["n"]
     v = dict(row)
     v.update(number=number, when=when(v["created_at"]), words=word_count(v["body"]))
+    v["word_text"] = plural(v["words"], "word")
+    v["saved"] = saved_sentence(v["note"], v["created_at"], prefix="Saved")
     return v
+
+
+MAX_DIFFERENCES = 30
+_DIFF_TEXT_MAX = 600
+
+
+def _paragraphs(text: str) -> list[str]:
+    """Paragraphs (blocks between blank lines), each on one line, without Markdown heading marks."""
+    out = []
+    for block in re.split(r"\n[ \t]*\n", text or ""):
+        words = " ".join(_MD_HEADING.sub("", ln) for ln in block.split("\n")).split()
+        if words:
+            out.append(" ".join(words))
+    return out
+
+
+def _short(text: str) -> str:
+    return text if len(text) <= _DIFF_TEXT_MAX else text[:_DIFF_TEXT_MAX - 3].rstrip() + "..."
+
+
+def version_differences(version_text: str, current_text: str) -> list[dict]:
+    """The paragraphs that differ between a version and the current text, worked out by the site.
+    Each is {"version": text or "", "current": text or ""}; a missing side means that text does not have it."""
+    old, new = _paragraphs(version_text), _paragraphs(current_text)
+    out = []
+    for tag, i1, i2, j1, j2 in SequenceMatcher(None, old, new, autojunk=False).get_opcodes():
+        if tag == "equal":
+            continue
+        out.append({"version": _short(" ".join(old[i1:i2])), "current": _short(" ".join(new[j1:j2]))})
+    return out
 
 
 @router.get("/{doc_id}/versions/{version_id}")
 def version_page(request: Request, doc_id: int, version_id: int, user: dict = Depends(require_user)):
     doc = _owned_doc(doc_id, user)
     v = _owned_version(doc, version_id)
+    same = v["body"] == doc["body"]
+    differences = [] if same else version_differences(v["body"], doc["body"])
     return render(request, "write/version.html", title=f"Version {v['number']} of {doc['title']}", doc=_doc_view(doc),
-                  version=v, same_as_current=(v["body"] == doc["body"]))
+                  version=v, same_as_current=same, differences=differences[:MAX_DIFFERENCES],
+                  more_differences=max(0, len(differences) - MAX_DIFFERENCES))
+
+
+@router.get("/{doc_id}/versions/{version_id}/restore")
+def back_to_version(doc_id: int, version_id: int, user: dict = Depends(require_user)):
+    _owned_version(_owned_doc(doc_id, user), version_id)
+    return redirect(f"/write/{doc_id}/versions/{version_id}")
 
 
 @router.post("/{doc_id}/versions/{version_id}/restore")
@@ -897,10 +1220,15 @@ async def restore(request: Request, doc_id: int, version_id: int, user: dict = D
 
 # ----- export ----------------------------------------------------------------------------------
 
+EXPORT_FORMATS = ("docx", "md", "txt", "html", "tex")
+
+
 @router.get("/{doc_id}/export")
 def export_page(request: Request, doc_id: int, user: dict = Depends(require_user)):
     doc = _owned_doc(doc_id, user)
-    return render(request, "write/export.html", title=f"Export {doc['title']}", doc=_doc_view(doc))
+    slug = _slug(doc["title"])
+    return render(request, "write/export.html", title=f"Export {doc['title']}", doc=_doc_view(doc),
+                  files={ext: f"{slug}.{ext}" for ext in EXPORT_FORMATS})
 
 
 def _body_without_title(doc: dict) -> str:
@@ -923,18 +1251,37 @@ def _heading(line: str) -> tuple[int, str] | None:
     return None
 
 
+def _export_lines(doc: dict) -> list[tuple[int, str]]:
+    """The text under the title, one (level, text) per line: level 0 for ordinary lines, otherwise the heading's
+    rank among the levels the member used (1 is the highest). So '## Section' then '#### Part' export as
+    section and subsection, whatever marks were used, and no heading level is skipped."""
+    lines = _body_without_title(doc).split("\n")
+    headings = [_heading(line.strip()) for line in lines]
+    rank = {level: i + 1 for i, level in enumerate(sorted({h[0] for h in headings if h}))}
+    return [(rank[h[0]], h[1]) if h else (0, line) for line, h in zip(lines, headings)]
+
+
 def export_markdown(doc: dict) -> str:
     return f"# {doc['title']}\n\n{_body_without_title(doc).rstrip()}\n"
 
 
 def export_text(doc: dict) -> str:
-    return f"{doc['title']}\n\n{_body_without_title(doc).rstrip()}\n"
+    """Plain text: the title, then the text with each heading on a line of its own and no # marks."""
+    out = [doc["title"], ""]
+    for level, text in _export_lines(doc):
+        if level:
+            if out[-1] != "":
+                out.append("")
+            out += [text, ""]
+        elif text.strip() or out[-1] != "":
+            out.append(text.rstrip())
+    return "\n".join(out).rstrip() + "\n"
 
 
 def export_html(doc: dict, lang: str = "en") -> str:
     from markupsafe import escape
     lang = lang if _LANG_RE.match(lang or "") else "en"
-    content = shift_headings(markdown(_body_without_title(doc)), 1)
+    content = nest_headings(markdown(_body_without_title(doc)), 2)
     return (
         "<!doctype html>\n"
         f'<html lang="{escape(lang)}">\n<head>\n<meta charset="utf-8">\n'
@@ -955,14 +1302,12 @@ def export_docx(doc: dict) -> bytes:
     document = Document()
     document.core_properties.title = doc["title"]
     document.add_heading(doc["title"], level=1)
-    for line in _body_without_title(doc).split("\n"):
+    for level, line in _export_lines(doc):
         stripped = line.strip()
         if not stripped:
             continue
-        heading = _heading(stripped)
-        if heading:
-            level, text = heading
-            document.add_heading(text, level=min(level + 1, 9))
+        if level:
+            document.add_heading(stripped, level=min(level + 1, 9))
         elif re.match(r"^[-*]\s+", stripped):
             document.add_paragraph(re.sub(r"^[-*]\s+", "", stripped), style="List Bullet")
         else:
@@ -1003,13 +1348,12 @@ def export_tex(doc: dict) -> str:
         r"\maketitle",
         "",
     ]
-    for line in _body_without_title(doc).split("\n"):
+    for level, line in _export_lines(doc):
         stripped = line.strip()
         if not stripped:
             continue
-        heading = _heading(stripped)
-        if heading:
-            out.append("\\" + sections[heading[0]] + "{" + latex_escape(heading[1]) + "}")
+        if level:
+            out.append("\\" + sections[level] + "{" + latex_escape(stripped) + "}")
         else:
             out.append(latex_escape(line.rstrip()))
         out.append("")
@@ -1058,16 +1402,16 @@ def export_tex_file(doc_id: int, user: dict = Depends(require_user)):
 
 @router.post("/{doc_id}/venues")
 async def venues(request: Request, doc_id: int, user: dict = Depends(require_user)):
-    await checked_form(request)
-    doc = _owned_doc(doc_id, user)
-    if not doc["body"].strip():
-        return _fix_problems(request, doc, {}, {
-            "body": "Your document has no saved text yet. Write or paste your text here and save it, "
-                    "so the AI knows what it is about. Then search for where to publish."})
-    if _stored_secret_errors(doc):
-        return _fix_problems(request, doc, {}, _stored_secret_errors(doc))
-    return _start_job(request, user, doc, "write.venues", f"Where to publish {doc['title']}", _venues_job, doc_id,
-                      doc["created_at"])
+    doc, kept, errors, saved = await _save_first(request, doc_id, user)
+    if not errors:
+        if not doc["body"].strip():
+            errors["body"] = ("Your document has no text yet. Write or paste it in \"Your text\", so the AI knows what "
+                              "it is about. Then choose \"Save and search the web for places to publish\".")
+        errors.update(_stored_secret_errors(doc))
+    if errors:
+        return _ai_problems(request, doc, kept, errors, saved)
+    return _start_job(request, user, doc, "write.venues", f"Where to publish: {doc['title']}", _venues_job, doc_id,
+                      doc["created_at"], saved=saved)
 
 
 def _venues_job(ctx, ai, doc_id: int, created_at: str) -> str:
@@ -1092,8 +1436,7 @@ def _venues_job(ctx, ai, doc_id: int, created_at: str) -> str:
         "well it works with screen readers. If you found nothing, write 'Nothing found about screen reader access'. Never guess.\n"
         "Only state facts you found in your sources. Say when a fact may be out of date."
     )
-    result = ai.research(system=SYSTEM_BASE + " You help writers choose where to submit their work.",
-                         prompt=prompt, purpose="write.venues")
+    result = ai.research(system=VENUES_SYSTEM, prompt=prompt, purpose="write.venues")
     text = getattr(result, "text", None)
     if not isinstance(text, str) or not text.strip():
         raise AIError("The AI searched but did not write an answer, so nothing was saved. Please try again.")
@@ -1121,33 +1464,35 @@ def research_page(request: Request, doc_id: int, research_id: int, user: dict = 
         sources = _clean_sources(json.loads(research["sources_json"] or "[]"))
     except (ValueError, TypeError):
         sources = []
-    return render(request, "write/research.html", title=f"Where you could publish {doc['title']}", doc=_doc_view(doc),
-                  research=dict(research, when=when(research["created_at"])), sources=sources)
+    return render(request, "write/research.html", title=f"Where to publish: {doc['title']}", doc=_doc_view(doc),
+                  research=dict(research, when=when(research["created_at"]), day=date_words(research["created_at"])),
+                  sources=sources)
 
 
 # ----- cover letter ----------------------------------------------------------------------------
 
 @router.post("/{doc_id}/cover-letter")
 async def cover_letter(request: Request, doc_id: int, user: dict = Depends(require_user)):
-    form = await checked_form(request)
-    doc = _owned_doc(doc_id, user)
-    notes = _text(form, "notes").strip()
-    errors: dict[str, str] = {}
+    doc, kept, errors, saved = await _save_first(request, doc_id, user)
+    notes = kept.get("notes", "")
     # Each message is attached to the field that fixes it, so the error summary link goes to a real field.
-    if not doc["body"].strip():
-        errors["body"] = "Your document has no saved text yet. Write or paste your text here and save it, so the letter can describe it."
-    if not doc["target"]:
-        errors["target"] = "Fill in the publication you are sending this to and save, then draft a cover letter."
+    if not errors:
+        if not doc["body"].strip():
+            errors["body"] = ("Your document has no text yet. Write or paste it in \"Your text\", so the letter can "
+                              "describe it. Then choose \"Save and draft a cover letter\".")
+        if not doc["target"]:
+            errors["target"] = ("Fill in the publication you are sending this to, for example a journal or magazine. "
+                                "Then choose \"Save and draft a cover letter\".")
+        for field, problem in _stored_secret_errors(doc).items():
+            errors.setdefault(field, problem)
     if len(notes) > MAX_INSTRUCTIONS:
         errors["notes"] = f"This is {len(notes):,} characters long. Shorten it to {MAX_INSTRUCTIONS:,} characters or fewer."
     elif _secret_error(notes):
         errors["notes"] = _secret_error(notes)
-    for field, problem in _stored_secret_errors(doc).items():
-        errors.setdefault(field, problem)
     if errors:
-        return _fix_problems(request, doc, {"notes": notes}, errors)
+        return _ai_problems(request, doc, kept, errors, saved)
     return _start_job(request, user, doc, "write.cover_letter", f"Cover letter for {doc['title']}", _cover_letter_job,
-                      doc_id, doc["created_at"], notes)
+                      doc_id, doc["created_at"], notes, saved=saved)
 
 
 def _cover_letter_job(ctx, ai, doc_id: int, created_at: str, notes: str) -> str:
@@ -1161,19 +1506,19 @@ def _cover_letter_job(ctx, ai, doc_id: int, created_at: str, notes: str) -> str:
         f"(about {word_count(doc['body'])} words).\n"
         + (f"The writer wants the letter to mention: {notes}\n" if notes else "")
         + "Use only facts found in the text or in the writer's notes. Never invent the writer's name, credentials, "
-        "past publications, funding or affiliations. Put anything you do not know in square brackets, for example "
+        "past publications, funding or affiliations. Never mention that the writer is blind or has low vision, or how "
+        "they read, unless their text or notes ask you to. Put anything you do not know in square brackets, for example "
         "[Your name] or [Editor's name], so the writer can find and fill it in.\n"
         "Write plain text only: no Markdown, no headings, no emoji. Keep it under 400 words. "
         "Say briefly what the work is, why it suits this publication, and confirm it is not under consideration "
         "elsewhere as a bracketed item the writer must confirm.\n"
         f"The text:\n<text>\n{doc['body'][:MAX_AI_BODY]}\n</text>"
     )
-    draft = ai.text(system=SYSTEM_BASE + " You draft cover letters for submissions. The writer will edit and send it themselves.",
-                    prompt=prompt, purpose="write.cover_letter")
+    draft = ai.text(system=COVER_LETTER_SYSTEM, prompt=prompt, purpose="write.cover_letter")
     if not isinstance(draft, str) or not draft.strip():
         raise AIError("The AI did not write a letter, so no new document was made. Please try again.")
     draft = draft.strip().replace("\r\n", "\n")[:MAX_BODY]
-    title = f"Cover letter: {doc['title']}"[:MAX_TITLE]
+    title = f"{COVER_PREFIX}{doc['title']}"[:MAX_TITLE]
     now = db.now()
     with db.session() as conn:
         _begin_write(conn)
@@ -1183,7 +1528,7 @@ def _cover_letter_job(ctx, ai, doc_id: int, created_at: str, notes: str) -> str:
             "INSERT INTO write_docs (user_id, title, kind, body, target, created_at, updated_at) VALUES (?, ?, 'letter', ?, ?, ?, ?)",
             (doc["user_id"], title, draft, doc["target"], now, now))
         new_id = cur.lastrowid
-        _add_version(conn, new_id, draft, "Drafted by the AI")
+        _add_version(conn, new_id, draft, DRAFTED_NOTE)
     return f"/write/{new_id}"
 
 
