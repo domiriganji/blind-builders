@@ -43,18 +43,31 @@ def heading_1(page) -> str:
     return " ".join(page.get_by_role("heading", level=1).inner_text().split())
 
 
+ANSWER_INDEX = {"yes": 0, "no": 1, "not_tested": 2}
+
+
 def choose(page, question: str, answer: str) -> None:
     page.get_by_role("group", name=question).get_by_role("radio", name=answer, exact=True).check()
 
 
-def fill_report(page, version: str, overall: str = "Usable with workarounds", answer: str = "Yes",
+def answer_label(key: str, answer: str) -> str:
+    """The visible name of one choice, for example 'Yes, I can tell when it has finished'."""
+    return ai_tools.CHOICE_LABELS[key][ANSWER_INDEX[answer]]
+
+
+def answer_all(page, answer: str) -> None:
+    """Answer every check the way a voice control user would: by the choice's own, unique name."""
+    for key, question, _statement, _hint in ai_tools.CHECKS:
+        choose(page, question, answer_label(key, answer))
+
+
+def fill_report(page, version: str, overall: str = "Usable with workarounds", answer: str = "yes",
                 tool: str = TOOL) -> None:
     page.get_by_label(f"Version of {tool}", exact=True).fill(version)
     page.get_by_label("Screen reader", exact=True).fill("NVDA")
     page.get_by_label("Screen reader version").fill("2026.2")
     page.get_by_label("Operating system").fill("Windows 11")
-    for question in CHECK_QUESTIONS:
-        choose(page, question, answer)
+    answer_all(page, answer)
     choose(page, "Overall, could you use it?", overall)
     page.get_by_role("textbox", name="Workarounds (optional)").fill("Turn on the bell and use **NVDA+6** to review.")
     page.get_by_role("textbox", name="Anything else (optional)").fill("Works well in Windows Terminal.")
@@ -79,22 +92,27 @@ def test_member_reports_fixes_mistakes_updates_and_deletes(live, browser):
     page = new_page(browser)
     sign_up(page, base, email("journey"), "AI Tools Tester")
     open_tool_from_index(page, base)
-    expect(page.get_by_role("heading", name="Member reports: 0", level=2)).to_be_visible()
-    expect(page.get_by_text("This site does not test the tools or check the reports.").first).to_be_visible()
+    expect(page.get_by_role("heading", name="Member reports", exact=True, level=2)).to_be_visible()
+    expect(page.get_by_text(f"Be the first to say how {TOOL} works for you: use the form below.")).to_be_visible()
 
-    # Error path: publish an empty form.
+    # Every choice has its own name, so "click Yes" or a list of form fields never meets six matches.
+    expect(page.get_by_role("radio", name="Yes", exact=True)).to_have_count(0)
+    first_key, question = ai_tools.CHECKS[0][0], CHECK_QUESTIONS[0]
+    expect(page.get_by_role("radio", name=answer_label(first_key, "yes"), exact=True)).to_have_count(1)
+    # Every check starts at Not tested.
+    for key, _question, _statement, _hint in ai_tools.CHECKS:
+        expect(page.get_by_role("radio", name=answer_label(key, "not_tested"), exact=True)).to_be_checked()
+
+    # Error path: publish an empty form. Only what is needed is asked for.
     publish(page)
-    assert heading_1(page) == f"How {TOOL} works with screen readers: please fix the problems"
+    assert heading_1(page) == f"Please check 4 answers: How {TOOL} works with screen readers"
     checked(page, "form with mistakes")
     summary = page.get_by_role("alert")
-    expect(summary.get_by_role("heading", name="Please check 10 answers")).to_be_visible()
+    expect(summary.get_by_role("heading", name="Please check 4 answers")).to_be_visible()
     # Following an error link moves focus to the field that needs fixing, for a text field...
-    summary.get_by_role("link", name="Enter the version of the tool you used, for example 2.1.296.").click()
+    summary.get_by_role("link", name="Enter the version of the tool you used", exact=False).click()
     expect(page.get_by_label(VERSION_LABEL, exact=True)).to_be_focused()
     # ...and for a question with choices, to its first choice.
-    question = CHECK_QUESTIONS[0]
-    summary.get_by_role("link", name=f"Choose yes, no or I did not test this for: {question}").click()
-    expect(page.get_by_role("group", name=question).get_by_role("radio", name="Yes", exact=True)).to_be_focused()
     summary.get_by_role("link", name="Choose your overall verdict", exact=False).click()
     expect(page.get_by_role("group", name="Overall, could you use it?")
            .get_by_role("radio", name="Usable", exact=True)).to_be_focused()
@@ -104,11 +122,13 @@ def test_member_reports_fixes_mistakes_updates_and_deletes(live, browser):
     page.get_by_role("textbox", name="Anything else (optional)").fill("my key is sk-ant-api03-abcdefghijklmnop")
     publish(page)
     checked(page, "secret refused")
-    page.get_by_role("alert").get_by_role("link", name="Anything else looks like it has a password",
+    assert heading_1(page) == f"Please check 1 answer: How {TOOL} works with screen readers"
+    page.get_by_role("alert").get_by_role("link", name="The Anything else box: This looks like it includes",
                                           exact=False).click()
     expect(page.get_by_role("textbox", name="Anything else (optional)")).to_be_focused()
     expect(page.get_by_label(VERSION_LABEL, exact=True)).to_have_value("2.1.296")
-    expect(page.get_by_role("group", name=question).get_by_role("radio", name="Yes", exact=True)).to_be_checked()
+    expect(page.get_by_role("group", name=question)
+           .get_by_role("radio", name=answer_label(first_key, "yes"), exact=True)).to_be_checked()
     page.get_by_role("textbox", name="Anything else (optional)").fill("Works well in Windows Terminal.")
     publish(page)
 
@@ -120,19 +140,23 @@ def test_member_reports_fixes_mistakes_updates_and_deletes(live, browser):
     expect(report).to_be_visible()
     expect(report.get_by_text("Workarounds, in the member's words:")).to_be_visible()
     expect(report.get_by_text("You can tell when it has finished: yes")).to_be_visible()
-    expect(report.get_by_role("button", name="Delete your report for version 2.1.296")).to_be_visible()
+    expect(report.get_by_role("link", name="Delete your report for version 2.1.296")).to_be_visible()
 
-    # Reporting the same version again updates it.
+    # Reporting the same version again updates it, and the form starts from the earlier report.
     page.reload()
     assert heading_1(page) == f"How {TOOL} works with screen readers"
-    fill_report(page, "v2.1.296", overall="Usable")
+    expect(page.get_by_text("This form starts with your report for version 2.1.296.")).to_be_visible()
+    expect(page.get_by_label(VERSION_LABEL, exact=True)).to_have_value("2.1.296")
+    expect(page.get_by_role("textbox", name="Anything else (optional)")).to_have_value("Works well in Windows Terminal.")
+    page.get_by_label(VERSION_LABEL, exact=True).fill("v2.1.296")
+    choose(page, "Overall, could you use it?", "Usable")
     publish(page)
     assert heading_1(page) == f"Your report on {TOOL} version v2.1.296 is updated"
     checked(page, "report updated")
     expect(page.get_by_role("heading", name="Version v2.1.296: 1 report", level=3)).to_be_visible()
 
     # A newer version that members say is worse gets a notice that says it is only a comparison.
-    fill_report(page, "2.1.300", overall="Not usable", answer="No")
+    fill_report(page, "2.1.300", overall="Not usable", answer="no")
     publish(page)
     checked(page, "second version")
     expect(page.get_by_text("Possible problem after an update.")).to_be_visible()
@@ -143,12 +167,23 @@ def test_member_reports_fixes_mistakes_updates_and_deletes(live, browser):
     assert [r["tool_version"] for r in data["reports"]] == ["2.1.300", "v2.1.296"]
     assert "does not test" in data["reports_about"]
 
+    # Deleting asks first; keeping it goes back and deletes nothing.
+    page.get_by_role("link", name="Delete your report for version 2.1.300").click()
+    page.wait_for_load_state()
+    assert heading_1(page) == f"Delete your report on {TOOL} version 2.1.300?"
+    checked(page, "delete confirmation")
+    expect(page.get_by_text("You cannot undo this.", exact=False)).to_be_visible()
+    page.get_by_role("link", name="Keep it and go back").click()
+    page.wait_for_load_state()
+    expect(page.get_by_role("article", name="Not usable: NVDA 2026.2 on Windows 11")).to_be_visible()
     # Deleting: the h1 says what happened, and the report is gone.
-    page.get_by_role("button", name="Delete your report for version 2.1.300").click()
+    page.get_by_role("link", name="Delete your report for version 2.1.300").click()
+    page.wait_for_load_state()
+    page.get_by_role("button", name="Delete my report").click()
     page.wait_for_load_state()
     assert heading_1(page) == f"Your report on {TOOL} version 2.1.300 is deleted"
     checked(page, "report deleted")
-    expect(page.get_by_role("button", name="Delete your report for version 2.1.300")).to_have_count(0)
+    expect(page.get_by_role("link", name="Delete your report for version 2.1.300")).to_have_count(0)
     expect(page.get_by_role("heading", name="Member reports: 1", level=2)).to_be_visible()
 
     # The index shows the member verdict for the tool.
@@ -217,22 +252,26 @@ def test_key_pages_work_without_javascript(live, browser):
     # The error path and publishing work with plain HTML forms.
     page.get_by_role("button", name="Publish your report").click()
     page.wait_for_load_state()
-    assert heading_1(page) == "How Gemini CLI works with screen readers: please fix the problems"
+    assert heading_1(page) == "Please check 4 answers: How Gemini CLI works with screen readers"
     checked_without_js(page, viewer, "form with mistakes")
-    expect(page.get_by_role("heading", name="Please check 10 answers")).to_be_visible()
-    page.get_by_role("link", name="Enter the version of the tool you used, for example 2.1.296.").click()
+    expect(page.get_by_role("heading", name="Please check 4 answers", exact=True, level=2)).to_be_visible()
+    page.get_by_role("link", name="Enter the version of the tool you used", exact=False).click()
     expect(page.get_by_label("Version of Gemini CLI", exact=True)).to_be_focused()
     page.get_by_label("Version of Gemini CLI", exact=True).fill("0.63.0")
     page.get_by_label("Screen reader", exact=True).fill("Orca")
     page.get_by_label("Operating system").fill("Ubuntu 24.04")
-    for question in CHECK_QUESTIONS:
-        choose(page, question, "I did not test this")
+    # The checks are left at Not tested, as the form starts them.
     choose(page, "Overall, could you use it?", "Usable")
     page.get_by_role("button", name="Publish your report").click()
     page.wait_for_load_state()
     assert heading_1(page) == "Your report on Gemini CLI version 0.63.0 is published"
     checked_without_js(page, viewer, "report published")
-    page.get_by_role("button", name="Delete your report for version 0.63.0").click()
+    expect(page.get_by_text("You can tell when it has finished: not tested")).to_be_visible()
+    page.get_by_role("link", name="Delete your report for version 0.63.0").click()
+    page.wait_for_load_state()
+    assert heading_1(page) == "Delete your report on Gemini CLI version 0.63.0?"
+    checked_without_js(page, viewer, "delete confirmation")
+    page.get_by_role("button", name="Delete my report").click()
     page.wait_for_load_state()
     assert heading_1(page) == "Your report on Gemini CLI version 0.63.0 is deleted"
     checked_without_js(page, viewer, "report deleted")
