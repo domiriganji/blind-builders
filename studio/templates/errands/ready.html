@@ -35,11 +35,20 @@
 {% if p.prepared_answers %}
 <p>Each answer is in its own read-only text box, so you can select all of it and copy it. Text in square brackets, like [your passport number], is a gap for you to fill in yourself. Read each answer before you use it.</p>
 {% for a in p.prepared_answers %}
+{% if a.gap_only %}
+{# Only a gap, such as [your password]: nothing to copy, so no box and no Copy button. #}
+<h3>Answer for: {{ a.field_label }}</h3>
+<p>Type this yourself: {{ a.gap_words }}.</p>
+{% if a.note %}<p>Note: {{ a.note }}</p>{% endif %}
+{% else %}
 {# The heading is the box's label, so moving by heading and by form field give the same name. #}
 <h3><label for="answer-{{ loop.index }}">Answer for: {{ a.field_label }}</label></h3>
+{% if a.has_gap %}<p id="answer-{{ loop.index }}-gap">This answer has a gap for you to fill in, in square brackets.</p>{% endif %}
 {% set lines = a.suggested_answer.splitlines()|length + (a.suggested_answer|length // 60) %}
-<textarea id="answer-{{ loop.index }}" readonly rows="{{ [[lines, 1]|max, 8]|min }}" data-copy-name="the answer for {{ a.field_label }}"{% if a.note %} aria-describedby="answer-{{ loop.index }}-note"{% endif %}>{{ a.suggested_answer }}</textarea>
+{% set described = (['answer-' ~ loop.index ~ '-gap'] if a.has_gap else []) + (['answer-' ~ loop.index ~ '-note'] if a.note else []) %}
+<textarea id="answer-{{ loop.index }}" readonly rows="{{ [[lines, 1]|max, 8]|min }}" data-copy-name="the answer for {{ a.field_label }}"{% if a.has_gap %} data-copy-note="It has a gap to fill in."{% endif %}{% if described %} aria-describedby="{{ described|join(' ') }}"{% endif %}>{{ a.suggested_answer }}</textarea>
 {% if a.note %}<p id="answer-{{ loop.index }}-note">Note: {{ a.note }}</p>{% endif %}
+{% endif %}
 {% endfor %}
 {% else %}
 <p>There are no prepared answers yet. The form may need details the AI does not have, or the AI could not tell which boxes the form has. To get answers, <a href="/do">make a new request</a> with your details in it.</p>

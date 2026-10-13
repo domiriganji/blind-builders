@@ -40,9 +40,12 @@ def report_problem(client, tid, problem="Buttons are silent", after="NVDA 2026.1
 def test_library_lists_only_tools_blind_people_made(client):
     r = client.get("/library")
     assert r.status_code == 200 and "<h1>Tool library</h1>" in r.text
-    assert f"All ({len(BLIND_MADE)})" in r.text and "Need help after an update (0)" in r.text
+    assert f"All ({len(BLIND_MADE)})" in r.text and ">Need help after an update</a>" in r.text
     assert "QuickMail" in r.text and "Maintainer: Kelly Ford." in r.text
-    assert "no open problems reported" in r.text and "No volunteers yet." in r.text
+    # An empty state is said once, without a sad count (docs/VOICE.md 4.10).
+    assert "No tool needs help after an update right now." in r.text and "0 need help" not in r.text
+    assert "(0)" not in r.text and "No reports or volunteers yet." in r.text
+    assert "no open problems reported" not in r.text and "No volunteers yet." not in r.text
     assert "0 members are helping" not in r.text
     assert "The library keeps working because members help each other. There are no staff." in r.text
     assert ">Add a tool a blind or low-vision person made</a>" in r.text
@@ -72,7 +75,7 @@ def test_upkeep_request_filter_and_resolve(client):
     report_problem(client, tid, "Search box not announced", "Windows 11 update")
     listing = client.get("/library?show=upkeep").text
     assert "Need help after an update (1)" in listing and "QuickMail" in listing
-    assert "needs help after an update, 2 open problems" in listing
+    assert "Needs help after an update: 2 open problems." in listing
     assert "AccessCaster" not in listing
     assert "Needs help after an update." in client.get("/find", params={"q": "QuickMail"}).text
     problems = [r_["id"] for r_ in _problems(tid)]
@@ -83,7 +86,9 @@ def test_upkeep_request_filter_and_resolve(client):
     r = post(client, f"/library/tool/{tid}/problem/{problems[1]}/resolve")
     assert "No open problems are left for this tool." in r.text
     assert needs_upkeep(tid) == 0
-    assert "Fixed problems (2)" in r.text and "Open problems (0)" in r.text
+    assert "Fixed problems (2)" in r.text and ">Open problems</h2>" in r.text and "(0)" not in r.text
+    assert "No member has reported a problem that is still open." in r.text
+    assert "Needs help after an update:" not in r.text  # nothing open: not said again under the h1
     assert "No tool needs help right now" in client.get("/library?show=upkeep").text
 
 
@@ -149,6 +154,7 @@ def test_volunteers_are_unique_per_member(client):
     assert "<h1>You are on the helper list: QuickMail</h1>" in r.text and "Thank you for helping." in r.text
     r = post(client, f"/library/tool/{tid}/volunteer", {"skills": "I test with JAWS and write C#"})
     assert "<h1>How you can help is updated: QuickMail</h1>" in r.text
+    assert "Thank you. Other members now see what you wrote." in r.text  # a notice that gets focus
     assert count("SELECT COUNT(*) FROM upkeep_volunteers WHERE tool_id = ?", (tid,)) == 1
     with db.session() as conn:
         pseudonym = conn.execute("SELECT pseudonym FROM users WHERE email = 'v1@example.com'").fetchone()["pseudonym"]
@@ -163,6 +169,9 @@ def test_volunteers_are_unique_per_member(client):
     assert "2 members are helping keep it working" in client.get("/library").text
     r = post(client, f"/library/tool/{tid}/volunteer/remove")
     assert "<h1>You are off the helper list: QuickMail</h1>" in r.text
+    # Like every other library action, a notice says what happened, so it gets focus and is read first.
+    assert ('role="status">You are off the helper list for QuickMail. What you wrote about how you can help '
+            'is removed. You can add yourself again at any time.</p>') in r.text
     assert count("SELECT COUNT(*) FROM upkeep_volunteers WHERE tool_id = ?", (tid,)) == 1
 
 

@@ -2,27 +2,30 @@
 {% block content %}
 <h1>{{ title }}</h1>
 <p class="lead">Tools that blind and low-vision people made for each other. When a screen reader, operating system or AI tool updates and one of them breaks, members report it here and volunteer to help fix it. The library keeps working because members help each other. There are no staff.</p>
-<p>{{ counts.all }} {{ 'tool is' if counts.all == 1 else 'tools are' }} in the library. {{ counts.upkeep }} {{ 'needs' if counts.upkeep == 1 else 'need' }} help after an update.</p>
+{# An empty state is said once, without a sad count (docs/VOICE.md 4.10). #}
+<p>{{ counts.all }} {{ 'tool is' if counts.all == 1 else 'tools are' }} in the library. {% if counts.upkeep %}{{ counts.upkeep }} {{ 'needs' if counts.upkeep == 1 else 'need' }} help after an update.{% else %}No tool needs help after an update right now.{% endif %}</p>
 
 <nav aria-label="Show tools">
   <ul>
   {% for key, label in filters %}
-    <li><a href="/library{{ '' if key == 'all' else '?show=' ~ key }}"{% if key == show %} aria-current="page"{% endif %}>{{ label }} ({{ counts[key] }})</a></li>
+    <li><a href="/library{{ '' if key == 'all' else '?show=' ~ key }}"{% if key == show %} aria-current="page"{% endif %}>{{ label }}{% if counts[key] %} ({{ counts[key] }}){% endif %}</a></li>
   {% endfor %}
   </ul>
 </nav>
 
-<h2 id="tools-title">{{ 'All tools' if show == 'all' else 'Tools that need help after an update' }} ({{ tools|length }})</h2>
+<h2 id="tools-title">{{ 'All tools' if show == 'all' else 'Tools that need help after an update' }}{% if tools %} ({{ tools|length }}){% endif %}</h2>
 {% if tools %}
 <ul class="item-list">
 {% for t in tools %}
   <li>
     <h3><a href="/library/tool/{{ t.id }}">{{ t.name }}</a></h3>
     <p>{{ t.description }}</p>
+    {#- Only what exists is said; a tool with nothing yet gets one short sentence, not three. -#}
+    {% set has_reports = summaries[t.id] != no_reports %}
     <p class="meta">Maintainer: {{ t.maintainer or 'not recorded' }}.
-      Status: {% if t.needs_upkeep %}needs help after an update, {{ t.open_count }} open {{ 'problem' if t.open_count == 1 else 'problems' }}{% else %}no open problems reported{% endif %}.
-      {% if t.volunteer_count %}{{ t.volunteer_count }} {{ 'member is' if t.volunteer_count == 1 else 'members are' }} helping keep it working.{% else %}No volunteers yet.{% endif %}
-      {{ summaries[t.id] }}.</p>
+      {% if t.needs_upkeep %}Needs help after an update: {{ t.open_count }} open {{ 'problem' if t.open_count == 1 else 'problems' }}.{% endif %}
+      {% if t.volunteer_count %}{{ t.volunteer_count }} {{ 'member is' if t.volunteer_count == 1 else 'members are' }} helping keep it working.{% endif %}
+      {% if has_reports %}{{ summaries[t.id] }}.{% elif not t.volunteer_count %}No reports or volunteers yet.{% endif %}</p>
   </li>
 {% endfor %}
 </ul>

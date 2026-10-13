@@ -1,5 +1,22 @@
 {% extends "base.html" %}
-{% from "_macros.html" import csrf_input, error_summary, field, textarea, radios, sources_list %}
+{% from "_macros.html" import csrf_input, error_summary, field, textarea, sources_list %}
+{#- A group of radio buttons whose hint is said once, not after every option: the fieldset carries it, and of
+    the radios only `hint_on` does (the option it explains, or the first), for screen readers that skip the
+    fieldset's own description when moving into the group. An error is tied to every radio, so it is never
+    missed. -#}
+{% macro check_radios(name, legend, options, selected='', hint='', error='', hint_on='') %}
+{% set selected = restored(name, selected) %}
+{% set hint_on = hint_on or options[0][0] %}
+<fieldset class="field{% if error %} has-error{% endif %}" id="field-{{ name }}" tabindex="-1"{% if hint or error %} aria-describedby="{{ (['hint-' ~ name] if hint else [])|join(' ') }}{% if hint and error %} {% endif %}{% if error %}error-{{ name }}{% endif %}"{% endif %}>
+  <legend>{{ legend }}</legend>
+  {% if hint %}<p class="hint" id="hint-{{ name }}">{{ hint }}</p>{% endif %}
+  {% if error %}<p class="field-error" id="error-{{ name }}"><span class="visually-hidden">Please check: </span>{{ error }}</p>{% endif %}
+  {% for value, text in options %}
+  {% set ids = (['hint-' ~ name] if hint and value == hint_on else []) + (['error-' ~ name] if error else []) %}
+  <div class="choice"><input type="radio" id="field-{{ name }}-{{ loop.index }}" name="{{ name }}" value="{{ value }}"{% if value == selected %} checked{% endif %}{% if ids %} aria-describedby="{{ ids|join(' ') }}"{% endif %}{% if error %} aria-invalid="true"{% endif %}><label for="field-{{ name }}-{{ loop.index }}">{{ text }}</label></div>
+  {% endfor %}
+</fieldset>
+{% endmacro %}
 {% block content %}
 <h1>{{ title }}</h1>
 {{ error_summary(summary_errors) }}
@@ -59,7 +76,8 @@
 {% endfor %}
 {% endfor %}
 
-<h2 id="report-form-title">Report how {{ tool.name }} worked for you</h2>
+{#- tabindex=-1: a link to #report-form-title moves screen reader focus here, not only the screen. -#}
+<h2 id="report-form-title" tabindex="-1">{% if editing %}Change your report on {{ tool.name }} version {{ starting_from.tool_version }}{% else %}Report how {{ tool.name }} worked for you{% endif %}</h2>
 {% if user %}
 <p>Your report is public and shows your code name, {{ user.pseudonym }}, not your real name. Please leave out passwords, API keys and personal details.</p>
 {% if starting_from %}
@@ -67,7 +85,11 @@
 {% elif own_versions %}
 <p>You have reported version {{ own_versions|join(', ') }}. Publishing one of those versions again updates that report.</p>
 {% endif %}
+{% if starting_from %}
+<p>Your earlier answers are filled in. Change any that are different now.</p>
+{% else %}
 <p>The six checks start at Not tested. Change the ones you tried.</p>
+{% endif %}
 <form method="post" action="/ai-tools/{{ tool.slug }}/reports" novalidate>
   {{ csrf_input() }}
   {{ field('tool_version', 'Version of ' ~ tool.name, values.tool_version, hint='As the tool shows it in About, Help or settings. For a terminal tool, run it with --version. For a website, write "web" and the date you used it.', error=errors.tool_version, required=true) }}
@@ -75,9 +97,9 @@
   {{ field('screen_reader_version', 'Screen reader version', values.screen_reader_version, hint='For example 2026.2.', error=errors.screen_reader_version) }}
   {{ field('os', 'Operating system', values.os, hint='For example Windows 11, macOS 27, Ubuntu 24.04 or Android 16.', error=errors.os, required=true) }}
   {% for key, question, statement, hint in checks %}
-  {{ radios(key, question, choices[key], values[key], hint=hint, error=errors[key]) }}
+  {{ check_radios(key, question, choices[key], values[key], hint=hint, error=errors[key]) }}
   {% endfor %}
-  {{ radios('overall', 'Overall, could you use it?', overall_options, values.overall, hint='Usable with workarounds means you got your work done, but only with extra steps or tools.', error=errors.overall) }}
+  {{ check_radios('overall', 'Overall, could you use it?', overall_options, values.overall, hint='Usable with workarounds means you got your work done, but only with extra steps or tools.', error=errors.overall, hint_on='usable_with_workarounds') }}
   {{ textarea('workarounds', 'Workarounds', values.workarounds, hint='What you did to make it work: settings, commands, add-ons or habits. Other members can try them. Up to 4,000 characters.', error=errors.workarounds, rows=5) }}
   {{ textarea('note', 'Anything else', values.note, hint='What broke, what improved since the last version, or anything other members should know. Up to 4,000 characters.', error=errors.note, rows=5) }}
   <button type="submit">Publish your report</button>

@@ -112,6 +112,21 @@ def _label(request_text: str) -> str:
     return label
 
 
+_GAP = re.compile(r"\[[^\]]{1,200}\]")
+
+
+def _answer_view(answer: dict) -> dict:
+    """A prepared answer, with whether it is only a gap ("[your password]") or holds one. An answer that is
+    only a gap gets no box and no Copy button: copying it would paste the placeholder into a password or card
+    field, where a screen reader reads it only as dots."""
+    answer = dict(answer)
+    text = str(answer.get("suggested_answer") or "").strip()
+    answer["gap_only"] = bool(_GAP.fullmatch(text))
+    answer["gap_words"] = text[1:-1].strip() if answer["gap_only"] else ""
+    answer["has_gap"] = not answer["gap_only"] and bool(_GAP.search(text))
+    return answer
+
+
 def _sentence(text: str) -> str:
     """The text with a full stop at the end if it has none, so speech and braille never run it into the
     next words ("Open the pageScreen reader tip")."""
@@ -348,11 +363,22 @@ def _view(errand: dict) -> dict:
     # A request is always named by what the member typed, so it has one name in every list
     # (here and in Your recent work). What the AI understood is shown beside it, never instead of it.
     errand["label"] = _label(errand["request"]) or _short(goal)
+    # A follow-up such as "And recycling?" makes no sense on its own, so its name in the list, the h1 and the
+    # title also gives the earlier request. The delete link keeps the short label (its visible name).
+    errand["name"] = errand["label"]
+    if errand.get("parent_id"):
+        parent = _row(errand["parent_id"])
+        if parent and parent["user_id"] == errand["user_id"]:
+            parent_label = _label(parent["request"])
+            if parent_label:
+                errand["name"] = f"{errand['label']} (follow-up to: {parent_label})"
     errand["goal"] = goal
     errand["goal_sentence"] = _sentence(goal)
     errand["updated_words"] = date_words(errand["updated_at"], with_time=True)
     if isinstance(errand["prepared"], dict):
         errand["prepared"] = dict(errand["prepared"])
+        errand["prepared"]["prepared_answers"] = [_answer_view(a) for a in _list(errand["prepared"].get("prepared_answers"))
+                                                  if isinstance(a, dict)]
         errand["prepared"]["steps"] = [dict(s, sentence=_sentence(s.get("instruction", "")))
                                        for s in _list(errand["prepared"].get("steps")) if isinstance(s, dict)]
     errand["kind_words"] = "Find information" if errand["kind"] == "find" else "Task on a website"
@@ -594,13 +620,13 @@ def _start(request: Request, user: dict, errand_id: int, step: str):
     # The title names the request in the member's own words, the same name as on Do this for me, so the
     # list in "Your recent work" says which request each line is about.
     if step == "understand":
-        title = f"Reading back your request: {errand['label']}"
+        title = f"Reading back your request: {errand['name']}"
         job_id = jobs.submit(user["id"], "errands.understand", title, _understand, ai, errand_id,
                              errand["created_at"], _profile(user),
                              dedupe_key=f"errands.understand:{errand_id}:{errand['created_at']}",
                              item_ref=_item_ref(errand))
     else:
-        title = ("Finding the information: " if errand["kind"] == "find" else "Preparing your task: ") + errand["label"]
+        title = ("Finding the information: " if errand["kind"] == "find" else "Preparing your task: ") + errand["name"]
         job_id = jobs.submit(user["id"], "errands.run", title, _run, ai, errand_id, errand["created_at"],
                              _profile(user), dedupe_key=f"errands.run:{errand_id}:{errand['created_at']}",
                              item_ref=_item_ref(errand))
@@ -698,11 +724,11 @@ def _resume(request: Request, user: dict, errand_id: int):
 
 
 def _understood_title(errand: dict) -> str:
-    return f"Here is what I understood: {errand['label']}"
+    return f"Here is what I understood: {errand['name']}"
 
 
 def _done_title(errand: dict) -> str:
-    return (f"Answer ready: {errand['label']}" if errand["kind"] == "find" else f"Ready for you to do: {errand['label']}")
+    return (f"Answer ready: {errand['name']}" if errand["kind"] == "find" else f"Ready for you to do: {errand['name']}")
 
 
 def _errand_page(request: Request, errand: dict, *, values: dict | None = None, errors: dict | None = None,
@@ -716,11 +742,11 @@ def _errand_page(request: Request, errand: dict, *, values: dict | None = None, 
     if errand["status"] == "done":
         return render(request, "errands/ready.html", title=error_title(_done_title(errand), errors), **ctx)
     if errand["status"] == "new":
-        title = (f"Reading back your request: {errand['label']}" if errand["job_active"]
-                 else f"Saved but not read back yet: {errand['label']}")
+        title = (f"Reading back your request: {errand['name']}" if errand["job_active"]
+                 else f"Saved but not read back yet: {errand['name']}")
     else:
-        title = (f"Working on it: {errand['label']}" if errand["job_active"]
-                 else f"Not finished yet: {errand['label']}")
+        title = (f"Working on it: {errand['name']}" if errand["job_active"]
+                 else f"Not finished yet: {errand['name']}")
     return render(request, "errands/pending.html", title=title, **ctx)
 
 
@@ -810,7 +836,7 @@ async def follow_up(request: Request, errand_id: int, user: dict = Depends(requi
 @router.get("/{errand_id}/delete")
 def confirm_delete(request: Request, errand_id: int, user: dict = Depends(require_user)):
     errand = _view(_owned(errand_id, user))
-    return render(request, "errands/delete.html", title=f"Delete this request: {errand['label']}", errand=errand)
+    return render(request, "errands/delete.html", title=f"Delete this request: {errand['name']}", errand=errand)
 
 
 @router.post("/{errand_id}/delete")
@@ -820,7 +846,7 @@ async def delete(request: Request, errand_id: int, user: dict = Depends(require_
     with db.session() as conn:
         conn.execute("DELETE FROM errands WHERE id = ? AND user_id = ?", (errand["id"], user["id"]))
         jobs.forget_item(conn, user["id"], _item_ref(errand))
-    request.session["errands_deleted"] = _view(errand)["label"]
+    request.session["errands_deleted"] = _view(errand)["name"]
     return redirect("/do")
 
 

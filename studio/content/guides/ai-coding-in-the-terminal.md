@@ -10,7 +10,7 @@ order: 4
 - **Claude Code** has the most complete screen reader mode. It does not turn on by itself: start Claude Code with `claude --ax-screen-reader`.
 - **GitHub Copilot CLI** turns its screen reader support on by itself when it detects a screen reader, and has a `--screen-reader` flag.
 - **OpenAI Codex CLI** has no screen reader mode. It turns its animations off when it detects a screen reader.
-- **Gemini CLI** has a `--screen-reader` flag, but since 18 June 2026 Google no longer serves free, Google AI Pro or Ultra users through it. Its replacement, Antigravity CLI, has no screen reader mode.
+- **Gemini CLI** has a `--screen-reader` flag, but Google stopped serving free, Google AI Pro and Ultra users through it on 18 June 2026. Its replacement, Antigravity CLI, has no screen reader mode.
 - People in the community have built add-ons that fill the gaps. They are small projects and can break after updates.
 
 These tools change every week. Each fact below links to its source, and this guide was last checked in October 2026.

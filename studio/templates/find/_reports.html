@@ -1,6 +1,6 @@
 {# Member reports and the "Did it work for you?" form. Needs: tool, reports, summary, values, errors, outcomes, sight_onsets, sight_label, report_action, back. #}
 {% from "_macros.html" import csrf_input, field, textarea, select %}
-<h2 id="reports-title">What members say ({{ reports|length }} {{ 'report' if reports|length == 1 else 'reports' }})</h2>
+<h2 id="reports-title">What members say{% if reports %} ({{ reports|length }} {{ 'report' if reports|length == 1 else 'reports' }}){% endif %}</h2>
 <p>{{ summary }}.{% if reports %} When a member reports more than once, only their latest report counts here; all reports are listed below, newest first.{% endif %}</p>
 {% if reports %}
 <ul class="item-list">

@@ -366,8 +366,27 @@ def _minutes_ago(minutes: int) -> str:
     return (datetime.now(timezone.utc) - timedelta(minutes=minutes)).replace(microsecond=0).isoformat()
 
 
-def _question_url(question_id: int, done: str = "", anchor: str = "") -> str:
-    return f"/help/q/{question_id}" + (f"?done={done}" if done else "") + (f"#{anchor}" if anchor else "")
+HELP_DONE_KEY = "help_done"
+
+
+def _question_url(question_id: int) -> str:
+    """The plain address of a question. After an action there is no #fragment: the browser would scroll to it
+    after enhance.js put focus on the notice, so focus would drop to the page body and the outcome would be
+    off screen. What happened is kept once in the session (_set_done), not in the address, so a reload or a
+    shared link does not say it again."""
+    return f"/help/q/{question_id}"
+
+
+def _set_done(request: Request, question_id: int, done: str) -> None:
+    """The next view of this question says what just happened in its title and h1, once."""
+    request.session[HELP_DONE_KEY] = {"q": question_id, "done": done}
+
+
+def _pop_done(request: Request, question_id: int) -> str:
+    done = request.session.pop(HELP_DONE_KEY, None)
+    if isinstance(done, dict) and done.get("q") == question_id and done.get("done") in DONE:
+        return str(done["done"])
+    return ""
 
 
 def _clean(form: dict, key: str) -> str:
@@ -448,7 +467,7 @@ def _has_ai_answer(question_id: int) -> bool:
 
 def _write_ai_answer(ctx, ai, question_id: int, asker_id: int, system: str, prompt: str) -> str:
     """Background job: ask the AI once, save its answer, and send the asker back to the question."""
-    url = _question_url(question_id, "ai", "answers")
+    url = f"/help/q/{question_id}/ai-ready"
     if _has_ai_answer(question_id):
         return url
     ctx.progress("Reading your question")
@@ -570,7 +589,8 @@ async def ask(request: Request, user: dict = Depends(require_user)):
             (user["id"], values["title"], values["body"], values["screen_reader"], values["device"], db.now()))
         question_id = cur.lastrowid
     flash(request, "Members can now read and answer it.", "success")
-    return redirect(_question_url(question_id, "asked"))
+    _set_done(request, question_id, "asked")
+    return redirect(_question_url(question_id))
 
 
 def _question_page(request: Request, question: dict, *, answer_value: str = "", errors: dict | None = None,
@@ -596,13 +616,28 @@ def _question_page(request: Request, question: dict, *, answer_value: str = "", 
 
 
 @router.get("/help/q/{question_id}")
-def question_page(request: Request, question_id: int, done: str = ""):
+def question_page(request: Request, question_id: int):
     try:
         question = _question(question_id)
     except QuestionNotFound:
         return render(request, "learn/not_found.html", title="Question not found", message=QUESTION_NOT_FOUND,
                       next_url="/help", next_label="See every question in Ask the community", status_code=404)
-    return _question_page(request, question, done=done)
+    return _question_page(request, question, done=_pop_done(request, question_id))
+
+
+@router.get("/help/q/{question_id}/ai-ready")
+def ai_ready(request: Request, question_id: int):
+    """Where the job page sends the asker when the AI's answer is saved. It says so once, in a notice that gets
+    focus and in the title and h1, then shows the plain question address."""
+    user = current_user(request)
+    try:
+        question = _question(question_id)
+    except QuestionNotFound:
+        return redirect("/help")
+    if user and user["id"] == question["user_id"] and _has_ai_answer(question_id):
+        flash(request, "It is under Answers, after any answers from members. No member has checked it.", "success")
+        _set_done(request, question_id, "ai")
+    return redirect(_question_url(question_id))
 
 
 @router.post("/help/q/{question_id}/answer")
@@ -626,14 +661,15 @@ async def answer(request: Request, question_id: int, user: dict = Depends(requir
             (question_id, user["id"], body, _minutes_ago(REPEAT_MINUTES))).fetchone()
     if repeat:  # the same answer sent twice
         flash(request, "You already posted this answer, so it was not posted again.", "info")
-        return redirect(_question_url(question_id, anchor=f"answer-{repeat['id']}"))
+        return redirect(_question_url(question_id))
     with db.session() as conn:
         cur = conn.execute(
             "INSERT INTO help_answers (question_id, user_id, body, is_ai, created_at) VALUES (?, ?, ?, 0, ?)",
             (question_id, user["id"], body, db.now()))
         answer_id = cur.lastrowid
-    flash(request, "Thank you for helping.", "success")
-    return redirect(_question_url(question_id, "answer", f"answer-{answer_id}"))
+    flash(request, "Thank you for helping. Your answer is under Answers.", "success")
+    _set_done(request, question_id, "answer")
+    return redirect(_question_url(question_id))
 
 
 @router.post("/help/q/{question_id}/answers/{answer_id}/helpful")
@@ -657,9 +693,10 @@ async def helpful(request: Request, question_id: int, answer_id: int, user: dict
             conn.execute("UPDATE help_answers SET helpful_count = helpful_count + 1 WHERE id = ?", (answer_id,))
     if added:
         flash(request, "Thank you for letting other members know.", "success")
-        return redirect(_question_url(question_id, "helpful", f"answer-{answer_id}"))
+        _set_done(request, question_id, "helpful")
+        return redirect(_question_url(question_id))
     flash(request, "You already marked this answer as helpful.", "info")
-    return redirect(_question_url(question_id, anchor=f"answer-{answer_id}"))
+    return redirect(_question_url(question_id))
 
 
 @router.post("/help/q/{question_id}/answered")
@@ -669,7 +706,8 @@ async def mark_answered(request: Request, question_id: int, user: dict = Depends
     with db.session() as conn:
         conn.execute("UPDATE help_questions SET status = 'answered' WHERE id = ?", (question_id,))
     flash(request, "Members can still add answers.", "success")
-    return redirect(_question_url(question_id, "answered"))
+    _set_done(request, question_id, "answered")
+    return redirect(_question_url(question_id))
 
 
 @router.post("/help/q/{question_id}/reopen")
@@ -679,7 +717,8 @@ async def reopen(request: Request, question_id: int, user: dict = Depends(requir
     with db.session() as conn:
         conn.execute("UPDATE help_questions SET status = 'open' WHERE id = ?", (question_id,))
     flash(request, "It is back in the list of questions not answered yet.", "success")
-    return redirect(_question_url(question_id, "reopened"))
+    _set_done(request, question_id, "reopened")
+    return redirect(_question_url(question_id))
 
 
 @router.post("/help/q/{question_id}/ai")
@@ -688,7 +727,7 @@ async def ask_ai(request: Request, question_id: int, user: dict = Depends(requir
     question = _own_question(question_id, user)
     if _has_ai_answer(question_id):
         flash(request, "This question already has a suggested answer from the AI. Each question gets one.", "info")
-        return redirect(_question_url(question_id, anchor="answers"))
+        return redirect(_question_url(question_id))
     kind = f"help.ai_answer.q{question_id}"  # one kind per question, so two questions with one title never mix
     with db.session() as conn:
         running = conn.execute(  # a job lost in a restart stays "running"; after a while, start a new one
@@ -701,7 +740,8 @@ async def ask_ai(request: Request, question_id: int, user: dict = Depends(requir
         ai = get_ai(request, user)
     except AINotAvailable as exc:
         flash(request, exc.user_message + " Members can still answer your question.", "error")
-        return redirect(_question_url(question_id, "no-ai"))
+        _set_done(request, question_id, "no-ai")
+        return redirect(_question_url(question_id))
     system = _ai_system(request.app.state.settings.site_name, question, _section_list(request), load_guides())
     job_id = jobs.submit(user["id"], kind, _ai_job_title(question), _write_ai_answer, ai, question_id,
                          user["id"], system, _ai_prompt(question))

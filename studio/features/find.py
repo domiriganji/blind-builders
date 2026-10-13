@@ -240,10 +240,13 @@ def _plural(n: int, word: str) -> str:
     return f"{n} {word}" if n == 1 else f"{n} {word}s"
 
 
+NO_REPORTS = "No member has reported on this yet"
+
+
 def report_summaries(tool_ids: list[int]) -> dict[int, str]:
     """One plain line per tool, from each member's latest report, for example
     "3 members: 2 worked, 1 partly worked. Tools used: NVDA, TalkBack". No full stop at the end."""
-    out = {tid: "No member has reported on this yet" for tid in tool_ids}
+    out = {tid: NO_REPORTS for tid in tool_ids}
     if not tool_ids:
         return out
     marks = ",".join("?" * len(tool_ids))
@@ -436,6 +439,16 @@ def pop_done(request: Request, where: str, tool_id: int = 0) -> str:
     return ""
 
 
+def already_listed(existing: dict, typed_name: str, where: str = "the directory") -> str:
+    """The notice when a web address is already listed. It gets focus before the h1, so it names the tool and
+    the name the member typed, instead of starting with "It"."""
+    typed = " ".join((typed_name or "").split())
+    if typed and typed.casefold() != existing["name"].casefold():
+        return (f"{existing['name']} is already in {where} at this web address, so {typed} was not added again. "
+                "This is its page.")
+    return f"{existing['name']} is already in {where} at this web address, so it was not added again. This is its page."
+
+
 def others_joined(tool_id: int, user_id: int) -> bool:
     """True once another member has reported on the tool, raised a problem or offered to help."""
     with db.session() as conn:
@@ -465,19 +478,70 @@ def find_title(tool: dict) -> str:
 
 # ----- directory pages -------------------------------------------------------------------------
 
-def _search_tools(q: str, category: str) -> list[dict]:
-    """Tools whose name or description holds every word, in any letter case and any alphabet."""
+# Words that say little about a tool, left out of a search unless they are all that was typed.
+STOP_WORDS = frozenset("a all an and any are as at be by can do does find for from get i in is it like me my need "
+                       "no not of on or so some something such that the there this thing things to use using want "
+                       "what which who will with would you your app apps tool tools".split())
+_WORD = re.compile(r"\w+")
+
+
+def _stem(word: str) -> str:
+    """A simple word form, so "talking", "talks" and "talk", or "pictures" and "picture", compare equal."""
+    if word.endswith(("sses", "xes", "zes", "ches", "shes")):
+        word = word[:-2]  # glasses, boxes, matches
+    else:
+        for ending, shortest in (("ing", 6), ("ed", 5), ("s", 4)):
+            if word.endswith(ending) and len(word) >= shortest and not word.endswith(("ss", "us", "is")):
+                word = word[:-len(ending)]
+                break
+    if word.endswith("e") and len(word) >= 4:
+        word = word[:-1]  # describe and describ(ed), game and gam(es)
+    return word
+
+
+def _search_words(q: str) -> tuple[list[str], bool]:
+    """The words to look for, and whether a tool may match only some of them. Common words are left out; if
+    nothing else was typed, every word must match. Text with no letters or digits ("%") is looked for as is."""
+    words = [w.casefold() for w in _WORD.findall(q)][:8] or [w.casefold() for w in q.split()][:8]
+    kept = [w for w in words if w not in STOP_WORDS]
+    return list(dict.fromkeys(kept or words)), bool(kept)
+
+
+def _word_found(word: str, stem: str, text: str, tool_stems: set[str]) -> bool:
+    """A word matches a whole word of the tool's text in a simple form, or part of the text when it is long
+    enough to mean something (or is not in the Latin alphabet, where words are not always split by spaces)."""
+    return stem in tool_stems or ((len(word) >= 4 or not word.isascii() or not _WORD.fullmatch(word))
+                                  and word in text)
+
+
+def _search_tools(q: str, category: str) -> tuple[list[dict], bool]:
+    """Tools that match what was typed, as natural or dictated words ("screen reader for games"): common words
+    are left out, simple word forms match ("talking timer" finds "Talk Timer"), and the category counts as
+    text. Tools that match every word come first; if none does, tools that match some of the words are shown,
+    the ones that match most first, and the second value is True so the h1 says so."""
     sql, args = "SELECT * FROM tools", []
     if category:
         sql += " WHERE category = ?"
         args.append(category)
     with db.session() as conn:
         rows = [dict(r) for r in conn.execute(sql + " ORDER BY name COLLATE NOCASE", args).fetchall()]
-    words = [w.casefold() for w in q.split()[:8]]
-    if words:
-        rows = [r for r in rows if all(w in (r["name"] + " " + r["description"]).casefold() for w in words)]
     rows.sort(key=lambda r: r["name"].casefold())
-    return rows
+    words, may_be_partial = _search_words(q)
+    if not words:
+        return rows, False
+    stems = [_stem(w) for w in words]
+    scored = []
+    for r in rows:
+        text = f"{r['name']} {r['description']} {r['category']}".casefold()
+        tool_stems = {_stem(w) for w in _WORD.findall(text)}
+        hits = sum(1 for w, st in zip(words, stems) if _word_found(w, st, text, tool_stems))
+        if hits:
+            scored.append((hits, r))
+    full = [r for hits, r in scored if hits == len(words)]
+    if full or len(words) == 1 or not may_be_partial:
+        return full, False
+    scored.sort(key=lambda item: -item[0])  # a stable sort: by name within the same number of words
+    return [r for _, r in scored], True
 
 
 def _page_url(q: str, category: str, page: int) -> str:
@@ -487,11 +551,13 @@ def _page_url(q: str, category: str, page: int) -> str:
     return "/find" + ("?" + urlencode(params) if params else "")
 
 
-def _index_title(q: str, category: str, total: int, page: int, pages: int) -> str:
+def _index_title(q: str, category: str, total: int, page: int, pages: int, partial: bool = False) -> str:
     """The h1 says what the page shows, so after a search it says what was found."""
     if q or category:
         title = f"{total} {'tool matches' if total == 1 else 'tools match'}"
-        if q:
+        if q and partial:
+            title += f' some of your words: "{q}"'
+        elif q:
             title += f' "{q}"'
         if category:
             title += f" in the category {category}"
@@ -506,7 +572,7 @@ def _index_title(q: str, category: str, total: int, page: int, pages: int) -> st
 def index(request: Request, q: str = "", category: str = "", page: int = 1):
     q = " ".join(q.split())[:200]
     category = category if category in CATEGORIES else ""
-    found = _search_tools(q, category)
+    found, partial = _search_tools(q, category)
     pages = max(1, (len(found) + PAGE_SIZE - 1) // PAGE_SIZE)
     page = min(max(page, 1), pages)
     shown = found[(page - 1) * PAGE_SIZE: page * PAGE_SIZE]
@@ -518,7 +584,7 @@ def index(request: Request, q: str = "", category: str = "", page: int = 1):
             searches = [dict(r) for r in conn.execute(
                 "SELECT id, need, created_at FROM find_searches WHERE user_id = ? ORDER BY id DESC LIMIT 10",
                 (user["id"],)).fetchall()]
-    title = pop_done(request, "index") or _index_title(q, category, len(found), page, pages)
+    title = pop_done(request, "index") or _index_title(q, category, len(found), page, pages, partial)
     return render(request, "find/index.html", title=title, q=q,
                   category=category, tools=shown, total=len(found), summaries=summaries, page=page, pages=pages,
                   page_urls=[_page_url(q, category, n) for n in range(1, pages + 1)],
@@ -658,7 +724,7 @@ async def add_tool(request: Request, user: dict = Depends(require_user)):
         existing = find_by_url(values["url"])
         if existing:
             set_done(request, "find", existing["id"], f"Already in the directory: {existing['name']}")
-            flash(request, "It has this web address, so it was not added again.", "info")
+            flash(request, already_listed(existing, values.get("name", "")), "info")
             return redirect(f"/find/tool/{existing['id']}")
     if errors:
         return _add_page(request, values=values, errors=errors, found=found, status_code=400)
@@ -993,6 +1059,7 @@ async def add_candidate(request: Request, search_id: int, user: dict = Depends(r
     existing = find_by_url(candidate["url"])
     if existing:
         set_done(request, "find", existing["id"], f"Already in the directory: {existing['name']}")
+        flash(request, already_listed(existing, candidate.get("name", "")), "info")
         return redirect(f"/find/tool/{existing['id']}")
     return redirect("/find/add?" + urlencode({"search": search_id, "candidate": index_}))
 

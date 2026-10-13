@@ -135,6 +135,10 @@ def test_member_reports_fixes_mistakes_updates_and_deletes(live, browser):
 
     # Published: the h1 says so, and the report is under its version heading, labelled as the member's words.
     assert heading_1(page) == f"Your report on {TOOL} version 2.1.296 is published"
+    # No #fragment in the address, so the browser does not scroll past the notice: focus stays on it.
+    assert "#" not in page.url
+    expect(page.locator("main .messages")).to_be_focused()
+    expect(page.get_by_role("status").filter(has_text="It is under Member reports")).to_be_visible()
     checked(page, "report published")
     expect(page.get_by_role("heading", name="Version 2.1.296: 1 report", level=3)).to_be_visible()
     report = page.get_by_role("article", name="Usable with workarounds: NVDA 2026.2 on Windows 11")
@@ -192,7 +196,8 @@ def test_member_reports_fixes_mistakes_updates_and_deletes(live, browser):
     page.wait_for_load_state()
     checked(page, "index after reporting")
     row = page.get_by_role("row", name=TOOL, exact=False)
-    expect(row.get_by_text("1 usable, 0 with workarounds, 0 not usable")).to_be_visible()
+    expect(row.get_by_text("1 usable.", exact=False)).to_be_visible()
+    expect(row.get_by_text("0 not usable", exact=False)).to_have_count(0)  # only verdicts members gave
 
     assert len(live["fake_ai"].calls) == calls_before  # nothing in this section uses the AI
 

@@ -245,12 +245,20 @@ def test_follow_up_creates_child_with_context(user_client, fake_ai):
     row = _errand(child)
     assert row["parent_id"] == parent and row["kind"] == "find"
     assert row["request"] == "Are the hours different in summer?"
-    assert _h1(r.text) == "Here is what I understood: Are the hours different in summer?"
+    # A follow-up is named with the earlier request, so it makes sense on its own in titles and lists.
+    assert _h1(r.text) == ("Here is what I understood: Are the hours different in summer? "
+                           "(follow-up to: When is the central library in Leeds open?)")
+    listing = user_client.get("/do").text
+    assert (f'<a href="/do/{child}">Are the hours different in summer? (follow-up to: When is the central library '
+            'in Leeds open?)</a>') in listing
+    # The delete link keeps its short visible name, so voice control users can say it.
+    assert f'<a href="/do/{child}/delete">Delete request: Are the hours different in summer?</a>' in listing
     assert f'href="/do/{parent}"' in r.text  # link back to the earlier request
     prompt = fake_ai.calls[-1][2]["prompt"]
     assert "open 9am to 5pm" in prompt and "When is the central library in Leeds open?" in prompt
     r = post(user_client, f"/do/{child}/respond", {"action": "go"})
-    assert _h1(r.text) == "Answer ready: Are the hours different in summer?"
+    assert _h1(r.text) == ("Answer ready: Are the hours different in summer? "
+                           "(follow-up to: When is the central library in Leeds open?)")
     assert "open 9am to 5pm" in fake_ai.calls[-1][2]["prompt"]
     # Deleting the parent keeps the follow-up.
     post(user_client, f"/do/{parent}/delete")
@@ -307,11 +315,16 @@ def test_task_journey(user_client, fake_ai):
     assert "Have your library card number ready" in text
     assert "<ol>" in text and "Open the renewal page" in text and "Screen reader tip: Press H" in text
     assert re.search(r'<label for="answer-1">Answer for: Full name</label></h3>\s*<textarea id="answer-1" readonly', text)
-    assert ">Amina Yusuf</textarea>" in text and ">[your library card number]</textarea>" in text
+    assert ">Amina Yusuf</textarea>" in text
+    # An answer that is only a gap gets no box and no Copy button: copying it would paste the placeholder
+    # into a password or card field, where it reads only as dots.
+    assert ">[your library card number]</textarea>" not in text
+    assert "<h3>Answer for: Library card number</h3>" in text and "<p>Type this yourself: your library card number.</p>" in text
     assert 'aria-describedby="answer-1-note"' in text and '<p id="answer-1-note">Note: From your answer.</p>' in text
     assert "<pre>" not in text
     # A password suggested by the AI is never shown; it becomes a gap for the person.
-    assert "hunter2" not in text and ">[your password]</textarea>" in text
+    assert "hunter2" not in text and "[your password]" not in text and "<p>Type this yourself: your password.</p>" in text
+    assert text.count("data-copy-name=") == 1  # only the answer with something to copy gets a Copy button
     assert "picture CAPTCHA" in text
     assert "You get an email within two days." in text
     assert "This site does not log in, pay or send anything for you." in text
@@ -904,3 +917,13 @@ def test_member_pages_use_the_voice_guide(user_client, fake_ai):
                      "please fix the problems"):
             assert word not in main, word
     assert "Nobody has checked it." in pages[3] and "Nobody has tried it." in pages[2]
+
+
+def test_answer_with_a_gap_among_other_text_says_so():
+    from studio.features import errands
+    whole = errands._answer_view({"field_label": "Address", "suggested_answer": "12 Elm Street, [your postcode]"})
+    assert whole["has_gap"] and not whole["gap_only"]
+    gap = errands._answer_view({"field_label": "PIN", "suggested_answer": " [your PIN] "})
+    assert gap["gap_only"] and gap["gap_words"] == "your PIN" and not gap["has_gap"]
+    plain = errands._answer_view({"field_label": "Name", "suggested_answer": "Amina Yusuf"})
+    assert not plain["gap_only"] and not plain["has_gap"]

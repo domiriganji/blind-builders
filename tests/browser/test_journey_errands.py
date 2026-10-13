@@ -202,11 +202,11 @@ def test_find_journey_with_corrections_follow_up_and_delete(live, browser):
     fake.on("errands.understand", SUMMER_CONTRACT).on("errands.find", SUMMER_ANSWER)
     page.get_by_label("Your follow-up question").fill("Are the hours different in summer?")
     page.get_by_role("button", name="Ask the follow-up").click()
-    _expect_h1(page, "Here is what I understood: Are the hours different in summer?")
+    _expect_h1(page, "Here is what I understood: Are the hours different in summer? (follow-up to: When is the central library open?)")
     _check(page, "follow-up read-back")
     expect(page.get_by_role("link", name="your earlier request")).to_be_visible()
     page.get_by_role("button", name="This is right: go ahead").click()
-    _expect_h1(page, "Answer ready: Are the hours different in summer?")
+    _expect_h1(page, "Answer ready: Are the hours different in summer? (follow-up to: When is the central library open?)")
     _check(page, "follow-up found")
     expect(page.get_by_role("link", name="Summer hours")).to_be_visible()
 
@@ -221,22 +221,22 @@ def test_find_journey_with_corrections_follow_up_and_delete(live, browser):
     expect(page.get_by_role("heading", level=2).first).to_have_text("Your requests")
     done = page.get_by_role("heading", name="Done (2)", level=3)
     expect(done).to_be_visible()
-    expect(page.get_by_role("link", name="Are the hours different in summer?", exact=True)).to_be_visible()
+    expect(page.get_by_role("link", name="Are the hours different in summer? (follow-up to: When is the central library open?)", exact=True)).to_be_visible()
     expect(page.get_by_text("The AI understood: Find the summer opening hours.")).to_be_visible()
 
     # Delete: a confirmation page, a way back, then the next h1 says what happened.
     page.get_by_role("link", name="Delete request: Are the hours different in summer?").click()
-    _expect_h1(page, "Delete this request: Are the hours different in summer?")
+    _expect_h1(page, "Delete this request: Are the hours different in summer? (follow-up to: When is the central library open?)")
     _check(page, "delete confirmation")
     expect(page.get_by_text("You cannot undo this")).to_be_visible()
     page.get_by_role("link", name="Keep it and go back").click()
-    _expect_h1(page, "Answer ready: Are the hours different in summer?")
+    _expect_h1(page, "Answer ready: Are the hours different in summer? (follow-up to: When is the central library open?)")
     page.get_by_role("link", name="Delete this request").click()
-    _expect_h1(page, "Delete this request: Are the hours different in summer?")
+    _expect_h1(page, "Delete this request: Are the hours different in summer? (follow-up to: When is the central library open?)")
     page.get_by_role("button", name="Delete this request").click()
-    _expect_h1(page, "Request deleted: Are the hours different in summer?")
+    _expect_h1(page, "Request deleted: Are the hours different in summer? (follow-up to: When is the central library open?)")
     _check(page, "index after delete")
-    expect(page.get_by_role("link", name="Are the hours different in summer?", exact=True)).to_have_count(0)
+    expect(page.get_by_role("link", name="Are the hours different in summer? (follow-up to: When is the central library open?)", exact=True)).to_have_count(0)
     expect(page.get_by_role("heading", name="Done (1)", level=3)).to_be_visible()
 
 
@@ -290,7 +290,11 @@ def test_task_journey_prepares_answers_and_hides_secrets(live, browser):
     assert answer.evaluate("el => el.value.substring(el.selectionStart, el.selectionEnd)") == "Amina Yusuf"
     # The password the AI suggested is never shown: it is a gap for the person to fill in.
     assert "hunter2" not in page.content()
-    expect(page.get_by_role("textbox", name="Answer for: Password")).to_have_value("[your password]")
+    # An answer that is only a gap has no box and no Copy button: pasting "[your password]" into a password
+    # field would be read only as dots.
+    expect(page.get_by_role("textbox", name="Answer for: Password")).to_have_count(0)
+    expect(page.get_by_role("button", name="Copy the answer for Password")).to_have_count(0)
+    expect(page.get_by_text("Type this yourself: your password.", exact=True)).to_be_visible()
     expect(page.get_by_role("link", name="ask the community for help")).to_be_visible()
     expect(page.get_by_text("Checked by the site")).to_be_visible()
     # No follow-up form on a task: nothing to ask.

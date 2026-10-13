@@ -219,7 +219,10 @@ def test_add_tool_and_duplicate_url(user_client):
     r = post(user_client, "/find/add", {"name": "Copy", "url": "http://www.scale.example.org/app/",
                                         "description": "", "category": ""})
     assert str(r.url).endswith(f"/find/tool/{new_id}")
-    assert "<h1>Already in the directory: Talking Scale</h1>" in r.text and "it was not added again" in r.text
+    assert "<h1>Already in the directory: Talking Scale</h1>" in r.text
+    # The focused notice comes before the h1, so it stands on its own: which tool, and the name that was typed.
+    assert ("Talking Scale is already in the directory at this web address, so Copy was not added again. "
+            "This is its page.") in r.text
     assert count("SELECT COUNT(*) FROM tools WHERE name = 'Copy'") == 0
     # A researched tool's address also counts.
     r = post(user_client, "/find/add", {"name": "QM", "url": "https://github.com/kellylford/QuickMail",
@@ -633,7 +636,7 @@ def test_seed_facts_follow_the_research_corrections():
     by_name = {i["name"]: i for i in SEED}
     assert "free" not in by_name["Seeing AI"]["description"].lower()  # the research does not say it is free
     assert "not yet checked in claude.ai or ChatGPT" in by_name["maidr-mcp"]["description"]
-    assert "June 18, 2026" in by_name["Gemini CLI screen reader setting"]["description"]
+    assert "on 18 June 2026" in by_name["Gemini CLI screen reader setting"]["description"]  # VOICE.md date form
     assert "could not confirm" in by_name["PiccyBot"]["description"]
     assert "prototype" in by_name["Envision"]["description"]
     assert "building had just started" in by_name["acter"]["description"]
@@ -803,3 +806,33 @@ def test_find_pages_use_respectful_words(user_client):
             assert phrase not in page, phrase
     assert "whether it worked for other members" in pages[0]
     assert "tools blind and low-vision people made for each other" in pages[0]
+
+
+def test_search_understands_natural_and_dictated_words(client):
+    """Common words are left out, simple word forms match and the category counts, so a natural phrase finds
+    the tools a single word would (final walk-through: "talking timer" and "screen reader for games" found 0)."""
+    with db.session() as conn:
+        conn.execute("INSERT INTO tools (name, url, description, category, made_by_blind, source, created_at)"
+                     " VALUES ('Bisi Talk Timer', 'https://timer.example.org/', 'A kitchen timer that speaks the "
+                     "time left.', 'Everyday tasks', 1, 'member', '2026-10-01T00:00:00+00:00')")
+    r = client.get("/find", params={"q": "talking timers"})
+    assert "Bisi Talk Timer" in r.text
+    assert assert_h1_is_title(r.text) == "1 tool matches &#34;talking timers&#34;"
+    r = client.get("/find", params={"q": "screen reader for games"})
+    assert "Balatro" in r.text
+    # When no tool has every word, tools with some of them are shown, and the h1 says so.
+    r = client.get("/find", params={"q": "talking timer zebra"})
+    assert "Bisi Talk Timer" in r.text
+    assert "some of your words: &#34;talking timer zebra&#34;" in assert_h1_is_title(r.text)
+
+
+def test_stem_and_search_words():
+    from studio.features.find import _search_words, _stem
+    assert _stem("talking") == _stem("talk") == _stem("talks")
+    assert _stem("pictures") == _stem("picture")
+    assert _stem("describes") == _stem("describe") == _stem("described") == _stem("describing")
+    assert _stem("games") == _stem("game")
+    assert _stem("glass") == "glass"
+    assert _search_words("a screen reader for the games") == (["screen", "reader", "games"], True)
+    assert _search_words("no such thing at all") == (["no", "such", "thing", "at", "all"], False)
+    assert _search_words("%") == (["%"], True)  # no letters or digits: looked for as typed

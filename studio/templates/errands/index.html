@@ -9,7 +9,7 @@
 <ul class="item-list">
 {% for e in items %}
   <li>
-    <a href="/do/{{ e.id }}">{{ e.label }}</a>
+    <a href="/do/{{ e.id }}">{{ e.name }}</a>
     {% if e.goal and e.goal != e.label %}<br>The AI understood: {{ e.goal_sentence }}{% endif %}
     <br><span class="meta">{{ e.kind_words }}. {{ e.status_words }}. Last changed {{ e.updated_words }}.</span>
     <br><a href="/do/{{ e.id }}/delete">Delete request: {{ e.label }}</a>
