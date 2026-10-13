@@ -51,20 +51,31 @@ def test_guides_from_the_index(live, browser):
     assert_heading(page, "Learn and help")
     audit(page, problems, "/learn")
     guides = learn.load_guides()
-    assert len(guides) == 7
+    assert len(guides) == 8
     for guide in guides:
         page.goto(base + "/learn")
         page.get_by_role("heading", level=3, name=guide.title, exact=True).get_by_role("link").click()
         page.wait_for_load_state()
         assert_heading(page, guide.title)
         expect(page.get_by_text(f"Last checked {guide.last_checked_words}.")).to_be_visible()
-        expect(page.get_by_role("link", name="Ask a question about this guide")).to_be_visible()
+        expect(page.get_by_role("link", name="Ask a question about this guide", exact=True)).to_be_visible()
         audit(page, problems, page.url)
     page.get_by_role("link", name="All guides").click()
     assert_heading(page, "Learn and help")
     page.get_by_role("link", name="Read questions and answers from members").click()
     assert_heading(page, "Ask the community")
     audit(page, problems, page.url)
+    assert not problems, "\n".join(problems)
+
+
+def test_a_missing_guide_leads_back_to_the_guides(live, browser):
+    base, problems = live["base"], []
+    page = new_page(browser)
+    page.goto(base + "/learn/an-old-guide-name")
+    assert_heading(page, "Guide not found")
+    audit(page, problems, "missing guide")
+    page.get_by_role("link", name="See all guides on Learn and help").click()
+    assert_heading(page, "Learn and help")
     assert not problems, "\n".join(problems)
 
 
@@ -79,7 +90,7 @@ def test_asking_from_a_guide_fills_in_the_title(live, browser):
     page.get_by_role("heading", level=3, name=title, exact=True).get_by_role("link").click()
     assert_heading(page, title)
     audit(page, problems, "charts guide signed in")
-    page.get_by_role("link", name="Ask a question about this guide").click()
+    page.get_by_role("link", name="Ask a question about this guide", exact=True).click()
     page.wait_for_load_state()
     assert_heading(page, "Ask a question")
     expect(page.get_by_label("Title")).to_have_value(title)
@@ -105,7 +116,7 @@ def test_ask_get_an_ai_answer_answer_and_mark_helpful(live, browser):
     # Sent empty: the error summary comes first, and each link moves focus to its field.
     asker.get_by_role("button", name="Post your question").click()
     asker.wait_for_load_state()
-    assert_heading(asker, "Ask a question: please fix the problems")
+    assert_heading(asker, "Please check 2 answers: Ask a question")
     expect(asker.get_by_role("alert").get_by_role("heading", name="Please check 2 answers")).to_be_visible()
     audit(asker, problems, "/help/ask with errors")
     follow_error_link(asker, "Enter a short title that says what you need help with.", "Title")
@@ -116,13 +127,16 @@ def test_ask_get_an_ai_answer_answer_and_mark_helpful(live, browser):
     asker.get_by_label("Your question").fill("I signed in and my password is Hunter2024 but the preview is silent.")
     asker.get_by_role("button", name="Post your question").click()
     asker.wait_for_load_state()
-    assert_heading(asker, "Ask a question: please fix the problems")
+    assert_heading(asker, "Please check 1 answer: Ask a question")
     expect(asker.get_by_label("Title")).to_have_value(title)
+    # the member's words are kept, so they only take out the password
+    expect(asker.get_by_label("Your question")).to_have_value(
+        "I signed in and my password is Hunter2024 but the preview is silent.")
     follow_error_link(asker, learn.SECRET_MESSAGE, "Your question")
 
     asker.get_by_label("Your question").fill(
         "When I open the preview of my cake shop website, NVDA says nothing. I tried pressing Tab.")
-    asker.get_by_label("Screen reader").fill("NVDA 2026.2")
+    asker.get_by_label("Screen reader, braille display or magnifier you use").fill("NVDA 2026.2")
     asker.get_by_label("Device").fill("Windows laptop")
     asker.get_by_role("button", name="Post your question").click()
     asker.wait_for_load_state()
@@ -155,12 +169,13 @@ def test_ask_get_an_ai_answer_answer_and_mark_helpful(live, browser):
     signed_in(helper)
     # Help shows a code name unless the member chooses to show their name.
     helper.goto(base + "/account/profile")
-    helper.get_by_label("Show my name in Help instead of my code name").check()
+    helper.get_by_label(re.compile(r"^Show my name in (Help|Ask the community) instead of my code name$")).check()
     helper.get_by_role("button", name="Save my profile").click()
     helper.wait_for_load_state()
     helper.goto(base + "/help")
     helper.get_by_role("link", name="Questions not answered yet").click()
     helper.wait_for_load_state()
+    assert_heading(helper, "Ask the community: questions not answered yet")
     audit(helper, problems, "/help?show=open")
     helper.get_by_role("link", name=title).click()
     helper.wait_for_load_state()
@@ -169,7 +184,7 @@ def test_ask_get_an_ai_answer_answer_and_mark_helpful(live, browser):
     audit(helper, problems, "question seen by another member")
     helper.get_by_role("button", name="Post your answer").click()
     helper.wait_for_load_state()
-    assert_heading(helper, f"{title}: please fix the problems")
+    assert_heading(helper, f"Please check 1 answer: {title}")
     audit(helper, problems, "answer with errors")
     follow_error_link(helper, "Enter your answer before posting it.", "Your answer")
     helper.get_by_label("Your answer").fill("Press **NVDA+Space** to switch to browse mode, then press H.")
@@ -179,7 +194,10 @@ def test_ask_get_an_ai_answer_answer_and_mark_helpful(live, browser):
     expect(helper.get_by_role("heading", level=3, name="Answer from Ben")).to_be_visible()
     # no "This helped me" for your own answer; the AI's answer has its own, clearly named button
     expect(helper.get_by_role("button", name="This helped me (answer 1, from Ben)")).to_have_count(0)
-    expect(helper.get_by_role("button", name="This helped me (the suggested answer from the AI)")).to_be_visible()
+    ai_button = helper.get_by_role("button", name="This helped me (the AI's answer)", exact=True)
+    expect(ai_button).to_be_visible()
+    # what voice control users see is the whole name, so saying it works
+    assert ai_button.inner_text().strip() == "This helped me (the AI's answer)"
     audit(helper, problems, "question after answering")
 
     # A third member marks Ben's answer as helpful, choosing the button by its full name.
@@ -188,7 +206,9 @@ def test_ask_get_an_ai_answer_answer_and_mark_helpful(live, browser):
     signed_in(reader)
     reader.goto(base + "/help")
     reader.get_by_role("link", name=title).click()
-    reader.get_by_role("button", name="This helped me (answer 1, from Ben)").click()
+    ben_button = reader.get_by_role("button", name="This helped me (answer 1, from Ben)", exact=True)
+    assert ben_button.inner_text().strip() == "This helped me (answer 1, from Ben)"
+    ben_button.click()
     reader.wait_for_load_state()
     assert_heading(reader, f"You marked an answer as helpful: {title}")
     expect(reader.get_by_text("1 member found this helpful.")).to_be_visible()
@@ -275,7 +295,7 @@ def test_learn_and_help_work_without_javascript(live, browser):
 
     # The error summary's link moves focus to the field without any script.
     page.get_by_role("button", name="Post your answer").click()
-    assert_heading(page, "Braille display drops the cursor: please fix the problems")
+    assert_heading(page, "Please check 1 answer: Braille display drops the cursor")
     follow_error_link(page, "Enter your answer before posting it.", "Your answer")
     page.get_by_label("Your answer").fill("Update: it works after restarting NVDA.")
     page.get_by_role("button", name="Post your answer").click()

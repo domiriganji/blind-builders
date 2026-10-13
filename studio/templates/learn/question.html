@@ -2,22 +2,22 @@
 {% from "_macros.html" import csrf_input, error_summary, textarea, post_button %}
 {% block content %}
 <h1>{{ title }}</h1>
-<p class="lead">{{ 'Answered' if question.status == 'answered' else 'Not answered yet' }}. {{ member_count }} {{ 'answer' if member_count == 1 else 'answers' }} from members{% if has_ai %}, and a suggested answer from the AI{% endif %}.</p>
-<p class="meta">Asked by {{ question.asker_name }} on {{ date }}{% if question.screen_reader %}, using {{ question.screen_reader }}{% endif %}{% if question.device %} on {{ question.device }}{% endif %}.</p>
+<p class="lead">{{ status_text }}</p>
+<p class="meta">Asked by {{ question.asker_name }} on {{ date }}{% if question.screen_reader %}, using {{ question.screen_reader }}{% endif %}{% if device_words %} on {{ device_words }}{% endif %}.</p>
 {{ error_summary(errors) }}
 <h2>The question</h2>
 {{ question_html }}
 {% if is_asker %}
 <h2>{% if question.status == 'open' %}While you wait{% else %}If you still need help{% endif %}</h2>
 {% if not has_ai %}
-<p>Members answer when they can. The AI can write a suggested answer now. It uses your credits or your own Claude API key, and each question gets one. No member will have checked it.</p>
+<p>Members answer when they can. The AI can write one suggested answer for this question now. It is paid for the same way as your other AI work here, and no member will have checked it.</p>
 {{ post_button('/help/q/' ~ question.id ~ '/ai', 'Get a suggested answer from the AI while you wait', 'primary') }}
 {% endif %}
 {% if question.status == 'open' %}
-<p>When you have the help you need, mark your question as answered, so members can spend their time on other questions.</p>
+<p>When you have the help you need, you can mark your question as answered. Then members know they can help someone else.</p>
 {{ post_button('/help/q/' ~ question.id ~ '/answered', 'Mark as answered') }}
 {% else %}
-<p>You marked this question as answered. If you still need help, put it back in the list of questions that need answers.</p>
+<p>You marked this question as answered. If you still need help, put it back in the list of questions not answered yet.</p>
 {{ post_button('/help/q/' ~ question.id ~ '/reopen', 'Mark as not answered yet') }}
 {% endif %}
 {% endif %}
@@ -34,16 +34,17 @@
     {% else %}
     <h3>Answer from {{ a.author_name }}</h3>
     {% endif %}
-    <p class="meta">Posted {{ a.created_at[:10] }}. {{ a.helpful_count }} {{ 'member' if a.helpful_count == 1 else 'members' }} found this helpful.</p>
+    <p class="meta">Posted {{ a.created_at|date_words }}. {% if a.helpful_count %}{{ a.helpful_count }} {{ 'member' if a.helpful_count == 1 else 'members' }} found this helpful.{% else %}No member has marked this helpful yet.{% endif %}</p>
     {{ a.body_html }}
     {% if user and not a.is_own %}
       {% if a.marked_by_viewer %}
     <p>You marked this answer as helpful.</p>
       {% else %}
-    {# Every answer has this button, so its name says which answer it is for when heard in a list of buttons. #}
+    {# Every answer has this button. Its whole name is visible, so voice control users can say it, and it
+       says which answer it is for when read in a list of buttons. #}
     <form method="post" action="/help/q/{{ question.id }}/answers/{{ a.id }}/helpful" class="inline-form">
       {{ csrf_input() }}
-      <button type="submit" class="button button-secondary">This helped me<span class="visually-hidden"> ({% if a.is_ai %}the suggested answer from the AI{% else %}answer {{ loop.index }}, from {{ a.author_name }}{% endif %})</span></button>
+      <button type="submit" class="button button-secondary">This helped me ({% if a.is_ai %}the AI's answer{% else %}answer {{ loop.index }}, from {{ a.author_name }}{% endif %})</button>
     </form>
       {% endif %}
     {% endif %}
@@ -57,7 +58,7 @@
 {% if user %}
 <form method="post" action="/help/q/{{ question.id }}/answer" novalidate>
   {{ csrf_input() }}
-  {{ textarea('body', 'Your answer', answer_value, required=true, rows=8, hint="Never post passwords or codes. If you can, give steps for the asker's screen reader and device.", error=errors.body) }}
+  {{ textarea('body', 'Your answer', answer_value, required=true, rows=8, hint="If you can, give steps for the asker's screen reader, braille display or magnifier, and their device. Please leave out passwords and codes: everyone can read this page.", error=errors.body) }}
   <button type="submit" class="button button-primary">Post your answer</button>
 </form>
 {% else %}

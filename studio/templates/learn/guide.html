@@ -2,9 +2,9 @@
 {% block content %}
 <h1>{{ guide.title }}</h1>
 <p class="lead">{{ guide.summary }}</p>
-<p class="meta">Last checked {{ guide.last_checked_words }}. Tools made by other companies change often, so facts about them link to their sources. Follow a link to see whether a fact is still true.</p>
+<p class="meta">Last checked {{ guide.last_checked_words }}. Tools from other companies change often, so facts about them link to their sources. Follow a link to see whether a fact is still true.</p>
 {{ body_html }}
-<h2>Still stuck?</h2>
-<p>Other members can help. <a href="{{ ask_url }}">Ask a question about this guide</a>.</p>
+<h2>Questions about this guide</h2>
+<p>Members answer when they can. <a href="{{ ask_url }}">Ask a question about this guide</a>.</p>
 <p><a href="/learn">All guides</a></p>
 {% endblock %}

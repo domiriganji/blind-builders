@@ -2,14 +2,14 @@
 {% from "_macros.html" import csrf_input, error_summary, field, textarea %}
 {% block content %}
 <h1>{{ title }}</h1>
-<p class="lead">Other members will read your question and answer it. Say what you are trying to do, what you tried, and what happened. Everyone can read questions, so keep private details out.</p>
+<p class="lead">Members read new questions and answer when they can. Say what you are trying to do, what you tried, and what happened.</p>
 {{ error_summary(errors) }}
 <form method="post" action="/help/ask" novalidate>
   {{ csrf_input() }}
   {{ field('title', 'Title', values.title, required=true, hint='One short sentence, for example: My screen reader does not read the preview of my website.', error=errors.title) }}
-  {{ textarea('body', 'Your question', values.body, required=true, rows=10, hint='Never post passwords or codes. Say what you tried and what happened, including any message you heard.', error=errors.body) }}
-  {{ field('screen_reader', 'Screen reader', values.screen_reader, hint='For example NVDA, JAWS, VoiceOver or TalkBack, with its version if you know it. If your account says which one you use, it is filled in. Change it if this question is about a different one.', error=errors.screen_reader) }}
-  {{ field('device', 'Device', values.device, hint='For example an Android phone, an iPhone or a Windows laptop. If your account says which one you use, it is filled in.', error=errors.device) }}
+  {{ textarea('body', 'Your question', values.body, required=true, rows=10, hint='Say what you tried and what happened, including the exact words of any message. Please leave out passwords, codes and other private details: everyone can read this page.', error=errors.body) }}
+  {{ field('screen_reader', 'Screen reader, braille display or magnifier you use', values.screen_reader, hint='For example NVDA with a Focus 40 braille display, VoiceOver, TalkBack, ZoomText, or none. Add the version if you know it. If your profile gives one, it is filled in here; change it if this question is about something else.', error=errors.screen_reader) }}
+  {{ field('device', 'Device', values.device, hint='For example an Android phone, an iPhone or a Windows laptop. If your profile gives one, it is filled in here.', error=errors.device) }}
   <button type="submit" class="button button-primary">Post your question</button>
 </form>
 <p><a href="/help">Back to Ask the community</a></p>

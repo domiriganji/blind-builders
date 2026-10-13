@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>{{ title }}</h1>
-<p class="lead">Members answer each other's questions here. There is no phone line and no support staff. When you ask, you can also get a suggested answer from the AI while you wait. It is always labelled, because no member has checked it.</p>
+<p class="lead">Members answer each other's questions here, and when you ask, you can also get a suggested answer from the AI while you wait. The AI's answer is always labelled, because no member has checked it. There is no phone line or support staff.</p>
 <p><a class="button button-primary" href="/help/ask">Ask a question</a></p>
 <nav aria-label="Which questions to show">
   <ul>
@@ -9,15 +9,15 @@
     <li><a href="/help?show=open"{% if show == 'open' %} aria-current="page"{% endif %}>Questions not answered yet</a></li>
   </ul>
 </nav>
-<h2>{% if show == 'open' %}Not answered yet{% else %}Newest questions{% endif %} ({{ total }})</h2>
+<h2>{% if show == 'open' %}Questions not answered yet{% else %}Newest questions{% endif %} ({{ total }})</h2>
 {% if questions %}
 {% if pages > 1 %}<p>Page {{ page }} of {{ pages }}.</p>{% endif %}
 <ul class="section-list">
 {% for q in questions %}
   <li>
     <h3><a href="/help/q/{{ q.id }}">{{ q.title }}</a></h3>
-    <p>{{ q.member_answers }} {{ 'answer' if q.member_answers == 1 else 'answers' }} from members{% if q.ai_answers %}, and a suggested answer from the AI{% endif %}. {{ 'Answered' if q.status == 'answered' else 'Not answered yet' }}.</p>
-    <p class="meta">Asked by {{ q.asker_name }} on {{ q.date }}{% if q.screen_reader %}, using {{ q.screen_reader }}{% endif %}{% if q.device %} on {{ q.device }}{% endif %}.</p>
+    <p>{{ q.status_text }}</p>
+    <p class="meta">Asked by {{ q.asker_name }} on {{ q.date }}{% if q.screen_reader %}, using {{ q.screen_reader }}{% endif %}{% if q.device_words %} on {{ q.device_words }}{% endif %}.</p>
   </li>
 {% endfor %}
 </ul>
@@ -32,8 +32,8 @@
 {% elif total_all %}
 <p>Every question has been marked as answered. <a href="/help">Show the newest questions</a>.</p>
 {% else %}
-<p>No questions yet. Be the first: <a href="/help/ask">ask a question</a>.</p>
+<p>No questions yet. You could be the first: <a href="/help/ask">ask a question</a>.</p>
 {% endif %}
 <h2>Before you ask</h2>
-<p>The <a href="/learn">guides</a> may already answer it. Never post passwords, one-time codes, card numbers or API keys: everyone can read these pages.</p>
+<p>The <a href="/learn">guides</a> may already answer it. Please leave out passwords, one-time codes, card numbers and API keys: everyone can read these pages.</p>
 {% endblock %}
