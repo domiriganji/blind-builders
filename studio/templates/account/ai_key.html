@@ -24,15 +24,18 @@
 <h2>Model for your key</h2>
 <form method="post" action="/account/ai-key/model" novalidate>
   {{ csrf_input() }}
-  {% if models_problem %}<p>{{ models_problem }}</p>{% endif %}
   {% if other_model_options %}
+  <p>The list of models comes from {{ provider.name }}, so new models appear by themselves.</p>
   {% if model_radios %}
-  {{ radios('own_model', 'Model from ' ~ provider.name ~ "'s list", other_model_options, values.own_model, hint='The list comes from ' ~ provider.name ~ ', so new models appear by themselves.', error=errors.own_model) }}
+  {{ radios('own_model', 'Model from ' ~ provider.name ~ "'s list", other_model_options, values.own_model, error=errors.own_model) }}
   {% else %}
-  {{ select('own_model', 'Model from ' ~ provider.name ~ "'s list", [('', 'Choose a model')] + other_model_options, values.own_model, hint='Choose a model here, or type its name below: the AI needs one. The list comes from ' ~ provider.name ~ ', so new models appear by themselves.', error=errors.own_model, mark_optional=false) }}
+  {{ select('own_model', 'Model from ' ~ provider.name ~ "'s list", [('', 'Choose a model')] + other_model_options, values.own_model, hint='Choose a model here, or type its name below: the AI needs one.', error=errors.own_model, mark_optional=false) }}
   {% endif %}
+  {{ field('own_model_typed', 'Or type the model name', values.own_model_typed, hint='Exactly as ' ~ provider.name ~ ' writes it. A name typed here is used instead of the list. The site checks it with ' ~ provider.name ~ ' before saving it.', error=errors.own_model_typed, extra='spellcheck="false" autocapitalize="off" autocorrect="off"', mark_optional=false) }}
+  {% else %}
+  {#- No list to choose from: the reason is the box's own hint, so it is read with the box. -#}
+  {{ field('own_model_typed', 'Model name from ' ~ provider.name, values.own_model_typed, hint=((models_problem ~ ' ') if models_problem else '') ~ 'Type it exactly as ' ~ provider.name ~ ' writes it. The site checks it with ' ~ provider.name ~ ' before saving it.', error=errors.own_model_typed, extra='spellcheck="false" autocapitalize="off" autocorrect="off"', mark_optional=false) }}
   {% endif %}
-  {{ field('own_model_typed', 'Or type the model name', values.own_model_typed, hint='Exactly as ' ~ provider.name ~ ' writes it. A name typed here is used instead of the list.', error=errors.own_model_typed, extra='spellcheck="false" autocapitalize="off" autocorrect="off"', mark_optional=false) }}
   <input type="hidden" name="prices_for" value="{{ values.prices_for or '' }}">
   <p>Prices are optional. With them, your usage page shows what each task cost. Without them, it says the cost is not known. {{ provider.name }}'s own bill is the correct one.</p>
   {{ field('own_price_in', 'Price per million tokens in (what the AI reads), in US dollars', values.own_price_in, hint="From " ~ provider.name ~ "'s price page, for example 2.50.", error=errors.own_price_in, extra='inputmode="decimal"') }}

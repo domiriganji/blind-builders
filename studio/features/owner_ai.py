@@ -8,7 +8,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Request
 from starlette.concurrency import run_in_threadpool
 
-from .. import credits, limits, providers, site_ai
+from .. import compat_ai, credits, limits, providers, site_ai
+from ..ai import WEB_SEARCH_DOLLARS
 from ..auth import clean_text
 from ..security import verify_password
 from ..web import checked_form, date_words, error_title, flash, form_text, redirect, render, require_user
@@ -19,6 +20,8 @@ NAV = None
 
 PAGE = "/account/admin/ai"
 TITLE = "AI settings for your key"
+# Said after a failed check, as the key box comes back empty (the key is never put back into the page).
+KEY_CLEARED = "The box was emptied so your key is not kept on the page. Please paste it again."
 PASSWORD_TRIES_PER_HOUR = 5
 HOUR = 60 * 60
 MAX_LIMIT_CENTS = 1_000_000  # $10,000
@@ -42,7 +45,32 @@ def _values() -> dict:
 
 
 def _dollars(cents: int) -> str:
-    return "0" if not cents else credits.format_cents(cents).lstrip("$")
+    return "0" if not cents else credits.format_cents(cents).lstrip("$").replace(",", "")
+
+
+def parse_limit(text: str) -> int | None:
+    """US cents from a monthly limit like "50", "2.50", "$1,000" or "1,000.00", or None if it is not an amount."""
+    return account._parse_dollars(text.replace(",", "").replace(" ", ""))
+
+
+def pay_modes(settings) -> list[tuple[str, str]]:
+    """Who pays, worded for what this site can do now: credits can be bought only once payments are set up."""
+    if not settings.stripe_secret_key:
+        credits_label = ("Members pay with credits that you give them (buying credits is off: set "
+                         "STRIPE_SECRET_KEY on the server to turn it on)")
+    elif not site_ai.site_ai_ready(settings):
+        credits_label = ("Members pay with credits they buy, or that you give them (buying credits starts once your "
+                         "AI key is ready)")
+    else:
+        credits_label = "Members pay with credits they buy, or that you give them"
+    return [(mode, credits_label if mode == "credits" else label) for mode, label in site_ai.PAY_MODES]
+
+
+def with_key_cleared(errors: dict, name: str, key: str) -> dict:
+    """When a key was sent but the form comes back, its box is empty: say so in the key's own message."""
+    if key and errors:
+        errors[name] = f"{errors[name]} {KEY_CLEARED}" if name in errors else KEY_CLEARED
+    return errors
 
 
 def provider_options(with_custom: bool) -> list[tuple[str, str]]:
@@ -115,14 +143,14 @@ def _render(request: Request, user: dict, *, values: dict | None = None, errors:
     values = values or _values()
     if values.get("model") not in site_ai.MODEL_NAMES:
         values["model"] = site_ai.site_model(settings)
-    model_options = [(model_id, f"{name}{', recommended' if model_id == 'claude-opus-5-5' else ''}: {about}")
-                     for model_id, name, about in site_ai.MODELS]
+    model_options = [(model_id, f"{name}: {about}") for model_id, name, about in site_ai.MODELS]
     return render(
         request, "owner/ai.html", title=title, values=values, errors=errors, key_errors=key_errors,
         key_source=site_ai.key_source(settings), key_last4=site_ai.key_last4(settings),
         key_unreadable=site_ai.key_unreadable(settings),
         key_saved_at=date_words(site_ai.get("site_key_saved_at")),
-        model_options=model_options, pay_modes=site_ai.PAY_MODES,
+        model_options=model_options, pay_modes=pay_modes(settings),
+        markup_percent=account._markup_percent(settings), search_price=f"{WEB_SEARCH_DOLLARS * 1000:.0f}",
         spent=credits.format_cents(site_ai.spent_this_month()),
         renews=site_ai.renews_on(),
         other=other, other_last4=site_ai.get("other_key_last4") if other else "",
@@ -134,6 +162,7 @@ def _render(request: Request, user: dict, *, values: dict | None = None, errors:
         models_problem=models_problem, vision_options=VISION_OPTIONS,
         main_label=site_ai.main_label(settings), main_ready=site_ai.site_ai_ready(settings),
         main_is_claude=site_ai.main_is_claude(), vision_main=site_ai.vision_choice() == site_ai.VISION_MAIN,
+        kept_note=False,  # the page says itself which part kept words belong to (owner/ai.html)
         status_code=status_code)
 
 
@@ -174,7 +203,7 @@ async def save_settings(request: Request, user: dict = Depends(require_user)):
         errors["pay_mode"] = "Choose who pays for AI on your key."
     amounts = {}
     for name, label in (("site_month", "for the whole site"), ("member_month", "for each member")):
-        cents = account._parse_dollars(values[name] or "0")
+        cents = parse_limit(values[name] or "0")
         if cents is None:
             errors[name] = f"Enter the monthly limit {label} in US dollars, like 50 or 2.50, or 0 for no limit."
         elif cents > MAX_LIMIT_CENTS:
@@ -190,7 +219,7 @@ async def save_settings(request: Request, user: dict = Depends(require_user)):
     site_ai.save({"model": values["model"], "pay_mode": values["pay_mode"],
                   "site_month_cents": amounts["site_month"], "member_month_cents": amounts["member_month"]},
                  user["id"])
-    account._announce(request, "Your AI settings are saved")
+    account._announce(request, "Your model, payment and limits are saved")
     return redirect(PAGE)
 
 
@@ -211,6 +240,7 @@ async def save_key(request: Request, user: dict = Depends(require_user)):
         if result is not True:
             key_errors["api_key"] = str(result) if result else "Anthropic did not accept this key, so it was not saved."
     if key_errors:
+        with_key_cleared(key_errors, "api_key", key)
         return await run_in_threadpool(_render, request, user, key_errors=key_errors, status_code=400)
     site_ai.save_key(request.app.state.settings, key, user["id"])
     account._announce(request, "The site's Claude API key is saved")
@@ -249,10 +279,10 @@ async def save_other_key(request: Request, user: dict = Depends(require_user)):
     errors: dict[str, str] = {}
     provider = None
     if provider_id not in providers.PRESET_IDS and provider_id != providers.CUSTOM:
-        errors["other_provider"] = "Choose the provider this key is from."
+        errors["other_provider"] = "Choose the company this key is from."
     elif provider_id == providers.CUSTOM:
         if not values["other_name"]:
-            errors["other_name"] = "Type the provider's name, as members will read it, for example Example AI."
+            errors["other_name"] = "Type the company's name, as members will read it, for example Example AI."
         problem = await run_in_threadpool(providers.address_problem, values["other_address"])
         if problem:
             errors["other_address"] = problem
@@ -261,7 +291,7 @@ async def save_other_key(request: Request, user: dict = Depends(require_user)):
                                           name=values["other_name"])
     else:
         provider = providers.get(provider_id)
-    problem = providers.key_problem(key, provider.name if provider else "the provider")
+    problem = providers.key_problem(key, provider.name if provider else "the company")
     if problem:
         errors["other_api_key"] = problem
     password_problem = _password_problem(request, user, str(form.get("other_password", "")))
@@ -273,6 +303,7 @@ async def save_other_key(request: Request, user: dict = Depends(require_user)):
         except providers.ProviderError as exc:
             errors["other_api_key"] = exc.user_message
     if errors or provider is None:
+        with_key_cleared(errors, "other_api_key", key)
         return await run_in_threadpool(_render, request, user, other_errors=errors, other_values=values, status_code=400)
     main_reset = site_ai.save_other_key(request.app.state.settings, provider, key, user["id"])
     providers.forget_cache()
@@ -292,7 +323,7 @@ async def remove_other_key(request: Request, user: dict = Depends(require_user))
     if problem:
         return await run_in_threadpool(_render, request, user, other_errors={"other_remove_password": problem}, status_code=400)
     other = site_ai.other_provider()
-    name = other.name if other else "the other provider"
+    name = other.name if other else "the other company"
     site_ai.remove_other_key()
     providers.forget_cache()
     account._announce(request, f"The key for {name} is removed")
@@ -317,17 +348,21 @@ async def save_main(request: Request, user: dict = Depends(require_user)):
     if values["main_ai"] not in (site_ai.MAIN_CLAUDE, site_ai.MAIN_OTHER):
         errors["main_ai"] = "Choose the main AI for members on your key."
     elif values["main_ai"] == site_ai.MAIN_OTHER and (other is None or not site_ai.other_key(settings)):
-        errors["main_ai"] = ("Save a key for another provider first, under Another provider's key, then choose it "
+        errors["main_ai"] = ("Save a key from another company first, under Another company's key, then choose it "
                              "here.")
     if values["vision"] not in (site_ai.VISION_CLAUDE, site_ai.VISION_MAIN):
         errors["vision"] = "Choose who looks at pictures of built pages."
     to_save: dict[str, str] = {}
     note = ""
     wants_other = values["main_ai"] == site_ai.MAIN_OTHER
+    models: list[dict] = []
     if other is not None:
         model = values["other_model_typed"] or values["other_model"]
         if model or wants_other:
-            problem = providers.model_problem(model)
+            # The list (remembered for a while) says whether there was a list to choose from, and whether a typed
+            # name needs checking with the company.
+            models, _ = await run_in_threadpool(list_models, other, site_ai.other_key(settings))
+            problem = providers.model_problem(model, other.name, listed=bool(models))
             if problem:
                 errors["other_model_typed" if values["other_model_typed"] else "other_model"] = problem
             else:
@@ -349,8 +384,7 @@ async def save_main(request: Request, user: dict = Depends(require_user)):
             prices[n] is not None and providers.price_text(prices[n]) == old for n, old in zip(PRICE_NAMES, stored)))
         empty = not values["other_price_in"] and not values["other_price_out"]
         if "other_model" in to_save and (empty or carried):
-            models, _ = await run_in_threadpool(list_models, other, site_ai.other_key(settings))
-            listed = next((m for m in models if m["id"] == model and m.get("prices")), None)
+            listed =next((m for m in models if m["id"] == model and m.get("prices")), None)
             if listed:
                 prices = {"other_price_in": listed["prices"][0], "other_price_out": listed["prices"][1]}
                 values.update({k: providers.price_text(v) for k, v in prices.items()})
@@ -369,13 +403,28 @@ async def save_main(request: Request, user: dict = Depends(require_user)):
             elif wants_other and name not in errors:
                 errors[name] = (f"Enter the price per million tokens {word} in US dollars, from {other.name}'s price "
                                 "page. The site needs it to keep within your limits and to charge credits.")
+    if (not errors and to_save.get("other_model") and site_ai.other_key(settings)
+            and not any(m["id"] == to_save["other_model"] for m in models)):
+        # A name that is not in a list the company gave: ask the company for a very short answer from it first.
+        model = to_save["other_model"]
+        works = await run_in_threadpool(compat_ai.model_check, other, site_ai.other_key(settings), model)
+        if works is False:
+            errors["other_model_typed" if values["other_model_typed"] or not models else "other_model"] = (
+                f"{other.name} did not recognise the model {model}, so nothing was saved. Check the name on "
+                f"{other.name}'s models page.")
+        elif works is None:
+            note += (f" The site could not check this model name with {other.name}. If members' work fails, check "
+                     "the name here.")
     if errors:
         return await run_in_threadpool(_render, request, user, main_errors=errors, main_values=values, status_code=400)
     site_ai.save({"main_ai": values["main_ai"], "vision": values["vision"], **to_save}, user["id"])
     account._announce(request, "The main AI is saved")
     if wants_other:
+        search = ("Web search steps still use Claude." if site_ai.key_source(settings) else
+                  "Web search steps need a Claude key, and none is saved, so members on your keys cannot use them "
+                  "yet. Save one under Your Claude API key.")
         flash(request, f"Members' everyday AI work on your keys now uses {other.name}, model {to_save['other_model']}. "
-                       f"Web search steps still use Claude.{note}", "success")
+                       f"{search}{note}", "success")
     else:
         flash(request, "Members' AI work on your keys uses Claude." + (note if note else ""), "success")
     return redirect(PAGE)
