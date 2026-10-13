@@ -21,11 +21,19 @@ _executor: ThreadPoolExecutor | None = None
 _inline = False
 
 
+RESTART_MESSAGE = "The site restarted before this finished. Nothing was lost except this step. Please try again."
+
+
 def configure(workers: int, inline: bool) -> None:
     global _executor, _inline
     _inline = inline
     if not inline and _executor is None:
         _executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="studio-job")
+    # Jobs run in this process's threads, so any job still queued or running from before a restart is dead.
+    # (Run the site as one process; the threads are the workers.)
+    with db.session() as conn:
+        conn.execute("UPDATE jobs SET status = 'failed', error = ?, finished_at = ? WHERE status IN ('queued', 'running')",
+                     (RESTART_MESSAGE, db.now()))
 
 
 @dataclass
@@ -39,13 +47,28 @@ class JobContext:
             conn.execute("UPDATE jobs SET progress = ? WHERE id = ?", (text[:300], self.job_id))
 
 
-def submit(user_id: int, kind: str, title: str, fn: Callable[..., str], *args: Any, **kwargs: Any) -> str:
-    """Run fn(ctx, *args, **kwargs) in the background. fn returns the URL of the result page."""
+def submit(user_id: int, kind: str, title: str, fn: Callable[..., str], *args: Any,
+           back_url: str = "", dedupe_key: str = "", **kwargs: Any) -> str:
+    """Run fn(ctx, *args, **kwargs) in the background. fn returns the URL of the result page.
+
+    back_url: where "Go back and try again" leads if the job fails (a site path).
+    dedupe_key: if a queued or running job of this member has the same key, return it instead of starting
+    a second one (protects against double submission paying twice). Make the key specific, for example
+    "build.generate:<project id>".
+    """
+    if dedupe_key:
+        with db.session() as conn:
+            row = conn.execute("SELECT id FROM jobs WHERE user_id = ? AND dedupe_key = ? AND status IN ('queued', 'running')"
+                               " ORDER BY created_at DESC LIMIT 1", (user_id, dedupe_key)).fetchone()
+        if row:
+            return row["id"]
     job_id = uuid.uuid4().hex
+    safe_back = back_url if back_url.startswith("/") and not back_url.startswith("//") else ""
     with db.session() as conn:
         conn.execute(
-            "INSERT INTO jobs (id, user_id, kind, title, status, created_at) VALUES (?, ?, ?, ?, 'queued', ?)",
-            (job_id, user_id, kind, title[:200], db.now()),
+            "INSERT INTO jobs (id, user_id, kind, title, status, created_at, back_url, dedupe_key)"
+            " VALUES (?, ?, ?, ?, 'queued', ?, ?, ?)",
+            (job_id, user_id, kind, title[:200], db.now(), safe_back, dedupe_key),
         )
     if _inline or _executor is None:
         _run(job_id, user_id, fn, args, kwargs)

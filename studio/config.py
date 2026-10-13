@@ -30,6 +30,8 @@ class Settings:
     # Run background jobs inside the request (used by tests).
     jobs_inline: bool = False
     job_workers: int = 4
+    # Largest request body accepted, in bytes (forms and uploads).
+    max_body_bytes: int = 3_000_000
     # Payments (optional). When unset, the buy-credits page says payments are not set up.
     stripe_secret_key: str | None = None
     stripe_webhook_secret: str | None = None
@@ -54,6 +56,7 @@ def load_settings() -> Settings:
         signup_credits=int(os.environ.get("STUDIO_SIGNUP_CREDITS", "0")),
         jobs_inline=_bool("STUDIO_JOBS_INLINE"),
         job_workers=int(os.environ.get("STUDIO_JOB_WORKERS", "4")),
+        max_body_bytes=int(os.environ.get("STUDIO_MAX_BODY_BYTES", "3000000")),
         stripe_secret_key=os.environ.get("STRIPE_SECRET_KEY") or None,
         stripe_webhook_secret=os.environ.get("STRIPE_WEBHOOK_SECRET") or None,
     )

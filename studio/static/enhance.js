@@ -3,6 +3,9 @@
    (rhythm, not pitch) and move focus to a link to the result. */
 (function () {
   document.documentElement.className += " js";
+  // A page that comes back with mistakes: put focus on the list of problems so it is read first.
+  var summary = document.querySelector(".error-summary");
+  if (summary) { try { summary.focus(); } catch (e) {} }
   var main = document.getElementById("main");
   if (!main) return;
   var id = main.getAttribute("data-job-id");

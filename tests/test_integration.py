@@ -68,3 +68,90 @@ def test_links_from_one_section_to_another_resolve(user_client):
                 "/write/new?title=Draft&kind=paper", "/checks/new?url=https%3A%2F%2Fexample.org&title=Mine"]:
         r = user_client.get(url)
         assert r.status_code == 200, url
+
+
+def test_too_large_requests_get_a_plain_page(settings):
+    from fastapi.testclient import TestClient
+    from studio.app import create_app
+    settings.max_body_bytes = 1000
+    c = TestClient(create_app(settings))
+    big = "x" * 5000
+    r = c.post("/login", content=big, headers={"content-type": "application/x-www-form-urlencoded"})
+    assert r.status_code == 413 and "That was too large" in r.text
+
+    def chunks():
+        for _ in range(10):
+            yield b"y" * 500
+
+    r = c.post("/login", content=chunks(), headers={"content-type": "application/x-www-form-urlencoded"})
+    assert r.status_code == 413
+
+
+def test_huge_ids_are_not_found(user_client):
+    r = user_client.get("/write/99999999999999999999999")
+    assert r.status_code == 404 and "Page not found" in r.text
+
+
+def test_wrong_method_is_explained(user_client):
+    r = user_client.get("/logout")
+    assert r.status_code == 405 and "only works from its form" in r.text
+
+
+def test_signing_in_after_a_form_returns_to_the_page_not_the_form(client):
+    r = client.post("/write/new", data={"title": "x"}, headers={"referer": "http://testserver/write?tab=1"},
+                    follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/login?next=%2Fwrite%3Ftab%3D1"
+    r = client.post("/write/new", data={"title": "x"}, headers={"referer": "https://evil.example/write"},
+                    follow_redirects=False)
+    assert r.headers["location"] == "/login?next=%2F"
+
+
+def test_jobs_dedupe_back_url_and_restart_recovery(user_client, app, settings):
+    from studio import jobs
+    uid = user_id()
+    calls = []
+
+    def slow(ctx):
+        calls.append(1)
+        return "/done"
+
+    with db.session() as conn:
+        conn.execute("INSERT INTO jobs (id, user_id, kind, title, status, created_at, dedupe_key) VALUES"
+                     " ('running1', ?, 'k', 'Running', 'running', ?, 'k:1')", (uid, db.now()))
+    assert jobs.submit(uid, "k", "Again", slow, dedupe_key="k:1") == "running1"
+    assert calls == []
+    other = jobs.submit(uid, "k", "Other", slow, dedupe_key="k:2")
+    assert other != "running1" and calls == [1]
+
+    def broken(ctx):
+        raise RuntimeError("boom")
+
+    failed = jobs.submit(uid, "k", "Broken", broken, back_url="/write/7")
+    assert 'href="/write/7"' in user_client.get(f"/jobs/{failed}").text
+    failed_evil = jobs.submit(uid, "k", "Broken", broken, back_url="//evil.example")
+    page = user_client.get(f"/jobs/{failed_evil}", headers={"referer": "https://evil.example/x"})
+    assert "evil.example" not in page.text
+
+    from studio.app import create_app
+    create_app(settings)  # a restart: the job left running is now failed with a plain reason
+    job = jobs.get("running1")
+    assert job["status"] == "failed" and "restarted" in job["error"]
+
+
+def test_markdown_pictures_become_links_and_headings_nest():
+    from studio.web import markdown, nest_headings
+    html = str(markdown("![a cat](https://example.org/cat.png)"))
+    assert "<img" not in html and 'Picture: a cat' in html and 'rel="noopener noreferrer"' in html
+    nested = str(nest_headings("<h1>A</h1><p>x</p><h3>B</h3>", base=2))
+    assert nested == "<h2>A</h2><p>x</p><h3>B</h3>"
+    assert str(nest_headings("<h2>A</h2><h4>B</h4><h6>C</h6>", base=3)) == "<h3>A</h3><h4>B</h4><h5>C</h5>"
+
+
+def test_radio_groups_can_take_focus_from_the_error_summary(client):
+    from studio.web import templates
+    t = templates.env.from_string('{% from "_macros.html" import radios, checkbox %}'
+                                  '{{ radios("kind", "Kind", [("a", "A"), ("b", "B")], error="Choose one") }}'
+                                  '{{ checkbox("agree", "I agree", error="Tick this") }}')
+    html = t.render()
+    assert 'id="field-kind" tabindex="-1"' in html and 'aria-invalid="true"' in html
+    assert 'aria-describedby="error-agree"' in html and 'id="error-agree"' in html

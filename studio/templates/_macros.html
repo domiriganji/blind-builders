@@ -51,18 +51,19 @@
 {% endmacro %}
 
 {% macro radios(name, legend, options, selected='', hint='', error='') %}
-<fieldset class="field{% if error %} has-error{% endif %}" id="field-{{ name }}"{{ _described(name, hint, error) }}>
+<fieldset class="field{% if error %} has-error{% endif %}" id="field-{{ name }}" tabindex="-1"{{ _described(name, hint, error) }}>
   <legend>{{ legend }}</legend>
   {{ _hint_error(name, hint, error) }}
   {% for value, text in options %}
-  <div class="choice"><input type="radio" id="field-{{ name }}-{{ loop.index }}" name="{{ name }}" value="{{ value }}"{% if value == selected %} checked{% endif %}><label for="field-{{ name }}-{{ loop.index }}">{{ text }}</label></div>
+  <div class="choice"><input type="radio" id="field-{{ name }}-{{ loop.index }}" name="{{ name }}" value="{{ value }}"{% if value == selected %} checked{% endif %}{% if error %} aria-invalid="true"{% endif %}><label for="field-{{ name }}-{{ loop.index }}">{{ text }}</label></div>
   {% endfor %}
 </fieldset>
 {% endmacro %}
 
-{% macro checkbox(name, label, checked=false, hint='') %}
-<div class="field choice">
-  <input type="checkbox" id="field-{{ name }}" name="{{ name }}" value="yes"{% if checked %} checked{% endif %}{% if hint %} aria-describedby="hint-{{ name }}"{% endif %}>
+{% macro checkbox(name, label, checked=false, hint='', error='') %}
+<div class="field choice{% if error %} has-error{% endif %}">
+  {% if error %}<p class="field-error" id="error-{{ name }}"><span class="visually-hidden">Error: </span>{{ error }}</p>{% endif %}
+  <input type="checkbox" id="field-{{ name }}" name="{{ name }}" value="yes"{% if checked %} checked{% endif %}{{ _described(name, hint, error) }}>
   <label for="field-{{ name }}">{{ label }}</label>
   {% if hint %}<p class="hint" id="hint-{{ name }}">{{ hint }}</p>{% endif %}
 </div>

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -25,6 +26,17 @@ def about(request: Request):
 @router.get("/accessibility")
 def accessibility(request: Request):
     return render(request, "pages/accessibility.html", title="Accessibility")
+
+
+def _back_url(request: Request, job: dict) -> str:
+    """Where "Go back and try again" leads: the job's own back URL, else a same-site Referer, else home."""
+    if job.get("back_url"):
+        return job["back_url"]
+    referer = request.headers.get("referer") or ""
+    parsed = urlparse(referer)
+    if parsed.netloc and parsed.netloc == request.url.netloc and parsed.path.startswith("/"):
+        return parsed.path + ("?" + parsed.query if parsed.query else "")
+    return "/"
 
 
 def _owned_job(job_id: str, user: dict) -> dict:
@@ -55,4 +67,4 @@ def job_page(request: Request, job_id: str, user: dict = Depends(require_user)):
     elapsed = f"{seconds} seconds" if seconds < 120 else f"{seconds // 60} minutes"
     title = f"This did not finish: {job['title']}" if job["status"] == "failed" else f"Working on it: {job['title']}"
     return render(request, "jobs/status.html", title=title, job=job, elapsed=elapsed,
-                  back_url=request.headers.get("referer") or "/")
+                  back_url=_back_url(request, job))

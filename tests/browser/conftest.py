@@ -59,7 +59,12 @@ def browser():
 def new_page(browser, *, javascript: bool = True, width: int = 1280):
     context = browser.new_context(bypass_csp=True, java_script_enabled=javascript,
                                   viewport={"width": width, "height": 900})
-    return context.new_page()
+    page = context.new_page()
+    _JS_OFF[id(context)] = (not javascript, browser)
+    return page
+
+
+_JS_OFF: dict[int, tuple] = {}
 
 
 def sign_up(page, base: str, email: str = "browser@example.com", name: str = "Browser Tester") -> None:
@@ -68,7 +73,7 @@ def sign_up(page, base: str, email: str = "browser@example.com", name: str = "Br
     page.get_by_label("Your name").fill(name)
     page.get_by_label("Password").fill(PASSWORD)
     page.get_by_role("button", name="Create account").click()
-    page.wait_for_load_state()
+    playwright_api.expect(page.get_by_role("button", name="Sign out")).to_be_visible()
 
 
 def sign_in(page, base: str, email: str = "browser@example.com") -> None:
@@ -76,7 +81,7 @@ def sign_in(page, base: str, email: str = "browser@example.com") -> None:
     page.get_by_label("Email address").fill(email)
     page.get_by_label("Password").fill(PASSWORD)
     page.get_by_role("button", name="Sign in").click()
-    page.wait_for_load_state()
+    playwright_api.expect(page.get_by_role("button", name="Sign out")).to_be_visible()
 
 
 def run_axe(page) -> list[dict]:
@@ -151,6 +156,9 @@ def check_page(page, label: str = "") -> list[str]:
     - no sideways scrolling at the current viewport width
     """
     where = label or page.url
+    js_off, browser = _JS_OFF.get(id(page.context), (False, None))
+    if js_off:
+        return _check_page_without_js(page, where, browser)
     problems = []
     for v in run_axe(page):
         if v["impact"] in ("serious", "critical"):
@@ -172,10 +180,30 @@ def check_page(page, label: str = "") -> list[str]:
 
 
 def check_page_narrow(page, label: str = "") -> list[str]:
-    """check_page at 320 pixels wide (400 percent zoom), then back to the original width."""
+    """check_page at 320 pixels wide (400 percent zoom), then back to the original width.
+    Works with JavaScript off too (the full check then runs on a JavaScript-enabled twin)."""
     original = page.viewport_size
     page.set_viewport_size({"width": 320, "height": 800})
     try:
         return check_page(page, (label or page.url) + " @320px")
     finally:
         page.set_viewport_size(original)
+
+
+def _check_page_without_js(page, where: str, browser) -> list[str]:
+    """axe-core needs JavaScript, so for a page seen with JavaScript off: check the structure here, then open
+    the same address in a JavaScript-enabled twin with the same sign-in and run the full check there."""
+    problems = []
+    if page.locator("h1").count() != 1:
+        problems.append(f"{where} (no JavaScript): {page.locator('h1').count()} h1 elements")
+    elif len(page.locator("main").inner_text().strip()) < 20:
+        problems.append(f"{where} (no JavaScript): the main content is nearly empty")
+    twin_context = browser.new_context(bypass_csp=True, storage_state=page.context.storage_state(),
+                                       viewport=page.viewport_size)
+    try:
+        twin = twin_context.new_page()
+        twin.goto(page.url)
+        problems += check_page(twin, where + " (same address with JavaScript on)")
+    finally:
+        twin_context.close()
+    return problems

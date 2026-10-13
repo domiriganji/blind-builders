@@ -15,6 +15,9 @@ Environment variables are listed in `studio/config.py`. `ANTHROPIC_API_KEY` is o
 
 ### Running the site for real
 
+- Run one process (`uvicorn` without `--workers`). Background jobs are threads in that process; when it restarts, unfinished jobs are marked as stopped with a plain "try again" message.
+- Request bodies over 3 MB are refused (`STUDIO_MAX_BODY_BYTES`).
+
 - Set `STUDIO_SECRET_KEY` to a long random value and keep it. It signs sessions and encrypts members' saved API keys.
 - Set `STUDIO_BASE_URL` to the public address, for example `https://studio.example.org`. Preview links for peer checks are built from it.
 - Credits need both `ANTHROPIC_API_KEY` (the site's own Claude key) and payments. For Stripe, set `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`, and add a webhook to `<base URL>/payments/stripe/webhook` for the events `checkout.session.completed` and `checkout.session.async_payment_succeeded`. Without payments, members use their own Claude API keys.
@@ -39,9 +42,9 @@ Templates go in `studio/templates/<section>/`. Tests go in `tests/test_<section>
 
 | File | What it gives you |
 |---|---|
-| `studio/web.py` | `render(request, template, title=..., **ctx)`, `checked_form(request)`, `require_user`, `current_user`, `flash`, `redirect`, `get_ai(request, user)`, the `markdown` and `shift_headings` template filters |
+| `studio/web.py` | `render(request, template, title=..., **ctx)`, `checked_form(request)`, `require_user`, `current_user`, `flash`, `redirect`, `get_ai(request, user)`, the `markdown`, `nest_headings` and `shift_headings` template filters |
 | `studio/ai.py` | `AIClient.structured / text / research`, `AIError`, `AINotAvailable`, `AIRefused`, `ResearchResult`, `Source` |
-| `studio/jobs.py` | `submit(user_id, kind, title, fn, *args)`, `job_url(job_id)`, `JobContext.progress(text)` |
+| `studio/jobs.py` | `submit(user_id, kind, title, fn, *args, back_url="", dedupe_key="")`, `job_url(job_id)`, `JobContext.progress(text)` |
 | `studio/db.py` | `with db.session() as conn:` and `db.now()` |
 | `studio/credits.py` | `balance`, `add`, `history`, `format_cents` |
 | `studio/a11y_check.py` | `check_html(html) -> Report` with `.errors`, `.warnings`, `.passed`, `.not_checked`, `.to_dict()` |
@@ -91,6 +94,8 @@ def _understand(ctx, ai, thing_id):          # runs in the background
 ```
 
 - `purpose` is a unique string per kind of call, `<section>.<step>`. Tests register fake answers by purpose.
+- Pass `back_url=` (the page to return to if the job fails) and, for anything that costs money, a specific `dedupe_key=` (for example `f"build.generate:{project_id}"`) so a double click does not run and charge twice.
+- Show member or AI Markdown with `|markdown|nest_headings(3)` (or the level under your section heading), so its headings never skip a level or pose as the page's own. Pictures in Markdown become labelled links; the site shows no images from member or AI text.
 - `structured()` schemas must be JSON Schema objects with `"additionalProperties": false` and every property listed in `"required"` (a requirement of structured outputs). Use strings, numbers, booleans, arrays and nested objects.
 - `research()` searches the live web and returns `ResearchResult(text, sources)`. Always show the sources with the `sources_list` macro.
 - `AIError` raised inside a job is shown to the person on the job page in plain words. Do not catch it inside the job.

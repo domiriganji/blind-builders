@@ -99,9 +99,18 @@ def session() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+def ensure_column(conn: sqlite3.Connection, table: str, column: str, declaration: str) -> None:
+    """Add a column to an existing table if it is missing (CREATE TABLE IF NOT EXISTS never adds columns)."""
+    names = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if column not in names:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
+
+
 def init(feature_schemas: list[str]) -> None:
     with session() as conn:
         conn.executescript(CORE_SCHEMA)
+        ensure_column(conn, "jobs", "back_url", "TEXT NOT NULL DEFAULT ''")
+        ensure_column(conn, "jobs", "dedupe_key", "TEXT NOT NULL DEFAULT ''")
         for schema in feature_schemas:
             if schema:
                 conn.executescript(schema)

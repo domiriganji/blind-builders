@@ -1,9 +1,11 @@
 """Shared web helpers for every feature: rendering, forms with CSRF checks, flash messages, Markdown, current user."""
 from __future__ import annotations
 
+import re
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -20,9 +22,15 @@ _md = MarkdownIt("commonmark", {"html": False, "linkify": False, "typographer": 
 
 
 def _link_open(self, tokens, idx, options, env):
+    env["_links_open"] = env.get("_links_open", 0) + 1
     href = tokens[idx].attrGet("href") or ""
     if href.startswith(("http://", "https://")):
         tokens[idx].attrSet("rel", "noopener noreferrer")
+    return self.renderToken(tokens, idx, options, env)
+
+
+def _link_close(self, tokens, idx, options, env):
+    env["_links_open"] = max(env.get("_links_open", 0) - 1, 0)
     return self.renderToken(tokens, idx, options, env)
 
 
@@ -31,8 +39,23 @@ def _th_open(self, tokens, idx, options, env):
     return self.renderToken(tokens, idx, options, env)
 
 
+def _image(self, tokens, idx, options, env):
+    # The site shows no pictures from member or AI text (they could track people and break the CSP).
+    # A picture becomes a link that says what it is.
+    from markdown_it.common.utils import escapeHtml
+    token = tokens[idx]
+    src = token.attrGet("src") or ""
+    alt = self.renderInlineAsText(token.children or [], options, env).strip()
+    label = escapeHtml(f"Picture: {alt}" if alt else "Picture with no description")
+    if src.startswith(("http://", "https://")) and not env.get("_links_open"):
+        return f'<a href="{escapeHtml(src)}" rel="noopener noreferrer">{label}</a>'
+    return f"[{label}]"  # a local picture, or one inside a link (a link may not contain a link)
+
+
 _md.add_render_rule("link_open", _link_open)
+_md.add_render_rule("link_close", _link_close)
 _md.add_render_rule("th_open", _th_open)
+_md.add_render_rule("image", _image)
 
 
 def markdown(text: str | None) -> Markup:
@@ -49,8 +72,21 @@ def shift_headings(html: str, by: int = 1) -> Markup:
     return Markup(out)
 
 
+_HEADING_RE = re.compile(r"<(/?)h([1-6])([ >])")
+
+
+def nest_headings(html: str, base: int = 2) -> Markup:
+    """Place rendered Markdown's headings under the page's own: the highest level used becomes `base`,
+    and levels are made continuous (an h2 followed by an h4 becomes base, base+1), never past h6."""
+    text = str(html)
+    levels = sorted({int(m.group(2)) for m in _HEADING_RE.finditer(text)})
+    mapping = {level: min(base + i, 6) for i, level in enumerate(levels)}
+    return Markup(_HEADING_RE.sub(lambda m: f"<{m.group(1)}h{mapping[int(m.group(2))]}{m.group(3)}", text))
+
+
 templates.env.filters["markdown"] = markdown
 templates.env.filters["shift_headings"] = shift_headings
+templates.env.filters["nest_headings"] = nest_headings
 
 # Macros imported from _macros.html cannot see page variables, but they can see globals.
 # render() sets this before the template renders, so csrf_input() works in any template.
@@ -109,6 +145,11 @@ def require_user(request: Request) -> dict:
     """FastAPI dependency: the signed-in user, or a redirect to sign in."""
     user = current_user(request)
     if user is None:
+        if request.method != "GET":
+            # After signing in we can only send people back to a page, not replay a form.
+            referer = urlparse(request.headers.get("referer") or "")
+            same_site = referer.netloc == request.url.netloc and referer.path.startswith("/")
+            raise LoginRequired((referer.path + ("?" + referer.query if referer.query else "")) if same_site else "/")
         query = request.url.query
         raise LoginRequired(str(request.url.path) + ("?" + query if query else ""))
     return user
