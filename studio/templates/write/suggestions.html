@@ -2,15 +2,16 @@
 {% from "_macros.html" import post_button %}
 {% block content %}
 <h1>{{ title }}</h1>
-<p class="lead">The AI made {{ n }} suggestion{{ '' if n == 1 else 's' }} for the goal "{{ batch.goal_name }}", on {{ batch.when }}. You decide on each one. Your text changes only when you accept a suggestion, and each accepted change is saved as a version.</p>
+{% set made = n + batch.dropped_count %}
+<p class="lead">You asked the AI to "{{ batch.goal_name }}" on {{ batch.when }}. {% if n %}It made {{ n }} suggestion{{ '' if n == 1 else 's' }} you can use. You decide on each one. Your text changes only when you accept a suggestion, and each accepted change is saved as a version.{% elif made %}None of its suggestions could be used, so there is nothing to decide.{% else %}It made no suggestions.{% endif %}</p>
 {% if n %}
 <p>{{ counts.pending }} waiting for your decision, {{ counts.accepted }} accepted, {{ counts.rejected }} rejected, {{ counts.stale }} out of date.
 {% if next_pending %}<a href="#suggestion-{{ next_pending.number }}">Go to suggestion {{ next_pending.number }}, the next one to decide</a>.{% endif %}</p>
 {% endif %}
 {% if batch.dropped_count %}
-<p>{{ batch.dropped_count }} more suggestion{{ ' was' if batch.dropped_count == 1 else 's were' }} left out. The site checks that each suggestion quotes your text word for word, so that a change can only go in the right place. {{ 'That one' if batch.dropped_count == 1 else 'Those' }} quoted words that are not in your text, repeated another suggestion, or changed nothing.</p>
-{% else %}
-<p>The site checked every suggestion: each one quotes your text word for word.</p>
+<p>Checked by the site: {{ batch.dropped_count }} of the AI's {{ made }} suggestion{{ '' if made == 1 else 's' }} {{ 'was' if batch.dropped_count == 1 else 'were' }} left out. The site checks that each suggestion quotes your text word for word, so that a change can only go in the right place. {{ 'That one' if batch.dropped_count == 1 else 'Those' }} quoted words that are not in your text, repeated another suggestion, changed nothing, or came back incomplete.</p>
+{% elif n %}
+<p>Checked by the site: each suggestion quotes your text word for word, so a change can only go in the right place. The site does not check whether the AI's changes are good; that is for you to decide.</p>
 {% endif %}
 
 <section aria-labelledby="note-title">
@@ -44,7 +45,7 @@
 <p><strong>Was:</strong> {{ s.original }}</p>
 <p><strong>Now:</strong> {% if s.proposed %}{{ s.proposed }}{% else %}(remove these words){% endif %}</p>
 {% if s.context %}<p><strong>Where it is in your text:</strong> {{ s.context }}</p>{% endif %}
-<p><strong>Why:</strong> {{ s.reason or 'The AI gave no reason.' }}</p>
+<p><strong>The AI's reason:</strong> {{ s.reason or 'The AI gave no reason.' }}</p>
 {% if s.status == 'pending' %}
 <div class="actions">
 {{ post_button('/write/' ~ doc.id ~ '/suggestions/' ~ batch.id ~ '/' ~ s.id ~ '/accept', 'Accept suggestion ' ~ s.number, 'primary') }}

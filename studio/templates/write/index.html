@@ -3,12 +3,12 @@
 {% block content %}
 <h1>{{ title }}</h1>
 {% if user %}
-<p class="lead">{% if docs %}You have {{ docs|length }} document{{ '' if docs|length == 1 else 's' }}. The most recently saved is first.{% else %}You have no documents yet. Start one below.{% endif %}</p>
+<p class="lead">{% if docs %}You have {{ docs|length }} document{{ '' if docs|length == 1 else 's' }}. The most recently changed is first.{% else %}You have no documents yet. Start one under "Start a new document" on this page.{% endif %}</p>
 <p>Write or paste your text. When you ask, the AI suggests changes one at a time, shown as before and after. Nothing changes until you accept it, and every saved change is kept as a version.</p>
 {% if docs %}
 <h2>Your documents</h2>
 <table>
-  <thead><tr><th scope="col">Title</th><th scope="col">Kind</th><th scope="col">Words</th><th scope="col">Last saved</th></tr></thead>
+  <thead><tr><th scope="col">Title</th><th scope="col">Kind</th><th scope="col">Words</th><th scope="col">Last changed</th></tr></thead>
   <tbody>
   {% for d in docs %}
   <tr><td><a href="/write/{{ d.id }}">{{ d.title }}</a></td><td>{{ d.kind_name }}</td><td>{{ d.words }}</td><td>{{ d.updated }}</td></tr>
