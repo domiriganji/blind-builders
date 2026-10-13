@@ -123,6 +123,15 @@ LOOK_QUESTIONS = [
      "Choose whether you would trust this page as a visitor or customer: yes, no or not sure."),
 ]
 GOOD_ANSWER = {"looks_finished": "yes", "anything_broken": "no", "would_trust": "yes"}
+# Each question's answers have their own names, so "click Yes" in voice control finds one radio button, not three.
+LOOK_ANSWER_OPTIONS = {
+    "looks_finished": [("yes", "Yes, it looks finished"), ("no", "No, it does not look finished"),
+                       ("not_sure", "Not sure if it looks finished")],
+    "anything_broken": [("yes", "Yes, something is broken or hard to read"), ("no", "No, nothing is broken"),
+                        ("not_sure", "Not sure if anything is broken")],
+    "would_trust": [("yes", "Yes, I would trust it"), ("no", "No, I would not trust it"),
+                    ("not_sure", "Not sure if I would trust it")],
+}
 # What each answer means for the member, said as an outcome. "good" and "bad" follow a count ("1 said ...");
 # "all_good" and "all_unsure" make the whole clause for n checkers who all answered the same way.
 LOOK_PHRASES = {
@@ -527,7 +536,9 @@ def _close_and_refund(conn, row) -> int:
 
 
 ROW_SQL = ("SELECT r.id, r.requester_id, r.title, r.url, r.wanted, r.status, r.max_checks, r.reward_cents,"
-           " r.created_at, (SELECT COUNT(*) FROM check_reports c WHERE c.request_id = r.id) AS done"
+           " r.created_at, (SELECT COUNT(*) FROM check_reports c WHERE c.request_id = r.id) AS done,"
+           " (SELECT COUNT(*) FROM check_reports c WHERE c.request_id = r.id AND c.method = 'sighted')"
+           " AS sighted_done"
            " FROM check_requests r")
 
 
@@ -548,6 +559,7 @@ def _for_address(conn, address: str, open_only: bool, requester_id: int | None) 
     for r in rows:
         r["label"], r["record_url"] = label(r), f"/checks/{r['id']}/record"
         r["unpaid_cents"] = r["reward_cents"] * max(r["max_checks"] - r["done"], 0)
+        r["screen_reader_done"] = r["done"] - r["sighted_done"]
     return rows
 
 
@@ -558,8 +570,8 @@ def requests_for_address(address: str, open_only: bool = False, *, requester_id:
     `address` is either the start of a full address, such as "https://site/build/p/<token>/v/2/", or a path that
     starts with "/", such as "/build/p/<token>/v/2/" (one version) or "/build/p/<token>/v/" (every version),
     which matches an address with that in its path, on any website. `requester_id` keeps only one member's requests. Pass `conn` to read
-    inside the caller's transaction. Each item has id, requester_id, title, url, wanted, status, done,
-    max_checks, reward_cents, `unpaid_cents` (credits still held for checks not done), `label` (the name to use
+    inside the caller's transaction. Each item has id, requester_id, title, url, wanted, status, done (split
+    into `screen_reader_done` and `sighted_done`), max_checks, reward_cents, `unpaid_cents` (credits still held for checks not done), `label` (the name to use
     in links) and `record_url`."""
     if not address:
         return []
@@ -612,6 +624,23 @@ def _own_build_version(request: Request, url: str, user_id: int) -> tuple[int, i
     except sqlite3.Error:  # Build is not part of this site
         return None
     return (row["id"], int(match.group(2))) if row else None
+
+
+def preview_gone(request: Request, url: str) -> bool:
+    """True when the address is a Build preview on this site whose project was deleted, so the page no longer
+    opens."""
+    parsed = urlparse(url)
+    settings = request.app.state.settings
+    hosts = {urlparse(base).netloc for base in (settings.base_url, settings.preview_base_url) if base}
+    match = PREVIEW_PATH.match(parsed.path)
+    if parsed.netloc not in hosts or not match:
+        return False
+    try:
+        with db.session() as conn:
+            row = conn.execute("SELECT 1 FROM build_projects WHERE share_token = ?", (match.group(1),)).fetchone()
+    except sqlite3.Error:  # Build is not part of this site
+        return False
+    return row is None
 
 
 def fix_request_text(req: dict, reports: list[dict], number: int) -> str:
@@ -675,7 +704,8 @@ def index(request: Request):
                   mine_open=[r for r in mine if r["status"] == "open"],
                   mine_closed=[r for r in mine if r["status"] != "open"],
                   new_checks=new_checks, new_total=sum(r["new_count"] for r in new_checks),
-                  done_by_me=done_by_me, recent=recent, money=_cents_words, label=label)
+                  done_by_me=done_by_me, recent=recent, money=_cents_words, label=label,
+                  rewards_offered=_rewards_offered(request, user))
 
 
 def _radio_errors(errors: dict) -> dict:
@@ -684,10 +714,20 @@ def _radio_errors(errors: dict) -> dict:
     return {(f"{k}-1" if k in radio_groups else k): v for k, v in errors.items()}
 
 
+def _rewards_offered(request: Request, user: dict | None) -> bool:
+    """Rewards are paid in credits, so they are offered only when this member has credits or can buy them
+    (docs/VOICE.md 4.8: offer only what exists today)."""
+    from .account import payments_ready
+    if payments_ready(request.app.state.settings):
+        return True
+    return bool(user) and credits.balance(user["id"]) > 0
+
+
 def _new_form(request: Request, user: dict, values: dict, errors: dict, status_code: int = 200):
     return render(request, "checks/new.html", title=error_title("Ask for a check", errors), values=values,
                   errors=errors, summary_errors=_radio_errors(errors), count_options=COUNT_OPTIONS,
                   reward_options=REWARD_OPTIONS, wanted_options=WANTED_OPTIONS,
+                  rewards_offered=_rewards_offered(request, user),
                   balance=credits.format_cents(credits.balance(user["id"])), status_code=status_code)
 
 
@@ -783,7 +823,7 @@ def request_page(request: Request, request_id: int, user: dict = Depends(require
         title = f"Check request: {label(req)}"
     base = request.app.state.settings.base_url.rstrip('/')
     return render(request, "checks/request.html", title=title, req=req, eligible=reason is None, reason=reason,
-                  is_owner=is_owner, not_done_cents=req["reward_cents"] * not_done,
+                  is_owner=is_owner, gone=preview_gone(request, req["url"]), not_done_cents=req["reward_cents"] * not_done,
                   not_done=credits.format_cents(req["reward_cents"] * not_done),
                   paid=credits.format_cents(req["reward_cents"] * req["done"]), money=_cents_words,
                   wanted_sentence=WANTED_SENTENCE[req["wanted"]],
@@ -814,7 +854,7 @@ async def close_request(request: Request, request_id: int, user: dict = Depends(
 def _report_form(request: Request, req: dict, values: dict, errors: dict, status_code: int = 200):
     return render(request, "checks/report.html", title=error_title(f"Check this: {label(req)}", errors), req=req,
                   values=values, errors=errors, summary_errors=_radio_errors(errors), result_options=RESULT_OPTIONS,
-                  money=_cents_words, method_options=METHOD_OPTIONS, answer_options=ANSWER_OPTIONS,
+                  money=_cents_words, method_options=METHOD_OPTIONS, look_answer_options=LOOK_ANSWER_OPTIONS,
                   look_questions=LOOK_QUESTIONS, wanted_sentence=WANTED_SENTENCE[req["wanted"]],
                   status_code=status_code)
 
@@ -982,7 +1022,8 @@ def record_page(request: Request, request_id: int, sent: str = ""):
                   summary=_summary(req, reports), chain_problems=problems, not_checked=_not_checked(reports),
                   result_words=RESULT_WORDS, answer_words=ANSWER_WORDS, look_questions=LOOK_QUESTIONS,
                   wanted_sentence=WANTED_SENTENCE[req["wanted"]], just_sent=just_sent, waiting=waiting, fix=fix,
-                  label=label)
+                  label=label, is_owner=bool(user and user["id"] == req["requester_id"]),
+                  gone=preview_gone(request, req["url"]))
 
 
 def forget_user(user_id: int) -> None:

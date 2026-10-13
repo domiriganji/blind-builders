@@ -94,7 +94,9 @@ def fill_request(page, *, title: str, url: str, what: str, checks: str, reward: 
     page.get_by_label("What should checkers try?").fill(what)
     page.get_by_role("group", name="Who should check it").get_by_role("radio", name=who, exact=True).check()
     page.get_by_label("How many checks do you want?").select_option(label=checks)
-    page.get_by_label("Reward for each check").select_option(label=reward)
+    # The reward is offered only to a member who has credits, or can buy them.
+    if reward != "No reward" or page.get_by_label("Reward for each check").count():
+        page.get_by_label("Reward for each check").select_option(label=reward)
 
 
 def fill_report(page, *, result: str = "Yes, I could do it") -> None:
@@ -118,6 +120,7 @@ def test_request_check_close_and_public_record(live, browser):
     sign_up(asker, base, asker_email, "Asha Journey")
     open_section(asker, base)
     audit(asker, "index, signed in")
+    give_credits(asker_email, 100)  # given by the site owner: rewards are offered only to members with credits
     go(asker, asker.get_by_role("link", name="Ask for a check"))
     assert h1_text(asker) == "Ask for a check"
     audit(asker, "new request form")
@@ -139,7 +142,7 @@ def test_request_check_close_and_public_record(live, browser):
     follow_error(asker, re.compile("^You need \\$2.00 in credits"), asker.get_by_label("Reward for each check"))
     expect(asker.get_by_label("Name of what you want checked")).to_have_value(title)  # what they typed is kept
 
-    give_credits(asker_email, 300)
+    give_credits(asker_email, 200)
     # A double press, as happens with a sticky key or a slow phone: one request, credits held once.
     asker.get_by_role("button", name="Ask for the check").dblclick()
     asker.wait_for_url(re.compile(r"/checks/\d+$"))  # the form page had a different address
@@ -373,7 +376,8 @@ LOOK_QUESTIONS = ("Does it look finished and professional?", "Is anything broken
 
 
 def answer(page, question: str, choice: str) -> None:
-    page.get_by_role("group", name=question).get_by_role("radio", name=choice, exact=True).check()
+    # Each answer has its own name, starting with Yes, No or Not sure (one name per radio for voice control).
+    page.get_by_role("group", name=question).get_by_role("radio", name=re.compile(rf"^{choice}\b")).check()
 
 
 def fill_look(page, *, finished="Yes", broken="No", trust="Yes", better="") -> None:
@@ -439,9 +443,9 @@ def test_sighted_friend_checks_how_it_looks(live, browser):
     expect(error_summary(friend).get_by_role("link")).to_have_count(3)
     audit(friend, "report form, sighted questions not answered")
     follow_error(friend, "Choose whether it looks finished and professional: yes, no or not sure.",
-                 friend.get_by_role("group", name=LOOK_QUESTIONS[0]).get_by_role("radio", name="Yes", exact=True))
+                 friend.get_by_role("group", name=LOOK_QUESTIONS[0]).get_by_role("radio", name=re.compile(r"^Yes\b")))
     follow_error(friend, re.compile("^Choose whether anything is broken"),
-                 friend.get_by_role("group", name=LOOK_QUESTIONS[1]).get_by_role("radio", name="Yes", exact=True))
+                 friend.get_by_role("group", name=LOOK_QUESTIONS[1]).get_by_role("radio", name=re.compile(r"^Yes\b")))
     expect(friend.get_by_role("radio", name="I am sighted and looked at how it appears")).to_be_checked()
 
     fill_look(friend, better="The bread prices are small on my phone; bigger prices would help.")

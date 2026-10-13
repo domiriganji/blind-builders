@@ -5,7 +5,7 @@
 <h1>{{ title }}</h1>
 {{ error_summary(errors) }}
 <p class="lead">{{ check_sentence }}{% if version.number > 1 %} Compared with version {{ diff_base }}, {% if diff_count %}{{ diff_count }} {{ 'file' if diff_count == 1 else 'files' }} changed{% else %}no files changed{% endif %}.{% endif %}{% if fix_count %} The AI can try to fix {{ 'the problem' if fix_count == 1 else 'the ' ~ fix_count ~ ' problems' }} in a new version: <a href="#fix">go to the fix</a>.{% endif %}</p>
-{% if version.number != latest_number %}<p>This is not the latest version. The latest is <a href="/build/{{ project.id }}/v/{{ latest_number }}">version {{ latest_number }}</a>.</p>{% endif %}
+{% if change_back %}<p class="message message-info" role="status">The AI could not finish your change, so nothing was changed. Your request is back in the box under <a href="#field-request">The change you want</a>: send it again when you are ready.</p>{% endif %}
 
 <h2>How it looks on screen</h2>
 <p>{{ look.sentence }}</p>
@@ -75,11 +75,19 @@
 <div class="panel">{{ version.how_to_use|markdown|shift_headings(2) }}</div>
 
 <h2>Not checked</h2>
+{% if peer_screen_done or peer_sighted_done %}
+<p>The site's own checks do not cover these. Where members have checked one in Peer checks, it says so:</p>
+{% else %}
 <p>Nobody has checked these yet:</p>
+{% endif %}
 <ul>
 {% for item in not_checked %}<li>{{ item }}</li>
 {% endfor %}
+{% if peer_sighted_done %}
+<li>How it looks to a sighted person: the site cannot judge this, but {{ '1 sighted person has' if peer_sighted_done == 1 else peer_sighted_done ~ ' sighted people have' }} looked at it. What they said is in <a href="#peer-checks">Peer checks of this version</a>.</li>
+{% else %}
 <li>How it looks to a sighted person.{% if look.state == 'checked' %} The site measured the pages in a browser{% if look.review %} and an AI looked at pictures of them{% endif %}, but no person has looked.{% endif %} You can ask for that in <a href="#peer-checks">Peer checks of this version</a>.</li>
+{% endif %}
 {% if unchecked_files %}<li>These files, which are not HTML pages: {{ unchecked_files|join(', ') }}.</li>{% endif %}
 </ul>
 {% if not_done %}
@@ -90,7 +98,7 @@
 <h2 id="peer-checks" tabindex="-1">Peer checks of this version</h2>
 {% if peer_checks %}
 <ul class="item-list">
-{% for c in peer_checks %}<li><a href="/checks/{{ c.id }}">{{ c.title }}</a> <span class="meta">For {{ c.wanted_words }}. {{ c.done }} of {{ c.max_checks }} {{ 'check' if c.max_checks == 1 else 'checks' }} done. {{ 'Open' if c.status == 'open' else 'Closed' }}.</span></li>
+{% for c in peer_checks %}<li>{% if c.done %}<a href="{{ c.record_url }}">{{ c.title }}: the check record</a>{% else %}<a href="/checks/{{ c.id }}">{{ c.title }}</a>{% endif %}. <span class="meta">For {{ c.wanted_words }}. {{ c.done }} of {{ c.max_checks }} {{ 'check' if c.max_checks == 1 else 'checks' }} done. {{ 'Open' if c.status == 'open' else 'Closed' }}.</span></li>
 {% endfor %}
 </ul>
 {% else %}
@@ -121,7 +129,7 @@
 
 <h2>What you can do next</h2>
 <ul class="item-list">
-  <li><a href="{{ preview_url }}">Open the preview of version {{ version.number }}</a> <span class="meta">Anyone with this link can open the previews of every version of this project, but nothing else of yours. Deleting the project stops the link working.</span></li>
+  <li><a href="{{ preview_url }}">Open the preview of version {{ version.number }}</a>. <span class="meta">Anyone with this link can open the previews of every version of this project, but nothing else of yours. Deleting the project stops the link working.</span></li>
   <li><a href="/build/{{ project.id }}/v/{{ version.number }}/download.zip">Download all files in one zip file (a packed folder)</a></li>
   <li><a href="/build/{{ project.id }}/v/{{ version.number }}/files">Read the files</a></li>
   <li><a href="/build/{{ project.id }}">All versions of this project</a></li>

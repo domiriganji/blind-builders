@@ -107,8 +107,12 @@ def test_new_form_prefills_from_query(asker):
     assert r.status_code == 200
     assert h1(r) == "Ask for a check" == title_text(r)
     assert 'value="https://my.example/app"' in r.text and 'value="My app"' in r.text
-    assert "Credits are the site" in r.text
+    # No credits and none on sale: no reward to choose, and no word about credits (docs/VOICE.md 4.8).
+    assert "Credits are the site" not in r.text and 'name="reward_cents" value="0"' in r.text
     assert_accessible(r)
+    credits.add(user_id(ASKER), 100, "Given by the site owner")
+    r = asker.get("/checks/new")
+    assert "Credits are the site" in r.text and "Your credits now: $1.00." in r.text
 
 
 def test_prefill_is_escaped(asker):
@@ -1296,13 +1300,16 @@ def test_request_and_record_pages_say_who_asked_and_when_first(asker):
         code = conn.execute("SELECT pseudonym FROM users WHERE email = ?", (ASKER,)).fetchone()["pseudonym"]
     record = asker.get(f"/checks/{rid}/record").text.split("</h1>")[1]
     first_paragraph = re.search(r"<p>(.*?)</p>", record, re.S).group(1)
-    assert first_paragraph.startswith(f"Asked by {code} on ")
+    assert first_paragraph.startswith("Asked by you on ")  # her own request speaks to her
+    assert "(your page)</a>" in asker.get(f"/checks/{rid}").text
     assert "0 of 3 checks done; the request is open." in first_paragraph
     own = asker.get(f"/checks/{rid}").text.split("</h1>")[1]
     assert re.search(r'<p class="lead">Asked by you on \d{1,2} [A-Z][a-z]+ \d{4}\.', own)
     sign_in_as(asker, CHECKER, "Chidi")
     other = asker.get(f"/checks/{rid}").text.split("</h1>")[1]
     assert re.search(rf'<p class="lead">Asked by {code} on .*?; the request is open\.', other, re.S)
+    record = asker.get(f"/checks/{rid}/record").text.split("</h1>")[1]
+    assert re.search(r"<p>(.*?)</p>", record, re.S).group(1).startswith(f"Asked by {code} on ")
 
 
 def test_dates_are_in_words(asker):
@@ -1499,3 +1506,51 @@ def test_build_can_match_a_preview_path_on_any_domain_for_one_member_inside_its_
         assert checks_module.close_requests_for_address(path, requester_id=uid, conn=conn) == (1, 200)
     assert credits.balance(uid) == 500
     assert [r["id"] for r in checks_module.requests_for_address(path, open_only=True)] == [theirs]
+
+
+# ----- final walk-through ---------------------------------------------------------------------
+
+def test_a_record_with_no_checks_points_to_nothing_that_is_not_there(asker):
+    make_request(asker)
+    rid = latest_request_id()
+    r = asker.get(f"/checks/{rid}/record")
+    assert "Nobody has checked this yet, so none of this is covered:" in r.text
+    assert "the checks above" not in r.text and "the list below" not in r.text
+    sign_in_as(asker, CHECKER, "Chidi")
+    send_report(asker, rid)
+    r = asker.get(f"/checks/{rid}/record")
+    assert "the checks above do not cover" in r.text and "compare it with the list below" in r.text
+
+
+def test_a_deleted_projects_preview_is_not_offered_as_a_link(asker):
+    make_build_version(ASKER)
+    url = "http://testserver/build/p/tok123/v/2/"
+    make_request(asker, title="Choir rota, version 2", url=url)
+    rid = latest_request_id()
+    assert f'<a href="{url}"' in asker.get(f"/checks/{rid}").text
+    with db.session() as conn:
+        conn.execute("DELETE FROM build_versions")
+        conn.execute("DELETE FROM build_projects")
+    for page in (f"/checks/{rid}", f"/checks/{rid}/record"):
+        r = asker.get(page)
+        assert f'<a href="{url}"' not in r.text, page
+        assert "You deleted this project, so the page no longer opens." in r.text, page
+    sign_in_as(asker, CHECKER, "Chidi")
+    assert "The member deleted this project, so the page no longer opens." in asker.get(f"/checks/{rid}").text
+
+
+def test_each_look_answer_has_its_own_name_for_voice_control(asker):
+    make_request(asker, wanted="sighted")
+    rid = latest_request_id()
+    sign_in_as(asker, SIGHTED, "Sam Sighted")
+    r = asker.get(f"/checks/{rid}/report")
+    names = re.findall(r'<input type="radio"[^>]*name="(?:looks_finished|anything_broken|would_trust)"[^>]*>'
+                       r'<label[^>]*>([^<]*)</label>', r.text)
+    assert len(names) == 9 and len(set(names)) == 9
+    assert "Yes, I would trust it" in names
+
+
+def test_rewards_are_not_described_while_nobody_can_have_credits(asker):
+    assert "<h3>Rewards</h3>" not in asker.get("/checks").text
+    credits.add(user_id(ASKER), 100, "Given by the site owner")
+    assert "<h3>Rewards</h3>" in asker.get("/checks").text

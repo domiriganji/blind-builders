@@ -7,9 +7,11 @@
 <p class="lead">The AI is reading your idea now. When it is done, this page shows what it understood. You can follow it on <a href="{{ job_url }}">the page for this work</a>, or come back to this page later.</p>
 {% if values.corrections %}
 <h2>Your words, not sent</h2>
-<p>The AI was already working, so these words were not sent. They are not saved: copy them now, and send them when it is done.</p>
-<div class="panel">{% for para in values.corrections.split('\n') if para.strip() %}<p>{{ para }}</p>
-{% endfor %}</div>
+<p>The AI was already working, so these words were not sent, and the site does not keep them. Copy them from the box below, and send them when it is done.</p>
+<div class="field">
+  <label for="unsent-words">Your words, to copy</label>
+  <textarea id="unsent-words" rows="{{ [[values.corrections.count('\n') + 2, 3]|max, 10]|min }}" readonly data-copy-name="your words">{{ values.corrections }}</textarea>
+</div>
 {% endif %}
 {% else %}
 <p class="lead">Your idea is saved, and you can find it below. When the AI is available, ask it to read your idea.</p>
