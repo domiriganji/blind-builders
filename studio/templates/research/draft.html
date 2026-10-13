@@ -9,13 +9,14 @@
 <h2>What the site checked</h2>
 <ul>
   <li>Citation numbers that match a source: {% if citations.matched %}{% for n in citations.matched %}[{{ n }}]{{ ', ' if not loop.last }}{% endfor %}. Each one links to its source.{% else %}none.{% endif %}</li>
-  <li>Citation numbers the site could not match: {{ citations.unmatched|length }}.</li>
-  <li>Places marked [RESULT NEEDED]: {{ citations.result_needed }}.</li>
+  <li>Citation numbers the site could not match: {% if citations.unmatched %}{% for n in citations.unmatched %}[{{ n }}]{{ ', ' if not loop.last }}{% endfor %}. <a href="#unmatched-title">See where they are</a>.{% else %}none.{% endif %}</li>
+  {% set rn = citations.result_needed %}
+  <li>{% if rn %}{{ rn }} place{{ ' is' if rn == 1 else 's are' }} marked [RESULT NEEDED].{% else %}No place is marked [RESULT NEEDED].{% endif %}</li>
   {% if citations.uncited %}<li>Sources the draft does not cite: {% for n in citations.uncited %}[{{ n }}]{{ ', ' if not loop.last }}{% endfor %}.</li>{% endif %}
 </ul>
 <p>The site checked only that each number in square brackets matches a source in the list. It did not check that a source supports the sentence that cites it.</p>
 {% if citations.unmatched %}
-<h2>Citations the site could not match</h2>
+<h2 id="unmatched-title" tabindex="-1">Citations the site could not match</h2>
 <p>The AI cited these numbers, but {% if item.sources %}they are not in the list of {{ item.sources|length }} source{{ '' if item.sources|length == 1 else 's' }}{% else %}there are no sources yet{% endif %}. Remove them, or add a real source for each one.</p>
 {% include "research/_places.html" %}
 {% endif %}

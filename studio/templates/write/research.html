@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import sources_list %}
+{% from "research/_sources.html" import site_of %}
 {% block content %}
 <h1>{{ title }}</h1>
 <p class="lead">The AI searched the web on {{ research.day }} for places to publish "{{ doc.title }}". Rules, fees and deadlines change, so check each one on the publisher's own website before you submit.</p>
@@ -12,6 +12,13 @@
 <h2 id="answer-title">Written by the AI (not checked)</h2>
 {{ research.content_md|markdown|nest_headings(3) }}
 </section>
-{{ sources_list(sources) }}
+{% if sources %}
+<section aria-labelledby="sources-title">
+<h2 id="sources-title">Sources ({{ sources|length }})</h2>
+<ol class="sources">
+{% for s in sources %}<li>{% if s.url and (s.url.startswith('https://') or s.url.startswith('http://')) %}<a href="{{ s.url }}" rel="noopener noreferrer">{{ s.title or s.url }}</a>{% if s.title %} ({{ site_of(s.url) }}){% endif %}{% else %}{{ s.title or s.url }}{% endif %}{% if s.quote %}<br><span class="quote">"{{ s.quote }}"</span>{% endif %}</li>{% endfor %}
+</ol>
+</section>
+{% endif %}
 <p><a href="/write/{{ doc.id }}">Back to {{ doc.title }}</a></p>
 {% endblock %}

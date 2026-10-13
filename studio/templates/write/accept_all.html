@@ -4,6 +4,13 @@
 <h1>{{ title }}</h1>
 {% if waiting %}
 <p class="lead">This puts every waiting suggestion that still fits into your text, in order, and saves one new version. A suggestion whose words are no longer in your text is left out and marked out of date.</p>
+<h2>What would change</h2>
+<p class="meta">Computed by the site, not the AI.</p>
+<ol>
+{% for s in items %}
+  <li>Suggestion {{ s.number }} {{ s.change }}{% if not s.matches %} It no longer matches your text, so it would be left out.{% endif %}</li>
+{% endfor %}
+</ol>
 <p>You can restore your text as it is now from the versions page later.</p>
 <div class="actions">
 {{ post_button('/write/' ~ doc.id ~ '/suggestions/' ~ batch.id ~ '/accept-all', 'Accept every suggestion that still fits my text', 'primary') }}

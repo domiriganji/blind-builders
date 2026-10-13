@@ -184,7 +184,8 @@ def test_full_journey(user_client, fake_ai):
     assert r.url.path == f"/research/{pid}/data"
     assert_accessible(r)
     assert h1(r) == "The AI's interpretation is ready: Exams and screen readers"
-    assert "<h2>The AI's interpretation</h2>" in r.text and "Scores rise with practice" in r.text
+    assert r.url.fragment == "ai-title"  # the page opens at the interpretation
+    assert '<h2 id="ai-title" tabindex="-1">The AI\'s interpretation</h2>' in r.text and "Scores rise with practice" in r.text
     assert "It is an interpretation, not a result" in r.text
     _, purpose, kwargs = fake_ai.calls[-1]
     assert purpose == "research.data"
@@ -223,14 +224,17 @@ def test_draft_flags_citations_outside_the_source_list(user_client, fake_ai):
     pid = new_project(user_client)
     post(user_client, f"/research/{pid}/prior-work")
     r = post(user_client, f"/research/{pid}/draft")
-    assert "<h2>Citations the site could not match</h2>" in r.text
-    section = r.text.split("<h2>Citations the site could not match</h2>")[1].split("<h2>")[0]
+    assert '<h2 id="unmatched-title" tabindex="-1">Citations the site could not match</h2>' in r.text
+    section = r.text.split('<h2 id="unmatched-title" tabindex="-1">Citations the site could not match</h2>')[1].split("<h2>")[0]
     # The AI made the citation up, and the list quotes the sentence it is in and its heading.
     assert "The AI cited these numbers, but they are not in the list of 3 sources." in section
     assert '<li>[7] in: "A made-up claim [7]." (Abstract)</li>' in section
     assert "[1]" not in section and "[2]" not in section and "[3]" not in section
-    assert "Places marked [RESULT NEEDED]: 2" in r.text
+    assert "2 places are marked [RESULT NEEDED]." in r.text
     assert "Citation numbers that match a source: [1], [2], [3]" in r.text
+    # The summary names the unmatched numbers, not a bare count that reads as citation [1].
+    assert ('Citation numbers the site could not match: [7]. <a href="#unmatched-title">See where they are</a>.'
+            in r.text)
     with db.session() as conn:
         meta = conn.execute("SELECT meta_json FROM research_items WHERE kind = 'draft'").fetchone()[0]
     assert '"unmatched": [7]' in meta
@@ -243,7 +247,7 @@ def test_draft_without_unmatched_citations_has_no_warning(user_client, fake_ai):
     post(user_client, f"/research/{pid}/prior-work")
     r = post(user_client, f"/research/{pid}/draft")
     assert "Citations the site could not match</h2>" not in r.text
-    assert "Citation numbers the site could not match: 0" in r.text
+    assert "Citation numbers the site could not match: none." in r.text
     assert "Sources the draft does not cite: [2]" in r.text
 
 
@@ -762,7 +766,7 @@ def test_plan_page_says_what_the_site_checked(user_client, fake_ai):
     fake_answers(fake_ai)
     pid = new_project(user_client)
     r = post(user_client, f"/research/{pid}/plan")
-    assert "Checked by the site:" in r.text and "1 could not be matched" in r.text
+    assert "Checked by the site:" in r.text and "These could not be matched: [2]." in r.text
     assert "Not checked: whether a source supports the sentence that cites it." in r.text
     post(user_client, f"/research/{pid}/prior-work")
     r = post(user_client, f"/research/{pid}/plan")
@@ -862,8 +866,10 @@ def test_missing_values_like_na_do_not_turn_numbers_into_text(user_client):
     assert "<strong>time_seconds</strong>: 3 values, 1 missing (NA). In seconds: mean 240.97" in r.text
     # The first rows are shown as a table with column headers and a caption.
     table = r.text.split("<table>")[1].split("</table>")[0]
-    assert "<caption>The first 4 rows of pilot.csv, all 3 columns</caption>" in table
+    assert ("<caption>The first 4 rows of pilot.csv, all 3 columns. The first column, id, names each row and is "
+            "read with each cell.</caption>") in table
     assert '<th scope="col">time_seconds</th>' in table and "<td>NA</td>" in table
+    assert '<th scope="row">3</th><td>NA</td>' in table  # each row is named by its first cell
 
 
 def test_first_rows_table_shows_every_column_in_its_own_scroll_region(user_client):
@@ -877,17 +883,18 @@ def test_first_rows_table_shows_every_column_in_its_own_scroll_region(user_clien
             '<div class="table-scroll" role="region" aria-labelledby="first-rows-title" tabindex="0">') \
         in re.sub(r">\s+<", "><", r.text)
     table = r.text.split("<table>")[1].split("</table>")[0]
-    assert "<caption>The first 2 rows of wide.csv, all 9 columns</caption>" in table
+    assert ("<caption>The first 2 rows of wide.csv, all 9 columns. The first column, c1, names each row and is read "
+            "with each cell.</caption>") in table
     assert table.count('<th scope="col">') == 9 and '<th scope="col">c9</th>' in table and "<td>9</td>" in table
     # A short row is filled out with empty cells, so every row has a cell under each column name.
-    assert table.count("<td>") == 18 and table.count("<td></td>") == 7
+    assert table.count('<th scope="row">') == 2 and table.count("<td>") == 16 and table.count("<td></td>") == 7
     # More columns than the site keeps: the caption says which ones are shown.
     many = research.MAX_STAT_COLUMNS + 5
     text = ",".join(f"k{i}" for i in range(many)) + "\n" + ",".join("1" for _ in range(many)) + "\n"
     r = upload(user_client, pid, text.encode(), filename="huge.csv")
     table = r.text.split("<table>")[1].split("</table>")[0]
-    assert (f"<caption>The first row of huge.csv, the first {research.MAX_STAT_COLUMNS} of {many} columns"
-            "</caption>") in table
+    assert (f"<caption>The first row of huge.csv, the first {research.MAX_STAT_COLUMNS} of {many} columns. "
+            "The first column, k0, names each row and is read with each cell.</caption>") in table
     assert table.count('<th scope="col">') == research.MAX_STAT_COLUMNS
 
 
@@ -1015,3 +1022,70 @@ def test_new_routes_are_private(client, fake_ai):
     assert client.get(f"/research/{pid}/draft.md?version=1").status_code == 404
     with db.session() as conn:
         assert conn.execute("SELECT COUNT(*) FROM write_docs").fetchone()[0] == 0
+
+
+def test_prior_work_citations_link_to_sources_that_name_their_site(user_client, fake_ai):
+    fake_answers(fake_ai)
+    pid = new_project(user_client)
+    r = post(user_client, f"/research/{pid}/prior-work")
+    assert_accessible(r)
+    # The prior work links each citation to its source too, not only the plan and the draft.
+    assert '[<a href="#source-1" id="cite-1"><span class="visually-hidden">source </span>1</a>]' in r.text
+    assert '<a href="#cite-1">Back to [1] in the text</a>' in r.text
+    # Each source says which site it is on.
+    assert 'rel="noopener noreferrer">Exam access study</a> (example.org)' in r.text
+
+
+def test_earlier_versions_are_numbered(user_client, fake_ai):
+    fake_answers(fake_ai)
+    pid = new_project(user_client)
+    post(user_client, f"/research/{pid}/plan")
+    r = post(user_client, f"/research/{pid}/plan")
+    with db.session() as conn:
+        first = conn.execute("SELECT id FROM research_items WHERE project_id = ? AND kind = 'plan' ORDER BY id",
+                             (pid,)).fetchone()["id"]
+    assert "Version 2 (latest), from " in r.text and ", on this page" in r.text
+    assert f'<a href="/research/{pid}/plan?version={first}">Version 1, from ' in r.text
+    old = user_client.get(f"/research/{pid}/plan?version={first}").text
+    assert f'<a href="/research/{pid}/plan">Version 2 (latest), from ' in old and "Version 1, from " in old
+
+
+def test_data_table_names_each_row_by_its_first_column(user_client):
+    pid = new_project(user_client)
+    r = upload(user_client, pid, CSV_TEXT.encode("utf-8"))
+    assert_accessible(r)
+    assert "The first column, name, names each row and is read with each cell." in r.text
+    assert '<tr><th scope="row">Ana</th><td>3</td><td>A</td></tr>' in r.text
+
+
+def test_describe_button_waits_for_notes_or_data(user_client, fake_ai):
+    fake_answers(fake_ai)
+    pid = new_project(user_client)
+    r = user_client.get(f"/research/{pid}/data")
+    assert "Ask the AI to describe patterns" not in r.text
+    assert '<a href="#field-notes">Go to your notes and data file</a>' in r.text
+    post(user_client, f"/research/{pid}/notes", {"notes": "Scores went up."})
+    assert "Ask the AI to describe patterns" in user_client.get(f"/research/{pid}/data").text
+
+
+def test_form_addresses_lead_back_to_their_page(user_client, fake_ai):
+    fake_answers(fake_ai)
+    pid = new_project(user_client)
+    for address, page in [("notes", "data"), ("csv", "data"), ("data/describe", "data"), ("draft/write", "draft"),
+                          ("draft/restore", "draft"), ("plan/restore", "plan"), ("prior-work/restore", "prior-work")]:
+        r = user_client.get(f"/research/{pid}/{address}", follow_redirects=False)
+        assert r.status_code in (302, 303, 307) and r.headers["location"] == f"/research/{pid}/{page}", address
+    assert user_client.get(f"/research/{pid}/data/restore", follow_redirects=False).status_code == 404
+    assert user_client.get("/research/999999/notes", follow_redirects=False).status_code == 404
+
+
+def test_expired_form_on_data_page_links_to_the_notes_and_mentions_the_file(user_client):
+    pid = new_project(user_client)
+    r = user_client.post(f"/research/{pid}/notes", data={"notes": "Words typed before it expired.",
+                                                           "csrf_token": "stale"},
+                         headers={"referer": f"http://testserver/research/{pid}/data"})
+    assert r.url.path == f"/research/{pid}/data"
+    assert "Words typed before it expired.</textarea>" in r.text
+    assert '<a href="#field-notes">Go to your notes</a>' in r.text
+    assert "If you chose a CSV file, choose it again before you send the form" in r.text
+    assert r.text.count("so nothing was saved yet") == 1  # said once, not again by the general notice

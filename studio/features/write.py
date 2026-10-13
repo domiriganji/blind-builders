@@ -77,6 +77,15 @@ CREATE TABLE IF NOT EXISTS write_research (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_write_research_doc ON write_research(doc_id);
+-- What the member last typed for the AI on the document page ("Anything else the AI should know", the letter
+-- notes and the goal), so "Save my text" or Enter in the title does not throw it away.
+CREATE TABLE IF NOT EXISTS write_ai_fields (
+    doc_id INTEGER PRIMARY KEY REFERENCES write_docs(id) ON DELETE CASCADE,
+    goal TEXT NOT NULL DEFAULT '',
+    instructions TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL
+);
 """
 
 KINDS = [
@@ -182,12 +191,9 @@ def when(iso: str | None) -> str:
 
 
 def on_at(iso: str | None) -> str:
-    """'2026-10-12T14:03:22+00:00' -> 'on 12 October 2026 at 14:03 UTC', for use inside a sentence."""
-    if not iso:
-        return ""
-    day = date_words(iso)
-    clock = iso[11:16] if len(iso) >= 16 and iso[13:14] == ":" else ""
-    return f"on {day} at {clock} UTC" if clock else f"on {day}"
+    """'2026-10-12T14:03:22+00:00' -> 'on 12 October 2026, 14:03 UTC', for use inside a sentence. One time
+    format everywhere (docs/VOICE.md, 4.13)."""
+    return f"on {when(iso)}" if iso else ""
 
 
 def _lower_first(text: str) -> str:
@@ -195,7 +201,7 @@ def _lower_first(text: str) -> str:
 
 
 def saved_sentence(note: str, iso: str | None, prefix: str = "Last saved") -> str:
-    """'Last saved by you on 13 October 2026 at 12:29 UTC.' or 'Last saved on ...: accepted suggestion 1.'"""
+    """'Last saved by you on 13 October 2026, 12:29 UTC.' or 'Last saved on ...: accepted suggestion 1.'"""
     if note == "Saved by you":
         return f"{prefix} by you {on_at(iso)}."
     if note == DRAFTED_NOTE:
@@ -456,8 +462,9 @@ def _batches(doc_id: int) -> list[dict]:
             " (SELECT COUNT(*) FROM write_suggestions s WHERE s.batch_id = b.id AND s.status = 'pending') AS waiting"
             " FROM write_batches b WHERE b.doc_id = ? ORDER BY b.id DESC", (doc_id,)).fetchall()
     out = []
-    for r in rows:
+    for i, r in enumerate(rows):
         b = dict(r)
+        b["number"] = len(rows) - i
         b["when"] = when(b["created_at"])
         b["goal_name"] = GOAL_NAMES.get(b["goal"], b["goal"])
         out.append(b)
@@ -545,7 +552,7 @@ async def create(request: Request, user: dict = Depends(require_user)):
     values = {k: _text(form, k).strip() for k in ("title", "kind", "target")}
     errors: dict[str, str] = {}
     if not values["title"]:
-        errors["title"] = "Enter a title for your document. You can change it later."
+        errors["title"] = "Enter a title for your document."
     elif len(values["title"]) > MAX_TITLE:
         errors["title"] = f"Use a title of {MAX_TITLE} characters or fewer."
     if values["kind"] not in KIND_NAMES:
@@ -565,7 +572,8 @@ async def create(request: Request, user: dict = Depends(require_user)):
             "INSERT INTO write_docs (user_id, title, kind, body, target, created_at, updated_at) VALUES (?, ?, ?, '', ?, ?, ?)",
             (user["id"], values["title"], values["kind"], values["target"], now, now))
         doc_id = cur.lastrowid
-    flash(request, f"Your document \"{values['title']}\" is ready. Write or paste your text, then save it.", "success")
+    # The H1 says the document is started, so the notice gives only the next step.
+    flash(request, "Write or paste your text in \"Your text\", then choose \"Save my text\".", "success")
     _say(request, f"/write/{doc_id}", f"{values['title']}: new document started")
     return redirect(f"/write/{doc_id}")
 
@@ -577,16 +585,49 @@ async def create(request: Request, user: dict = Depends(require_user)):
 AI_FIELDS = ("goal", "instructions", "notes")
 
 
+def _ai_fields(doc_id: int) -> dict:
+    """What the member last typed for the AI on this document: goal, instructions and notes."""
+    with db.session() as conn:
+        row = conn.execute("SELECT goal, instructions, notes FROM write_ai_fields WHERE doc_id = ?",
+                           (doc_id,)).fetchone()
+    fields = {"goal": "spelling", "instructions": "", "notes": ""}
+    if row:
+        fields.update({k: row[k] for k in fields if row[k]})
+    return fields
+
+
+def _keep_ai_fields(doc_id: int, kept: dict) -> None:
+    """Keep what the member typed for the AI with the document, so leaving through "Save my text" does not lose
+    it. Anything too long, or that looks like a password or card number, is not kept."""
+    fields = {k: kept.get(k, "") for k in AI_FIELDS}
+    if fields["goal"] not in GOAL_NAMES:
+        fields["goal"] = ""
+    for k in ("instructions", "notes"):
+        if len(fields[k]) > MAX_INSTRUCTIONS or _secret_error(fields[k]):
+            fields[k] = ""
+    with db.session() as conn:
+        if fields["goal"] in ("", "spelling") and not fields["instructions"] and not fields["notes"]:
+            conn.execute("DELETE FROM write_ai_fields WHERE doc_id = ?", (doc_id,))
+            return
+        conn.execute("INSERT INTO write_ai_fields (doc_id, goal, instructions, notes, updated_at) VALUES (?, ?, ?, ?, ?)"
+                     " ON CONFLICT(doc_id) DO UPDATE SET goal = excluded.goal, instructions = excluded.instructions,"
+                     " notes = excluded.notes, updated_at = excluded.updated_at",
+                     (doc_id, fields["goal"], fields["instructions"], fields["notes"], db.now()))
+
+
 def _render_doc(request: Request, doc: dict, *, title: str | None = None, values: dict | None = None,
                 errors: dict | None = None, status_code: int = 200):
     version_count, last_version = _version_summary(doc["id"])
-    vals = {"title": doc["title"], "body": doc["body"], "target": doc["target"], "goal": "spelling",
-            "instructions": "", "notes": ""}
+    # `stored` is what the site holds; enhance.js compares the form with it, so words put back in the form
+    # after a problem still count as not saved when the member leaves the page.
+    stored = {"title": doc["title"], "body": doc["body"], "target": doc["target"], **_ai_fields(doc["id"])}
+    vals = dict(stored)
     vals.update(values or {})
     is_letter, drafted_for = _drafted_for(doc)
     saved_line = (saved_sentence(last_version["note"], last_version["created_at"]) if last_version
                   else "Nothing saved yet.")
     return render(request, "write/doc.html", title=title or doc["title"], doc=_doc_view(doc), values=vals,
+                  stored=stored,
                   errors=errors or {}, goals=GOALS, version_count=version_count, last_version=last_version,
                   saved_line=saved_line, is_cover_letter=is_letter, drafted_for=drafted_for,
                   letters=[] if is_letter else _letters_for(doc),
@@ -678,6 +719,8 @@ async def _save_first(request: Request, doc_id: int, user: dict) -> tuple[dict, 
     if errors:
         return doc, kept, errors, ""
     version = _store_edits(doc_id, kept)
+    if any(k in form for k in AI_FIELDS):
+        _keep_ai_fields(doc_id, kept)
     return _owned_doc(doc_id, user), kept, {}, (f"Saved your text as version {version}" if version else "")
 
 
@@ -698,13 +741,16 @@ async def save(request: Request, doc_id: int, user: dict = Depends(require_user)
     if errors:
         return _fix_problems(request, doc, kept, errors)
     version = _store_edits(doc_id, values)
+    if any(k in form for k in AI_FIELDS):
+        _keep_ai_fields(doc_id, kept)
     if version:
         flash(request, f"Saved as version {version}. {plural(word_count(values['body']), 'word')}.", "success")
         _say(request, f"/write/{doc_id}", f"{values['title']}: saved as version {version}")
     else:
         flash(request, "Saved. Your text had not changed, so no new version was needed.", "success")
         _say(request, f"/write/{doc_id}", f"{values['title']}: saved, the text had not changed")
-    return redirect(f"/write/{doc_id}#edit-title")
+    # No #edit-title: the page opens at the notice that says it was saved, and the notice gets the focus.
+    return redirect(f"/write/{doc_id}")
 
 
 # ----- suggestions -----------------------------------------------------------------------------
@@ -865,12 +911,17 @@ def accept_all_confirm(request: Request, doc_id: int, batch_id: int, user: dict 
     """Accepting every suggestion rewrites a lot of text at once, so it is confirmed first."""
     doc = _owned_doc(doc_id, user)
     batch = _owned_batch(doc, batch_id)
-    waiting = sum(1 for s in _suggestions(batch_id) if s["status"] == "pending")
+    items = [s for s in _suggestions(batch_id) if s["status"] == "pending"]
+    for s in items:
+        s["change"] = describe_change(s["original"], s["proposed"])
+        s["matches"] = doc["body"].count(s["original"]) == 1
+    waiting = len(items)
     if waiting:
         title = f"Accept {_all_waiting(waiting)} for {doc['title']}?"
     else:
         title = f"No suggestions are waiting for {doc['title']}"
-    return render(request, "write/accept_all.html", title=title, doc=_doc_view(doc), batch=batch, waiting=waiting)
+    return render(request, "write/accept_all.html", title=title, doc=_doc_view(doc), batch=batch, waiting=waiting,
+                  items=items)
 
 
 def _all_waiting(count: int) -> str:
@@ -1156,11 +1207,27 @@ _DIFF_TEXT_MAX = 600
 
 def _paragraphs(text: str) -> list[str]:
     """Paragraphs (blocks between blank lines), each on one line, without Markdown heading marks."""
-    out = []
+    return [p for p, _ in _placed_paragraphs(text)]
+
+
+def _placed_paragraphs(text: str) -> list[tuple[str, str]]:
+    """Each paragraph on one line, with where it is, in the words where_in_text uses:
+    ('Most writing apps...', 'In the section "Background", paragraph 1')."""
+    out, section, paragraph = [], "", 0
     for block in re.split(r"\n[ \t]*\n", text or ""):
-        words = " ".join(_MD_HEADING.sub("", ln) for ln in block.split("\n")).split()
-        if words:
-            out.append(" ".join(words))
+        lines = block.split("\n")
+        heading = _heading(lines[0].strip())
+        if heading:
+            section, paragraph = heading[1], 0
+        words = " ".join(_MD_HEADING.sub("", ln) for ln in lines).split()
+        if not words:
+            continue
+        if heading and not any(ln.strip() for ln in lines[1:]):
+            place = f'The heading "{heading[1]}"'
+        else:
+            paragraph += 1
+            place = f'In the section "{section}", paragraph {paragraph}' if section else f"Paragraph {paragraph}"
+        out.append((" ".join(words), place))
     return out
 
 
@@ -1170,13 +1237,19 @@ def _short(text: str) -> str:
 
 def version_differences(version_text: str, current_text: str) -> list[dict]:
     """The paragraphs that differ between a version and the current text, worked out by the site.
-    Each is {"version": text or "", "current": text or ""}; a missing side means that text does not have it."""
-    old, new = _paragraphs(version_text), _paragraphs(current_text)
+    Each is {"version": text or "", "current": text or "", "change": ..., "place": ...}; a missing side means
+    that text does not have it. "change" says word by word what changed since this version, when both sides
+    have text, and "place" says where it is: in the current text when it is there, else in this version."""
+    old_placed, new_placed = _placed_paragraphs(version_text), _placed_paragraphs(current_text)
+    old, new = [p for p, _ in old_placed], [p for p, _ in new_placed]
     out = []
     for tag, i1, i2, j1, j2 in SequenceMatcher(None, old, new, autojunk=False).get_opcodes():
         if tag == "equal":
             continue
-        out.append({"version": _short(" ".join(old[i1:i2])), "current": _short(" ".join(new[j1:j2]))})
+        version, current = " ".join(old[i1:i2]), " ".join(new[j1:j2])
+        place = f"{new_placed[j1][1]} of your current text" if current else f"{old_placed[i1][1]} of this version"
+        out.append({"version": _short(version), "current": _short(current), "place": place,
+                    "change": describe_change(version, current) if version and current else ""})
     return out
 
 
@@ -1267,17 +1340,39 @@ def _export_lines(doc: dict) -> list[tuple[int, str]]:
 
 
 def export_markdown(doc: dict) -> str:
-    return f"# {doc['title']}\n\n{_body_without_title(doc).rstrip()}\n"
+    """Markdown: the title is the only level 1 heading, and the member's headings follow from level 2, with no
+    level skipped."""
+    lines = [("#" * (level + 1) + " " + text) if level else text for level, text in _export_lines(doc)]
+    return f"# {doc['title']}\n\n" + "\n".join(lines).strip("\n").rstrip() + "\n"
+
+
+def _heading_numbers(lines: list[tuple[int, str]]) -> list[str]:
+    """'1.', '1.1', '2.' for each heading line, so headings stand out from paragraphs in plain text. All empty
+    when the member already numbered their headings."""
+    if any(re.match(r"\d", text) for level, text in lines if level):
+        return ["" for _ in lines]
+    counts: list[int] = []
+    out = []
+    for level, _ in lines:
+        if not level:
+            out.append("")
+            continue
+        counts = (counts + [0] * level)[:level]
+        counts[-1] += 1
+        out.append(".".join(str(n) for n in counts) + ("." if level == 1 else ""))
+    return out
 
 
 def export_text(doc: dict) -> str:
-    """Plain text: the title, then the text with each heading on a line of its own and no # marks."""
+    """Plain text: the title, then the text with each heading on a line of its own, numbered (1., 1.1) and
+    with no # marks."""
     out = [doc["title"], ""]
-    for level, text in _export_lines(doc):
+    lines = _export_lines(doc)
+    for (level, text), number in zip(lines, _heading_numbers(lines)):
         if level:
             if out[-1] != "":
                 out.append("")
-            out += [text, ""]
+            out += [f"{number} {text}" if number else text, ""]
         elif text.strip() or out[-1] != "":
             out.append(text.rstrip())
     return "\n".join(out).rstrip() + "\n"
@@ -1555,6 +1650,7 @@ async def delete(request: Request, doc_id: int, user: dict = Depends(require_use
         conn.execute("DELETE FROM write_batches WHERE doc_id = ?", (doc_id,))
         conn.execute("DELETE FROM write_versions WHERE doc_id = ?", (doc_id,))
         conn.execute("DELETE FROM write_research WHERE doc_id = ?", (doc_id,))
+        conn.execute("DELETE FROM write_ai_fields WHERE doc_id = ?", (doc_id,))
         conn.execute("DELETE FROM write_docs WHERE id = ? AND user_id = ?", (doc_id, user["id"]))
         jobs.forget_item(conn, user["id"], _item_ref(doc))
     flash(request, f"Deleted \"{doc['title']}\" and all its versions.", "success")

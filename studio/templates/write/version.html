@@ -2,7 +2,7 @@
 {% from "_macros.html" import post_button %}
 {% block content %}
 <h1>{{ title }}</h1>
-<p class="lead">{{ version.saved }} {{ version.word_text }}.
+<p class="lead">{{ version.saved }} Times are in UTC, the same as London time in winter. {{ version.word_text }}.
 {% if same_as_current %}This is the same as your current text.{% else %}Your current text has {{ doc.word_text }}.{% endif %}</p>
 {% if not same_as_current %}
 <p>Restoring makes this version your current text. Your current text is kept in the versions list first, so you can always come back to it.</p>
@@ -15,7 +15,9 @@
 <ol>
 {% for d in differences %}
   <li>
+  <p><strong>Where:</strong> {{ d.place }}.</p>
   {% if d.version and d.current %}
+  <p><strong>Changed since this version:</strong> {{ d.change }}</p>
   <p><strong>This version has:</strong> {{ d.version }}</p>
   <p><strong>Your current text has:</strong> {{ d.current }}</p>
   {% elif d.version %}
