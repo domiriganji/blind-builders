@@ -2,16 +2,27 @@
 {% from "_macros.html" import csrf_input, error_summary, field %}
 {% block content %}
 <h1>{{ title }}</h1>
+{% if signed_in_as %}
+<p>You are already signed in as {{ signed_in_as }}. To make another account, sign out first.</p>
+<form method="post" action="/logout">{{ csrf_input() }}<button type="submit" class="button button-primary">Sign out</button></form>
+<p><a href="/account">Go to Your account</a></p>
+{% else %}
 {{ error_summary(errors) }}
 <form method="post" action="/register" novalidate>
   {{ csrf_input() }}
   <input type="hidden" name="next" value="{{ next }}">
   {{ field('email', 'Email address', values.email, type='email', required=true, autocomplete='email', error=errors.email) }}
-  {{ field('display_name', 'Your name', values.display_name, required=true, autocomplete='name', hint='Help and peer checks show a code name instead, unless you choose otherwise on your profile page.', error=errors.display_name) }}
-  {{ field('password', 'Password', '', type='password', required=true, autocomplete='new-password', hint='At least 10 characters. A few words in a row are easy to remember and hard to guess. This site cannot reset a forgotten password yet, so keep it somewhere safe.', error=errors.password) }}
-  {{ field('screen_reader', 'Screen reader you use most', values.screen_reader, hint='For example NVDA, JAWS, VoiceOver, TalkBack or none. This helps the AI and other members give advice that fits you.', error=errors.screen_reader) }}
+  {{ field('display_name', 'Your name', values.display_name, required=true, autocomplete='name', hint='Only you see this unless you choose to share it. Other members see a code name such as Member 5A3C. You can change this later on your profile page.', error=errors.display_name) }}
+  {{ field('password', 'Password', '', type='password', required=true, autocomplete='new-password', hint='At least 10 characters. A few words in a row are easy to remember and hard to guess.', error=errors.password) }}
+  <div class="field choice js-only">
+    <input type="checkbox" id="show-password" data-shows="field-password">
+    <label for="show-password">Show my password</label>
+  </div>
+  {{ field('screen_reader', 'Screen reader, braille display or magnifier you use most', values.screen_reader, hint='For example NVDA with a Focus 40 braille display, VoiceOver, TalkBack, ZoomText or the screen magnifier on your phone, or none. This helps the AI and other members give advice that fits you.', error=errors.screen_reader) }}
   {{ field('device', 'Device you use most', values.device, hint='For example an Android phone, an iPhone or a Windows laptop.', error=errors.device) }}
+  <p>Next you get a recovery code. It is the only way back in if you forget your password, because this site sends no emails, so have a note or password manager ready to save it.</p>
   <button type="submit" class="button button-primary">Create account</button>
 </form>
-<p>Already have an account? <a href="/login">Sign in</a>.</p>
+<p>Already have an account? <a href="/login{% if next and next != '/' %}?next={{ next|urlencode }}{% endif %}">Sign in</a>.</p>
+{% endif %}
 {% endblock %}

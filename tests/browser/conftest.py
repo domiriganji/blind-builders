@@ -72,7 +72,7 @@ def sign_up(page, base: str, email: str = "browser@example.com", name: str = "Br
     page.goto(base + "/register")
     page.get_by_label("Email address").fill(email)
     page.get_by_label("Your name").fill(name)
-    page.get_by_label("Password").fill(PASSWORD)
+    page.get_by_label("Password", exact=True).fill(PASSWORD)
     page.get_by_role("button", name="Create account").click()
     playwright_api.expect(page.get_by_role("button", name="Sign out")).to_be_visible()
 
@@ -80,7 +80,7 @@ def sign_up(page, base: str, email: str = "browser@example.com", name: str = "Br
 def sign_in(page, base: str, email: str = "browser@example.com") -> None:
     page.goto(base + "/login")
     page.get_by_label("Email address").fill(email)
-    page.get_by_label("Password").fill(PASSWORD)
+    page.get_by_label("Password", exact=True).fill(PASSWORD)
     page.get_by_role("button", name="Sign in").click()
     playwright_api.expect(page.get_by_role("button", name="Sign out")).to_be_visible()
 

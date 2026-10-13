@@ -2,6 +2,11 @@
 {% from "_macros.html" import csrf_input, error_summary, field %}
 {% block content %}
 <h1>{{ title }}</h1>
+{% if words_kept %}
+<p class="lead">You were signed out before this was saved. Sign in and your words will be put back in the form. Nothing was saved yet.</p>
+{% elif reason %}
+<p class="lead">Sign in {{ reason }}. You come straight back to the page afterwards.</p>
+{% endif %}
 {{ error_summary(errors) }}
 <form method="post" action="/login" novalidate>
   {{ csrf_input() }}
@@ -10,6 +15,6 @@
   {{ field('password', 'Password', '', type='password', required=true, autocomplete='current-password', error=errors.password) }}
   <button type="submit" class="button button-primary">Sign in</button>
 </form>
-<p>New here? <a href="/register">Create an account</a>.</p>
+<p>New here? <a href="/register{% if next and next != '/' %}?next={{ next|urlencode }}{% endif %}">Create an account</a>.</p>
 <p>Forgotten your password? <a href="/reset-password">Reset it with your recovery code</a>.</p>
 {% endblock %}

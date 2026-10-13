@@ -1,6 +1,11 @@
 {% extends "base.html" %}
+{% from "_macros.html" import csrf_input %}
 {% block content %}
 <h1>{{ heading }}</h1>
 <p>{{ message }}</p>
+{% if sign_out and user %}
+<form method="post" action="/logout">{{ csrf_input() }}<button type="submit" class="button button-primary">Sign out</button></form>
+{% endif %}
+{% if back_url %}<p><a href="{{ back_url }}">{{ back_label }}</a></p>{% endif %}
 <p><a href="/">Go to the home page</a></p>
 {% endblock %}

@@ -9,13 +9,15 @@ cannot block the member's own correct code.
 from __future__ import annotations
 
 import secrets
+import time
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import Response
 from starlette.concurrency import run_in_threadpool
 
 from .. import db, limits
 from ..security import decrypt_secret, encrypt_secret, hash_password, verify_password
-from ..web import checked_form, current_user, end_all_sessions, redirect, render, require_user, sign_in
+from ..web import checked_form, current_user, end_all_sessions, error_title, redirect, render, require_user, sign_in
 
 router = APIRouter()
 NAV = None
@@ -27,6 +29,11 @@ MAX_TRIES_PER_IP_PER_HOUR = 30   # from one internet address, whatever the email
 HOUR = 60 * 60
 PASSWORD_MIN, PASSWORD_MAX = 10, 1000
 _DUMMY_HASH = hash_password("not-a-real-recovery-code")
+# A new code stays on its page (through reloads, or a phone reloading the tab) until the member says it is
+# saved, or for at most this long.
+SHOW_SECONDS = 60 * 60
+TOO_MANY_TRIES = ("Several tries from your internet connection did not work, so resetting is paused for one hour to "
+                  "protect accounts from guessing. Your account is unchanged. Please try again after that.")
 
 
 def seed() -> None:
@@ -57,12 +64,25 @@ def set_new_code(user_id: int) -> str:
     return code
 
 
-def show_once(request: Request, code: str, heading: str, next_url: str = "/") -> None:
-    """Keep the code in the session just long enough to show it on the next page. The session cookie is
-    signed but readable, so the code in it is encrypted with the site's secret key."""
+def show_once(request: Request, code: str, heading: str, next_url: str = "/", done: str = "") -> None:
+    """Keep the code in the session until the member says it is saved (or SHOW_SECONDS pass), so a reload does
+    not lose it. The session cookie is signed but readable, so the code in it is encrypted with the site's
+    secret key. `done` is what the next page says once the member continues."""
     secret = request.app.state.settings.secret_key
     request.session["recovery_show"] = {"code_enc": encrypt_secret(secret, code), "heading": heading,
-                                        "next": next_url}
+                                        "next": next_url, "done": done, "at": int(time.time()), "seen": False}
+
+
+def _shown_code(request: Request) -> tuple[dict, str] | None:
+    """The code waiting to be saved, with its details, or None."""
+    shown = request.session.get("recovery_show")
+    if not isinstance(shown, dict) or not shown.get("code_enc"):
+        return None
+    if time.time() - int(shown.get("at") or 0) > SHOW_SECONDS:
+        request.session.pop("recovery_show", None)
+        return None
+    code = decrypt_secret(request.app.state.settings.secret_key, shown["code_enc"])
+    return (shown, code) if code else None
 
 
 def _text(form: dict, name: str, limit: int) -> str:
@@ -78,21 +98,51 @@ def _safe_next(url: str) -> str:
 
 @router.get("/account/recovery-code")
 def recovery_page(request: Request, user: dict = Depends(require_user)):
-    shown = request.session.pop("recovery_show", None)
-    code = None
-    if isinstance(shown, dict) and shown.get("code_enc"):
-        code = decrypt_secret(request.app.state.settings.secret_key, shown["code_enc"])
-    if code:
+    found = _shown_code(request)
+    if found:
+        shown, code = found
+        again = bool(shown.get("seen"))
+        if not again:
+            request.session["recovery_show"] = {**shown, "seen": True}
         return render(request, "recovery/show.html", title=shown["heading"], code=code,
-                      spelled=spelled_out(code), next_url=_safe_next(shown.get("next") or "/"))
+                      spelled=spelled_out(code), again=again)
     return _manage_page(request, user)
+
+
+@router.get("/account/recovery-code.txt")
+def recovery_file(request: Request, user: dict = Depends(require_user)):
+    """The code waiting to be saved, as a small text file to keep. Works without JavaScript."""
+    found = _shown_code(request)
+    if not found:
+        return redirect("/account/recovery-code")
+    site = request.app.state.settings.site_name
+    text = (f"Recovery code for {site}\r\n\r\n{found[1]}\r\n\r\nSpelled out: {spelled_out(found[1])}.\r\n\r\n"
+            f"With your email address, this code lets you set a new password if you forget yours. "
+            f"Keep it private.\r\n")
+    return Response(text, media_type="text/plain; charset=utf-8",
+                    headers={"Content-Disposition": 'attachment; filename="recovery-code.txt"',
+                             "Cache-Control": "no-store"})
+
+
+@router.post("/account/recovery-code/saved")
+async def code_saved(request: Request, user: dict = Depends(require_user)):
+    """The member says the code is saved: it is never shown again."""
+    await checked_form(request)
+    shown = request.session.pop("recovery_show", None)
+    next_url = _safe_next(str(shown.get("next") or "/")) if isinstance(shown, dict) else "/account"
+    done = str(shown.get("done") or "") if isinstance(shown, dict) else ""
+    if done:
+        from ..auth import announce  # local import: auth imports this module
+        if next_url == "/account":
+            request.session["account_heading"] = done
+        else:
+            announce(request, next_url, done)
+    return redirect(next_url)
 
 
 def _manage_page(request: Request, user: dict, errors: dict | None = None, status_code: int = 200):
     has_code = bool(user.get("recovery_hash"))
-    title = "Your recovery code" if has_code else "You have no recovery code yet"
-    if errors:
-        title += ": please fix the problems"
+    title = error_title("Your recovery code" if has_code else "You have no recovery code yet", errors or {})
     return render(request, "recovery/manage.html", title=title, has_code=has_code, errors=errors or {},
                   status_code=status_code)
 
@@ -108,20 +158,24 @@ async def make_new_code(request: Request, user: dict = Depends(require_user)):
     if not password:
         return _manage_page(request, user, {"password": "Enter your current password."}, 400)
     if any(limits.count("recovery", k, HOUR) >= most for k, most in keys):
-        return _manage_page(request, user, {"password": "Too many wrong tries. Wait an hour and try again."}, 429)
+        return _manage_page(request, user, {"password": (
+            "Several password tries did not work, so making a new code is paused for an hour to protect your "
+            "account. Your code is unchanged. Please try again after that.")}, 429)
     if not await run_in_threadpool(verify_password, password[:PASSWORD_MAX], user["password_hash"]):
         for k, _ in keys:
             limits.record("recovery", k, HOUR, subject=limits.key(user["email"]))
-        return _manage_page(request, user, {"password": "That is not your current password. Try again."}, 400)
+        return _manage_page(request, user, {"password": (
+            "That is not the password you use now, so no new code was made. Check it and try again.")}, 400)
     code = await run_in_threadpool(set_new_code, user["id"])
-    show_once(request, code, "Your new recovery code: save it now", "/account")
+    show_once(request, code, "Your new recovery code: save it now", "/account",
+              done="Your new recovery code is ready")
     return redirect("/account/recovery-code")
 
 
 @router.get("/reset-password")
 def reset_form(request: Request):
     if current_user(request):
-        return redirect("/account")
+        return render(request, "recovery/reset.html", title="You are signed in", signed_in=True, values={}, errors={})
     return render(request, "recovery/reset.html", title="Reset your password with your recovery code",
                   values={}, errors={})
 
@@ -154,8 +208,7 @@ async def reset(request: Request):
     ip = limits.client_ip(request)
     if not errors:
         if _too_many_tries(email, ip):
-            errors["code"] = ("Too many wrong tries from your internet connection. Wait an hour and try again. "
-                              "This protects accounts from people guessing.")
+            errors["code"] = TOO_MANY_TRIES
             status_code = 429
         else:
             with db.session() as conn:
@@ -169,8 +222,12 @@ async def reset(request: Request):
             else:
                 user_id = row["id"]
     if errors:
-        return render(request, "recovery/reset.html", title="Reset your password: please fix the problems",
-                      values={"email": email[:300]}, errors=errors, status_code=status_code)
+        if "password" not in errors:
+            errors["password"] = ("The password box was emptied so your password is not kept on the page. "
+                                  "Please type your new password again.")
+        return render(request, "recovery/reset.html", title=error_title("Reset your password", errors),
+                      values={"email": email[:300], "code": _text(form, "code", 40).strip()}, errors=errors,
+                      status_code=status_code)
     password_hash = await run_in_threadpool(hash_password, password)
     with db.session() as conn:
         conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (password_hash, user_id))
@@ -178,7 +235,8 @@ async def reset(request: Request):
     limits.forget_email(email)
     code = await run_in_threadpool(set_new_code, user_id)  # the old code is used up
     sign_in(request, user_id)
-    show_once(request, code, "Your password is changed: save your new recovery code", "/")
+    show_once(request, code, "Your password is changed: save your new recovery code", "/",
+              done="Your password is changed and you are signed in")
     return redirect("/account/recovery-code")
 
 

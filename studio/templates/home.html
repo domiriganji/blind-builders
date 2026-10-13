@@ -2,9 +2,19 @@
 {% block content %}
 <h1>{{ title }}</h1>
 {% if title != home_title %}<p>You are on the home page. {{ home_title }}.</p>{% endif %}
-<p class="lead">Tell the AI what you want in your own words. It reads back what it understood before it does anything, does the work, and tells you plainly what it did and what nobody has checked yet. Every page here works with a screen reader, a keyboard, voice or a braille display.</p>
+{% if next_steps %}
+<h2>Your next steps</h2>
+<ol>
+  {% if next_steps.code_saved %}<li>Save your recovery code: done.</li>{% else %}<li><a href="/account/recovery-code">Make your recovery code</a>, so a forgotten password does not lock you out.</li>{% endif %}
+  <li>Set up the AI: <a href="/account/ai-key">connect your Claude API key</a>. A typical task costs from {{ pay.cost_low }} to {{ pay.cost_high }}, paid to Anthropic.{% if pay.can_buy %} Or <a href="/account/credits/buy">buy credits</a> from this site.{% endif %}</li>
+  <li>Read <a href="/learn/start-here">Start here</a>, a short guide to the site.</li>
+  <li>Try <a href="/build">Build</a>: describe a website or app in your own words.</li>
+</ol>
+{% endif %}
+<p class="lead">Tell the AI what you want in your own words. It reads back what it understood before it does anything, does the work, and tells you plainly what it did and what nobody has checked yet. Every page here is built to work with a screen reader, a braille display, magnification or zoom, a keyboard or voice control.</p>
 {% if not user %}
 <p><a class="button button-primary" href="/register">Create a free account</a> or <a href="/login">sign in</a>.</p>
+<p>{% if pay.free %}The account is free, and on this site the AI is free for members too{% if pay.free_limit %}, up to {{ pay.free_limit }} each a month{% endif %}.{% else %}The account is free. To use the AI you connect a Claude API key from Anthropic and pay them for what you use, from {{ pay.cost_low }} to {{ pay.cost_high }} a task.{% endif %} <a href="/pricing">Read how paying works</a>.</p>
 {% endif %}
 <h2>What you can do here</h2>
 <ul class="section-list">
@@ -15,10 +25,12 @@
 <h2>How the AI works with you</h2>
 <ul>
   <li><strong>Read-back first.</strong> Before building or doing anything, the AI tells you what it understood. You correct it or say go ahead.</li>
-  <li><strong>Whole answers, summary first.</strong> Nothing streams or talks over your screen reader. Each answer arrives complete, under headings, with the summary at the top.</li>
+  <li><strong>Whole answers, summary first.</strong> Nothing streams, talks over your speech or moves your braille display while you read. Each answer arrives complete, under headings, with the summary at the top.</li>
   <li><strong>Honest checks.</strong> Every result says what was checked, how, and what nobody checked yet.</li>
   <li><strong>Your words stay yours.</strong> The AI never silently changes what you wrote. Every suggested change is shown as before and after, and you accept or reject each one.</li>
 </ul>
+{% if user and not next_steps %}
 <h2>How paying works</h2>
-<p>Connect your own Claude API key and use the site's AI at your own cost, or buy credits. <a href="/pricing">Read how paying works</a>.</p>
+<p>{% if pay.free %}On this site the AI is free for members{% if pay.free_limit %}, up to {{ pay.free_limit }} each a month{% endif %}: the site's owner pays for it. You can also connect your own Claude API key.{% else %}Connect your own Claude API key and pay Anthropic for what you use, from {{ pay.cost_low }} to {{ pay.cost_high }} a task{% if pay.can_buy %}, or buy credits from this site{% endif %}.{% endif %} <a href="/pricing">Read how paying works</a>.</p>
+{% endif %}
 {% endblock %}

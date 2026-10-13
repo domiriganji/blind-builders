@@ -77,11 +77,14 @@ def test_account_summary_and_links(user_client):
     assert h1(r.text) == "Your account"
     assert "Amina" in r.text and "amina@example.com" in r.text
     assert user_row()["pseudonym"] in r.text
-    assert "The AI is not set up for you yet" in r.text
+    assert "To start using the AI, connect your own Claude API key." in r.text
+    assert "Credits are not on sale on this site yet." in r.text
     assert 'href="/account/ai-key"' in r.text
-    for link in ["/account/profile", "/account/ai-key", "/account/credits", "/account/credits/buy", "/pricing",
+    for link in ["/account/profile", "/account/ai-key", "/account/credits", "/account/password", "/pricing",
                  "/account/delete"]:
         assert f'href="{link}"' in r.text
+    # Payments are not set up, so there is no link to a page where nothing can be bought.
+    assert 'href="/account/credits/buy"' not in r.text
     assert 'href="/account/admin"' not in r.text
     # Summary comes before the links.
     assert r.text.index("How you pay for AI") < r.text.index("Change your details")
@@ -104,8 +107,8 @@ def test_account_shows_credits_mode(user_client, app):
 def test_credits_without_site_key_are_not_usable(user_client):
     credits.add(user_id(), 320, "Welcome credits")
     r = user_client.get("/account")
-    assert "The AI is not set up for you yet" in r.text
-    assert "does not offer credits yet" in r.text
+    assert "To start using the AI, connect your own Claude API key." in r.text
+    assert "Credits are not on sale on this site yet." in r.text
 
 
 def test_no_ai_app_account_explains_both_ways(no_ai_app):
@@ -113,8 +116,8 @@ def test_no_ai_app_account_explains_both_ways(no_ai_app):
     register(c)
     r = c.get("/account")
     assert r.status_code == 200
-    assert "The AI is not set up for you yet" in r.text
-    assert "Connect your own Claude API key" in r.text
+    assert "To start using the AI, connect your own Claude API key." in r.text
+    assert "Connect your Claude API key" in r.text
     assert "credits" in r.text
     assert c.get("/account/credits").status_code == 200
     assert c.get("/pricing").status_code == 200
@@ -127,7 +130,9 @@ def test_profile_shows_code_name_and_current_values(user_client):
     assert h1(r.text) == "Your profile and preferences"
     assert user_row()["pseudonym"] in r.text
     assert 'value="NVDA"' in r.text
-    assert "only helps match" in r.text
+    assert "Used only to match you with reports" in r.text
+    assert "Blind or low vision since" in r.text and "Which fits you best?" in r.text
+    assert "When your sight changed" not in r.text and "I have low vision" not in r.text
     assert "Summary first, then details" in r.text and "Full detail" in r.text
     assert "Show my name on peer checks instead of my code name" in r.text
     # Looks are described by their effect unless the member asks for colours too.
@@ -151,7 +156,7 @@ def test_profile_edit_saves(user_client):
         "display_name": "Amina B", "screen_reader": "TalkBack", "device": "Android phone", "language": "ha",
         "sight_onset": "later", "verbosity": "full", "show_name_on_checks": "yes"})
     assert r.status_code == 200 and h1(r.text) == "Your profile is saved"
-    assert "You are on your account page." in r.text
+    assert "You are on Your account." in r.text
     assert_accessible(r)
     row = user_row()
     assert (row["display_name"], row["screen_reader"], row["device"], row["language"], row["sight_onset"],
@@ -172,7 +177,7 @@ def test_profile_validation_errors(user_client):
         "display_name": "", "screen_reader": "x" * 150, "language": "klingon", "sight_onset": "sometimes",
         "verbosity": "loud"})
     assert r.status_code == 400
-    assert h1(r.text) == "Your profile and preferences: please fix the problems"
+    assert h1(r.text) == "Please check 5 answers: Your profile and preferences"
     for name in ["display_name", "screen_reader", "language", "sight_onset", "verbosity"]:
         assert f'href="#field-{name}"' in r.text, name
     assert 'aria-invalid="true"' in r.text
@@ -191,22 +196,25 @@ def test_profile_needs_csrf(user_client):
 def test_key_field_is_a_password_field_without_autocomplete(user_client):
     r = user_client.get("/account/ai-key")
     assert re.search(r'<input id="field-api_key" name="api_key" type="password" value="" required autocomplete="off"', r.text)
-    assert "console.anthropic.com" in r.text and "encrypted" in r.text and "never show it again" in r.text
+    assert "console.anthropic.com" in r.text and "encrypted" in r.text and "never shows it again" in r.text
+    # The key can be shown, to hear or read back a paste; the box appears only with JavaScript.
+    assert '<div class="field choice js-only">' in r.text and 'data-shows="field-api_key"' in r.text
+    assert "the Anthropic Console (opens Anthropic's website)" in r.text
 
 
 @pytest.mark.parametrize("bad, message", [
     ("", "Paste your Claude API key."),
     ("sk-ant-abc def" + "x" * 40, "space"),
     ("sk-proj-" + "x" * 50, "starts with sk-ant-"),
-    ("sk-ant-short", "too short"),
-    ("sk-ant-" + "x" * 400, "too long"),
+    ("sk-ant-short", "shorter than a Claude API key"),
+    ("sk-ant-" + "x" * 400, "longer than a Claude API key"),
     ("sk-ant-" + "x" * 40 + "!$", "characters"),
 ])
 def test_key_format_errors(user_client, key_ok, bad, message):
     r = post(user_client, "/account/ai-key", {"api_key": bad})
     assert r.status_code == 400
     assert message in r.text
-    assert h1(r.text) == "Your Claude API key: please fix the problems"
+    assert h1(r.text) == "Please check 1 answer: Your Claude API key"
     assert 'href="#field-api_key"' in r.text
     assert key_ok == []  # never sent to Anthropic
     assert user_row()["own_api_key_enc"] is None
@@ -253,7 +261,7 @@ def test_remove_key(user_client, key_ok):
     assert r.status_code == 200 and h1(r.text) == "Your Claude API key is removed"
     assert "console.anthropic.com" in r.text
     assert user_row()["own_api_key_enc"] is None
-    assert "The AI is not set up for you yet" in user_client.get("/account").text
+    assert "To start using the AI, connect your own Claude API key." in user_client.get("/account").text
     assert "Remove my key" not in user_client.get("/account/ai-key").text
 
 
@@ -267,8 +275,10 @@ def test_remove_key_needs_csrf(user_client, key_ok):
 def test_unreadable_key_is_explained(user_client):
     with db.session() as conn:
         conn.execute("UPDATE users SET own_api_key_enc = 'garbage' WHERE email = 'amina@example.com'")
-    assert "can no longer be read" in user_client.get("/account").text
-    assert "can no longer be read" in user_client.get("/account/ai-key").text
+    page = user_client.get("/account").text
+    assert "stopped working because of a change on our side" in page and "Connect your Claude API key again" in page
+    assert "stopped working because of a change on our side, not anything you did" in user_client.get(
+        "/account/ai-key").text
 
 
 def test_default_factory_uses_own_key(user_client, key_ok, app):
@@ -308,9 +318,9 @@ def test_verify_api_key_reports_failures(monkeypatch):
     request = httpx.Request("GET", "https://api.anthropic.com/v1/models")
     auth = anthropic.AuthenticationError("bad", response=httpx.Response(401, request=request), body=None)
     monkeypatch.setattr(account.anthropic, "Anthropic", fake_client(auth))
-    assert "not valid" in account.verify_api_key(GOOD_KEY)
+    assert "Anthropic did not accept this key, so it was not saved." in account.verify_api_key(GOOD_KEY)
     monkeypatch.setattr(account.anthropic, "Anthropic", fake_client(anthropic.APIConnectionError(request=request)))
-    assert "could not reach" in account.verify_api_key(GOOD_KEY)
+    assert "could not reach Anthropic" in account.verify_api_key(GOOD_KEY)
     monkeypatch.setattr(account.anthropic, "Anthropic", fake_client(None))
     assert account.verify_api_key(GOOD_KEY) is True
 
@@ -335,11 +345,12 @@ def test_credits_page_shows_ledger_and_usage(user_client, app, fake_ai):
     assert "+$5.00" in r.text and "Welcome credits" in r.text and "-$0.12" in r.text
     assert "Build: understand" in r.text and "Research: answer" in r.text
     assert "AI: Build: understand" in r.text and "build.understand" not in r.text
-    assert "2026-10-01" in r.text and "2026-10-02" in r.text
+    assert "1 October 2026" in r.text and "2 October 2026" in r.text and "2026-10-01" not in r.text
     assert "<td>$0.07, your own key</td>" in r.text and "<td>$0.12, credits</td>" in r.text
     assert '<th scope="col">What it was for</th>' in r.text
-    # Payments are not set up in tests, so the page says so instead of offering a link that cannot work.
-    assert "Buying credits is not set up on this site yet" in r.text and 'href="/account/ai-key"' in r.text
+    # Payments are not set up in tests, so the page offers the way that works instead of a link that cannot.
+    assert "Credits are not on sale on this site yet." in r.text and 'href="/account/ai-key"' in r.text
+    assert 'href="/account/credits/buy"' not in r.text
     # Summary (balance) comes before the history.
     assert r.text.index("Credit balance") < r.text.index("Credit history")
     assert_accessible(r)
@@ -374,12 +385,13 @@ def test_buy_page_when_payments_not_set_up(user_client):
     r = user_client.get("/account/credits/buy")
     assert r.status_code == 200
     assert h1(r.text) == "Buy credits"
-    assert "Buying credits is not set up on this site yet" in r.text
+    assert "Credits are not on sale on this site yet." in r.text
     assert 'href="/account/ai-key"' in r.text
-    assert "$5.00" in r.text and "$10.00" in r.text and "$20.00" in r.text
+    # No packs with prices for something that cannot be bought.
+    assert "$5.00" not in r.text and "<h2>Packs</h2>" not in r.text
     assert 'action="/account/credits/buy"' not in r.text
     r = post(user_client, "/account/credits/buy", {"pack": "500"})
-    assert r.status_code == 200 and "not set up on this site yet" in r.text
+    assert r.status_code == 200 and "not on sale on this site yet, so nothing was charged" in r.text
 
 
 @pytest.fixture
@@ -423,7 +435,7 @@ def test_checkout_redirects_to_stripe(user_client, payments_on, monkeypatch):
 def test_checkout_rejects_unknown_pack(user_client, payments_on, monkeypatch):
     monkeypatch.setattr(account, "create_checkout_session", lambda *a, **k: pytest.fail("should not be called"))
     r = post(user_client, "/account/credits/buy", {"pack": "1"})
-    assert r.status_code == 400 and h1(r.text) == "Buy credits: please fix the problems"
+    assert r.status_code == 400 and h1(r.text) == "Please check 1 answer: Buy credits"
     assert 'href="#field-pack"' in r.text
 
 
@@ -558,21 +570,37 @@ def test_signature_checker_accepts_any_matching_v1():
 
 # ----- pricing ----------------------------------------------------------------------------------
 
-def test_pricing_is_public_and_explains_both_ways(client):
+def test_pricing_is_public_and_explains_the_way_that_works(client):
     r = client.get("/pricing")
     assert r.status_code == 200
     assert h1(r.text) == "How paying works"
     assert "own Claude API key" in r.text and "charges nothing" in r.text
-    assert "plus 25 percent" in r.text
+    # Credits are not on sale here, so they are not offered as a second way, and there is no Credits column.
+    assert "Credits are not on sale on this site yet." in r.text and "Way 2" not in r.text
+    assert '<th scope="col">Credits</th>' not in r.text
     assert "estimates" in r.text.lower()
     assert '<th scope="col">Own key</th>' in r.text
-    # Building a small website: 15,000 in and 20,000 out on Opus 5.5 = $0.06 + $0.40 = $0.46; with 25% = $0.575 -> $0.58
-    assert "about $0.46" in r.text and "about $0.58" in r.text
+    # The task names each row, so moving across a row says which task a cost is for.
+    assert '<th scope="row">Building a small website (one version). <span class="meta">Typical size:' in r.text
+    # A token is explained before the table that uses the word.
+    assert r.text.index("A token is a piece of a word") < r.text.index("<table>")
+    assert 'href="https://console.anthropic.com/"' in r.text
+    # Building a small website: 15,000 in and 20,000 out on Opus 5.5 = $0.06 + $0.40 = $0.46
+    assert "about $0.46" in r.text
     assert "$4.00 per million tokens read" in r.text
     assert_accessible(r)
 
 
-def test_pricing_follows_markup_setting(client, app):
+def test_pricing_with_payments_explains_both_ways(client, payments_on):
+    r = client.get("/pricing")
+    assert "plus 25 percent" in r.text and "Way 2: credits" in r.text
+    assert '<th scope="col">Credits</th>' in r.text
+    # with 25% = $0.575 -> $0.58
+    assert "about $0.46" in r.text and "about $0.58" in r.text
+    assert_accessible(r)
+
+
+def test_pricing_follows_markup_setting(client, app, payments_on):
     app.state.settings.credit_markup = 1.5
     r = client.get("/pricing")
     assert "plus 50 percent" in r.text
@@ -613,7 +641,7 @@ def test_admin_grant_validation(client):
     make_admin("owner@example.com")
     r = post(client, "/account/admin", {"email": "nobody@example.com", "amount": "lots", "reason": ""})
     assert r.status_code == 400
-    assert h1(r.text) == "Site owner tools: please fix the problems"
+    assert h1(r.text) == "Please check 3 answers: Site owner tools"
     assert "No member has this email address." in r.text
     assert "Enter an amount in US dollars" in r.text
     assert 'href="#field-reason"' in r.text
@@ -695,8 +723,8 @@ def test_delete_account_anonymises_and_signs_out(user_client, key_ok):
 @pytest.mark.parametrize("field, value, message", [
     ("display_name", "Amina sk-ant-api03-Ab12Cd34Ef", "looks like a Claude API key"),
     ("display_name", "Amina " + GOOD_KEY, "looks like a Claude API key"),
-    ("device", "Pixel, card 4111 1111 1111 1111", "looks like a card number"),
-    ("screen_reader", "NVDA, password: hunter22", "looks like a password"),
+    ("device", "Pixel, card 4111 1111 1111 1111", "looks like it includes a password, PIN, code, card number"),
+    ("screen_reader", "NVDA, password: hunter22", "looks like it includes a password, PIN, code, card number"),
 ])
 def test_profile_refuses_secrets_other_members_could_see(user_client, field, value, message):
     data = {"display_name": "Amina", "language": "en", "sight_onset": "prefer_not", "verbosity": "summary_first",
@@ -711,7 +739,7 @@ def test_profile_refuses_secrets_other_members_could_see(user_client, field, val
 def test_profile_cleans_invisible_and_control_characters(user_client):
     r = post(user_client, "/account/profile", {"display_name": "​ ​", "language": "en",
                                                "sight_onset": "prefer_not", "verbosity": "summary_first"})
-    assert r.status_code == 400 and "Enter the name you want other members to see." in r.text
+    assert r.status_code == 400 and "Enter your name. Other members see your code name" in r.text
     post(user_client, "/account/profile", {"display_name": "Amina\nB\t", "screen_reader": "NVDA\r\n",
                                            "language": "en", "sight_onset": "prefer_not",
                                            "verbosity": "summary_first"})
@@ -734,12 +762,12 @@ def test_unreadable_key_with_credits_is_explained(user_client, app):
     with db.session() as conn:
         conn.execute("UPDATE users SET own_api_key_enc = 'garbage' WHERE email = 'amina@example.com'")
     r = user_client.get("/account")
-    assert "You use credits" in r.text and "can no longer be read" in r.text
+    assert "You use credits" in r.text and "stopped working because of a change on our side" in r.text
 
 
 def test_credits_page_offers_buying_only_when_it_works(user_client, payments_on):
     r = user_client.get("/account/credits")
-    assert 'href="/account/credits/buy"' in r.text and "Buying credits is not set up" not in r.text
+    assert 'href="/account/credits/buy"' in r.text and "Credits are not on sale" not in r.text
 
 
 def test_checkout_answer_that_is_not_an_object_is_a_payment_error(monkeypatch):
@@ -821,7 +849,7 @@ def test_admin_grant_refuses_secrets_in_the_reason(client):
     make_admin("owner@example.com")
     r = post(client, "/account/admin", {"email": "owner@example.com", "amount": "5",
                                         "reason": "card 4111 1111 1111 1111"})
-    assert r.status_code == 400 and "looks like a card number" in r.text
+    assert r.status_code == 400 and "card number" in r.text and "so it was not saved" in r.text
     assert credits.balance(user_id("owner@example.com")) == 0
 
 
@@ -866,3 +894,38 @@ def test_pricing_does_not_promise_every_task_is_listed(client, app):
     app.state.settings.anthropic_api_key = "sk-ant-site-key"
     r = client.get("/pricing")
     assert "lists every task" not in r.text and "latest AI tasks" in r.text
+
+
+# ----- ease of use: changing the password while signed in -----------------------------------------
+
+def test_change_password_while_signed_in(user_client):
+    page = user_client.get("/account/password")
+    assert h1(page.text) == "Change your password"
+    assert 'data-shows="field-current_password field-new_password"' in page.text
+    assert_accessible(page)
+    r = post(user_client, "/account/password", {"current_password": "not my password", "new_password": "a new one here"})
+    assert r.status_code == 400 and h1(r.text) == "Please check 2 answers: Change your password"
+    assert "That is not the password you use now." in r.text and "Please type your new password again." in r.text
+    assert_accessible(r)
+    r = post(user_client, "/account/password", {"current_password": "correct horse battery",
+                                                 "new_password": "a brand new password"})
+    assert r.status_code == 200 and h1(r.text) == "Your password is changed"
+    assert "Any other device signed in to your account is signed out." in r.text
+    post(user_client, "/logout")
+    r = post(user_client, "/login", {"email": "amina@example.com", "password": "a brand new password"})
+    assert r.status_code == 200 and "Sign out" in r.text
+
+
+def test_profile_asks_blind_or_low_vision_since_and_which_fits_separately(user_client):
+    with db.session() as conn:
+        conn.execute("UPDATE users SET sight_onset = 'low_vision' WHERE email = 'amina@example.com'")
+    account.seed()  # an earlier "I have low vision" answer moves to the new question
+    row = user_row()
+    assert (row["sight_onset"], row["vision"]) == ("prefer_not", "low_vision")
+    page = user_client.get("/account").text
+    assert "Blind or low vision since: Prefer not to say" in page and "Which fits you best: Low vision" in page
+    base = {"display_name": "Amina", "language": "en", "verbosity": "summary_first"}
+    post(user_client, "/account/profile", dict(base, sight_onset="birth", vision="blind"))
+    assert (user_row()["sight_onset"], user_row()["vision"]) == ("birth", "blind")
+    r = post(user_client, "/account/profile", dict(base, vision="sometimes"))
+    assert r.status_code == 400 and 'href="#field-vision"' in r.text

@@ -2,14 +2,25 @@
 {% from "_macros.html" import csrf_input, error_summary, field %}
 {% block content %}
 <h1>{{ title }}</h1>
+{% if signed_in %}
+<p>You are signed in, so you do not need your recovery code. To set a new password, use Change your password.</p>
+<p><a href="/account/password">Change your password</a></p>
+<p><a href="/account">Go to Your account</a></p>
+{% else %}
 <p>You need the recovery code you saved when you created your account, or the newest one you made since.</p>
 {{ error_summary(errors) }}
 <form method="post" action="/reset-password" novalidate>
   {{ csrf_input() }}
   {{ field('email', 'Email address', values.email, type='email', required=true, autocomplete='email', error=errors.email) }}
-  {{ field('code', 'Recovery code', '', required=true, autocomplete='off', hint='16 letters and numbers. Spaces and dashes do not matter.', error=errors.code) }}
+  {{ field('code', 'Recovery code', values.code, required=true, autocomplete='off', hint='16 letters and numbers. Spaces and dashes do not matter.', error=errors.code, extra='autocorrect="off" autocapitalize="characters" spellcheck="false"') }}
   {{ field('password', 'New password', '', type='password', required=true, autocomplete='new-password', hint='At least 10 characters.', error=errors.password) }}
+  <div class="field choice js-only">
+    <input type="checkbox" id="show-password" data-shows="field-password">
+    <label for="show-password">Show my new password</label>
+  </div>
+  <p>After this you are signed in and get a new recovery code to save. The old one stops working.</p>
   <button type="submit" class="button button-primary">Set my new password</button>
 </form>
-<p>No recovery code? This site cannot reset your password another way, because it sends no emails and has no staff. You can create a new account with another email address.</p>
+<p>No recovery code? Sorry: this site has no other way to let you back in, because it sends no emails and has no staff who could check it is you. Your old work stays in your old account. You can create a new account with a different email address.</p>
+{% endif %}
 {% endblock %}

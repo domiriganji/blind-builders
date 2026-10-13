@@ -144,7 +144,7 @@ def test_register_sign_out_and_sign_in(live, browser):
     base = live["base"]
     page = new_page(browser)
     page.goto(base + "/")
-    assert heading(page) == "Build your ideas with AI, without needing to see the screen"
+    assert heading(page) == "Build your ideas with AI: websites, apps, writing and research"
     assert_page_ok(page, "home signed out")
     for name, h1 in [("How this site works", "How this site works"), ("Accessibility", "Accessibility"),
                      ("How paying works", "How paying works")]:
@@ -157,25 +157,40 @@ def test_register_sign_out_and_sign_in(live, browser):
 
     # Mistakes first: nothing filled in, then a password that is too short.
     page.get_by_role("button", name="Create account").click()
-    assert heading(page) == "Create your account: please fix the problems"
+    assert heading(page) == "Please check 3 answers: Create your account"
     assert_page_ok(page, "register with errors")
     follow_error(page, "Enter your email address, like name@example.com.", page.get_by_label("Email address"))
     page.get_by_label("Email address").fill("journey-register@example.com")
     page.get_by_label("Your name").fill("Zoë Journey")
-    page.get_by_label("Password").fill("short")
+    password = page.get_by_label("Password", exact=True)
+    password.fill("short")
+    # "Show my password" lets the member hear or read back what they typed.
+    page.get_by_label("Show my password").check()
+    expect(password).to_have_attribute("type", "text")
+    page.get_by_label("Show my password").uncheck()
+    expect(password).to_have_attribute("type", "password")
     page.get_by_role("button", name="Create account").click()
-    follow_error(page, "Use at least 10 characters for your password.", page.get_by_label("Password"))
+    follow_error(page, "Use at least 10 characters for your password.", password)
     expect(page.get_by_label("Your name")).to_have_value("Zoë Journey")
 
-    page.get_by_label("Password").fill(PASSWORD)
-    page.get_by_label("Screen reader you use most").fill("TalkBack")
+    password.fill(PASSWORD)
+    page.get_by_label("Screen reader, braille display or magnifier you use most").fill("TalkBack")
     page.get_by_role("button", name="Create account").click()
     assert heading(page) == "Your account is ready: save your recovery code"
     assert_page_ok(page, "recovery code after registering")
-    recovery_code = page.locator("main code").inner_text()
+    code_box = page.get_by_role("textbox", name="Your recovery code")
+    recovery_code = code_box.input_value()
     assert len(recovery_code) == 19
-    page.get_by_role("link", name="I have saved my code: continue").click()
-    assert heading(page) == "Build your ideas with AI, without needing to see the screen"
+    expect(code_box).to_have_attribute("readonly", "")
+    # A reload does not lose the code.
+    page.reload()
+    expect(page.get_by_text("This is the same code as before.")).to_be_visible()
+    assert page.get_by_role("textbox", name="Your recovery code").input_value() == recovery_code
+    page.get_by_role("button", name="Copy the code").click()
+    expect(page.get_by_role("status").filter(has_text="Cop")).to_be_visible()
+    page.get_by_role("button", name="I have saved my code: continue").click()
+    assert heading(page) == "Your account is ready"
+    expect(page.get_by_role("heading", name="Your next steps", level=2)).to_be_visible()
     assert_page_ok(page, "home after registering")
 
     page.get_by_role("button", name="Sign out").click()
@@ -188,7 +203,7 @@ def test_register_sign_out_and_sign_in(live, browser):
     page.get_by_label("Email address").fill("journey-register@example.com")
     page.get_by_label("Password").fill("not my password")
     page.get_by_role("button", name="Sign in").click()
-    assert heading(page) == "Sign in: please fix the problems"
+    assert heading(page) == "Please check 1 answer: Sign in"
     assert_page_ok(page, "sign in with errors")
     follow_error(page, "The email or password is not right. Check both and try again.",
                  page.get_by_label("Email address"))
@@ -205,11 +220,11 @@ def test_register_sign_out_and_sign_in(live, browser):
     assert_page_ok(page, "reset password")
     page.get_by_label("Email address").fill("journey-register@example.com")
     page.get_by_label("Recovery code").fill(recovery_code.lower().replace("-", " "))
-    page.get_by_label("New password").fill("a new password for the journey")
+    page.get_by_label("New password", exact=True).fill("a new password for the journey")
     page.get_by_role("button", name="Set my new password").click()
     assert heading(page) == "Your password is changed: save your new recovery code"
     assert_page_ok(page, "new recovery code after reset")
-    assert page.locator("main code").inner_text() != recovery_code
+    assert page.get_by_role("textbox", name="Your recovery code").input_value() != recovery_code
 
 
 def test_sign_in_returns_to_the_page_asked_for(live, browser):
@@ -219,6 +234,7 @@ def test_sign_in_returns_to_the_page_asked_for(live, browser):
     page.get_by_role("button", name="Sign out").click()
     page.goto(base + "/account/credits")
     assert heading(page) == "Sign in"
+    expect(page.get_by_text("Sign in to see Your account. You come straight back to the page afterwards.")).to_be_visible()
     page.get_by_label("Email address").fill("journey-next@example.com")
     page.get_by_label("Password").fill(PASSWORD)
     page.get_by_role("button", name="Sign in").click()
@@ -237,7 +253,7 @@ def test_profile_journey(live, browser):
     assert heading(page) == "Your account"
     assert_page_ok(page, "account")
     expect(page.get_by_text("journey-profile@example.com")).to_be_visible()
-    expect(page.get_by_text("The AI is not set up for you yet.")).to_be_visible()
+    expect(page.get_by_text("To start using the AI, connect your own Claude API key.")).to_be_visible()
 
     page.get_by_role("link", name="Your profile and preferences").click()
     assert heading(page) == "Your profile and preferences"
@@ -245,22 +261,24 @@ def test_profile_journey(live, browser):
     page.get_by_label("Your name").fill("")
     page.get_by_label("Device you use most").fill("x" * 150)
     page.get_by_role("button", name="Save my profile").click()
-    assert heading(page) == "Your profile and preferences: please fix the problems"
+    assert heading(page) == "Please check 2 answers: Your profile and preferences"
     assert_page_ok(page, "profile with errors")
-    follow_error(page, "Enter the name you want other members to see.", page.get_by_label("Your name"))
+    follow_error(page, "Enter your name. Other members see your code name unless you choose to show your name.",
+                 page.get_by_label("Your name"))
     follow_error(page, "Use 100 characters or fewer for your device.", page.get_by_label("Device you use most"))
 
     # A Claude API key pasted into a field other members can see is refused and not shown again.
     page.get_by_label("Your name").fill("Amina sk-ant-api03-Ab12Cd34Ef56")
     page.get_by_label("Device you use most").fill("Android phone")
     page.get_by_role("button", name="Save my profile").click()
-    follow_error(page, "This looks like a Claude API key. Take it out: other members could see it. "
-                       "Connect your key on the Claude API key page instead.", page.get_by_label("Your name"))
+    follow_error(page, "This looks like a Claude API key, so it was not saved. Please take it out: other members "
+                       "could see it. To use your key, connect it on Your account.", page.get_by_label("Your name"))
     expect(page.get_by_label("Your name")).to_have_value("")
 
     page.get_by_label("Your name").fill("Amina 王芳")
     page.get_by_label("Your main language").select_option(label="Swahili")
-    page.get_by_label("When your sight changed").select_option(label="Later in life")
+    page.get_by_label("Blind or low vision since").select_option(label="Later in life")
+    page.get_by_label("Which fits you best?").select_option(label="Low vision")
     page.get_by_role("group", name="How you like answers").get_by_label("Full detail").check()
     page.get_by_label("Show my name on peer checks instead of my code name").check()
     page.get_by_role("button", name="Save my profile").click()
@@ -269,8 +287,71 @@ def test_profile_journey(live, browser):
     expect(page.get_by_text("Device: Android phone")).to_be_visible()
     expect(page.get_by_text("Answer style: Full detail")).to_be_visible()
     expect(page.get_by_text("Peer checks show your name")).to_be_visible()
+    expect(page.get_by_text("Blind or low vision since: Later in life")).to_be_visible()
+    expect(page.get_by_text("Which fits you best: Low vision")).to_be_visible()
     page.reload()
     assert heading(page) == "Your account"
+
+
+def test_words_survive_being_signed_out_and_an_expired_form(live, browser):
+    base = live["base"]
+    page = new_page(browser)
+    sign_up(page, base, "journey-kept@example.com", "Kept")
+    page.goto(base + "/account/profile")
+    page.get_by_label("Your name").fill("Kept Words " + "long name " * 6)
+    page.get_by_label("Device you use most").fill("A braille display and an iPhone")
+    # Signed out on every device (for example from another phone) before pressing Save.
+    with db.session() as conn:
+        conn.execute("UPDATE users SET session_epoch = session_epoch + 1 WHERE email = 'journey-kept@example.com'")
+    page.get_by_role("button", name="Save my profile").click()
+    assert heading(page) == "Sign in"
+    expect(page.get_by_text("You were signed out before this was saved. Sign in and your words will be put back "
+                            "in the form. Nothing was saved yet.")).to_be_visible()
+    page.get_by_label("Email address").fill("journey-kept@example.com")
+    page.get_by_label("Password").fill(PASSWORD)
+    page.get_by_role("button", name="Sign in").click()
+    assert heading(page) == "Your profile and preferences"
+    expect(page.get_by_label("Device you use most")).to_have_value("A braille display and an iPhone")
+    notice = page.get_by_role("status").filter(has_text="Your words are back in the form.")
+    expect(notice).to_be_visible()
+    # With JavaScript, focus goes to the notice, so keyboard and magnifier users land on it.
+    expect(page.locator("main .messages")).to_be_focused()
+    assert_page_ok(page, "profile with the words put back")
+
+    # The form stopped working (signed out and in again in another tab): the words come back, with a new form.
+    other = page.context.new_page()
+    other.goto(base + "/")
+    other.get_by_role("button", name="Sign out").click()
+    sign_in(other, base, "journey-kept@example.com")
+    page.get_by_label("Device you use most").fill("Changed in the old tab")
+    page.get_by_role("button", name="Save my profile").click()
+    assert heading(page) == "Your profile and preferences"
+    expect(page.get_by_text("This form needed refreshing to keep your account safe, so nothing was saved yet."))\
+        .to_be_visible()
+    expect(page.get_by_label("Device you use most")).to_have_value("Changed in the old tab")
+    page.get_by_role("button", name="Save my profile").click()
+    assert heading(page) == "Your profile is saved"
+    expect(page.get_by_text("Device: Changed in the old tab")).to_be_visible()
+
+
+def test_the_heading_is_close_to_the_top(live, browser):
+    base = live["base"]
+    page = new_page(browser, width=390)
+    sign_up(page, base, "journey-top@example.com", "Top")
+    page.goto(base + "/account")
+    # Only the skip link, the site name, the menu link and the 3 account controls come before the heading.
+    before = page.evaluate("""() => {
+        const h1 = document.querySelector('h1');
+        return [...document.querySelectorAll('a[href], button')].filter(
+            el => el.compareDocumentPosition(h1) & Node.DOCUMENT_POSITION_FOLLOWING).length;
+    }""")
+    assert before == 6
+    page.get_by_role("link", name="Menu: all sections").click()
+    sections = page.get_by_role("navigation", name="Sections")
+    expect(sections).to_be_focused()
+    sections.get_by_role("link", name="Build", exact=True).click()
+    expect(page.get_by_role("navigation", name="Sections").get_by_role("link", name="Build", exact=True))\
+        .to_have_attribute("aria-current", "page")
 
 
 def test_profile_form_keyboard_order(live, browser):
@@ -304,23 +385,25 @@ def test_api_key_journey(live, browser, monkeypatch):
 
     def fake_verify(key):
         checked.append(key)
-        return True if key == GOOD_KEY else "Anthropic says this key is not valid. It may have been deleted. " \
-                                              "Check the key at console.anthropic.com."
+        return True if key == GOOD_KEY else "Anthropic did not accept this key, so it was not saved."
 
     monkeypatch.setattr(account, "verify_api_key", fake_verify)
     base = live["base"]
     page = new_page(browser)
     sign_up(page, base, "journey-key@example.com", "Key Person")
     account_page(page)
-    page.get_by_role("link", name="Your Claude API key").click()
+    page.get_by_role("link", name="Your Claude API key", exact=True).click()
     assert heading(page) == "Your Claude API key"
     assert_page_ok(page, "api key")
-    expect(page.get_by_role("link", name="the Anthropic Console (console.anthropic.com)")).to_be_visible()
+    expect(page.get_by_role("link", name="the Anthropic Console (opens Anthropic's website)")).to_be_visible()
 
     key_field = page.get_by_label("Claude API key")
     key_field.fill("sk-proj-" + "x" * 50)
+    page.get_by_label("Show the key, to check what you pasted").check()
+    expect(key_field).to_have_attribute("type", "text")
     page.get_by_role("button", name="Check and save my key").click()
-    assert heading(page) == "Your Claude API key: please fix the problems"
+    assert heading(page) == "Please check 1 answer: Your Claude API key"
+    expect(key_field).to_have_attribute("type", "password")
     assert_page_ok(page, "api key with errors")
     follow_error(page, "A Claude API key starts with sk-ant-. Check you copied the whole key.", key_field)
     expect(key_field).to_have_value("")
@@ -328,8 +411,7 @@ def test_api_key_journey(live, browser, monkeypatch):
 
     key_field.fill("sk-ant-api03-" + "Z" * 40)
     page.get_by_role("button", name="Check and save my key").click()
-    follow_error(page, "Anthropic says this key is not valid. It may have been deleted. "
-                       "Check the key at console.anthropic.com.", key_field)
+    follow_error(page, "Anthropic did not accept this key, so it was not saved.", key_field)
 
     key_field.fill(GOOD_KEY)
     page.get_by_role("button", name="Check and save my key").click()
@@ -338,13 +420,13 @@ def test_api_key_journey(live, browser, monkeypatch):
     expect(page.get_by_role("main").get_by_text("You use your own Claude API key ending in WXYZ")).to_be_visible()
     assert GOOD_KEY not in page.content()
 
-    page.get_by_role("link", name="Your Claude API key").click()
+    page.get_by_role("link", name="Your Claude API key", exact=True).click()
     assert heading(page) == "Your Claude API key"
     assert GOOD_KEY not in page.content()
     page.get_by_role("button", name="Remove my key").click()
     assert heading(page) == "Your Claude API key is removed"
     assert_page_ok(page, "account after removing the key")
-    expect(page.get_by_text("The AI is not set up for you yet.")).to_be_visible()
+    expect(page.get_by_text("To start using the AI, connect your own Claude API key.")).to_be_visible()
 
 
 def test_credits_page_without_payments(live, browser):
@@ -364,16 +446,19 @@ def test_credits_page_without_payments(live, browser):
     assert_page_ok(page, "credits")
     history = page.get_by_role("table", name="Credit history, newest first")
     expect(history.get_by_role("cell", name="Gift from the site: welcome")).to_be_visible()
-    expect(history.get_by_role("cell", name="2026-10-01")).to_be_visible()
+    expect(history.get_by_role("cell", name="1 October 2026")).to_be_visible()
     usage = page.get_by_role("table", name="AI usage history, newest first")
     expect(usage.get_by_role("cell", name="Build: understand")).to_be_visible()
-    expect(page.get_by_text("Buying credits is not set up on this site yet.")).to_be_visible()
+    expect(page.get_by_text("Credits are not on sale on this site yet.")).to_be_visible()
+    expect(page.get_by_role("link", name="Buy credits")).to_have_count(0)
 
     account_page(page)
-    page.get_by_role("link", name="Buy credits").click()
+    expect(page.get_by_role("link", name="Buy credits")).to_have_count(0)
+    page.goto(base + "/account/credits/buy")  # an old bookmark
     assert heading(page) == "Buy credits"
     assert_page_ok(page, "buy credits, not set up")
     expect(page.get_by_role("button", name="Go to the payment page")).to_have_count(0)
+    expect(page.get_by_role("heading", name="Packs")).to_have_count(0)
     page.get_by_role("link", name="connecting your own Claude API key").click()
     assert heading(page) == "Your Claude API key"
 
@@ -406,13 +491,13 @@ def test_buying_credits_journey(live, browser, payments):
     page.goto(base + "/pricing")
     assert_page_ok(page, "pricing with payments")
     expect(page.get_by_role("table", name="Estimated cost per task in US dollars, with your own key and with "
-                                          "credits. Sizes are in tokens.")).to_be_visible()
+                                          "credits.")).to_be_visible()
     page.get_by_role("main").get_by_role("link", name="Buy credits").click()
     assert heading(page) == "Buy credits"
     assert_page_ok(page, "buy credits")
 
     page.get_by_role("button", name="Go to the payment page").click()
-    assert heading(page) == "Buy credits: please fix the problems"
+    assert heading(page) == "Please check 1 answer: Buy credits"
     assert_page_ok(page, "buy credits with errors")
     follow_error(page, "Choose how many credits to buy.",
                  page.get_by_role("group", name="How many credits").get_by_label("$5.00 of credits"))
@@ -469,11 +554,11 @@ def test_admin_journey(live, browser):
     page.get_by_label("Member's email address").fill("nobody@example.com")
     page.get_by_label("Amount in US dollars").fill("lots")
     page.get_by_role("button", name="Give credits").click()
-    assert heading(page) == "Site owner tools: please fix the problems"
+    assert heading(page) == "Please check 3 answers: Site owner tools"
     assert_page_ok(page, "admin with errors")
     follow_error(page, "No member has this email address.", page.get_by_label("Member's email address"))
     follow_error(page, "Enter an amount in US dollars, like 5 or 2.50.", page.get_by_label("Amount in US dollars"))
-    follow_error(page, "Say why, for example: thank you for answering questions in Help.",
+    follow_error(page, "Say why, for example: thank you for answering questions in Ask the community.",
                  page.get_by_label("Reason"))
 
     page.get_by_label("Member's email address").fill("Journey-Friend@example.com")
@@ -496,10 +581,10 @@ def test_delete_account_journey(live, browser):
     assert heading(page) == "Delete your account"
     assert_page_ok(page, "delete")
     page.get_by_role("button", name="Delete my account").click()
-    assert heading(page) == "Delete your account: please fix the problems"
+    assert heading(page) == "Please check 1 answer: Delete your account"
     assert_page_ok(page, "delete with errors")
     box = page.get_by_label("I understand. Delete my account.")
-    follow_error(page, "Tick the box to confirm you want to delete your account.", box)
+    follow_error(page, "To delete your account, tick the box that says I understand. Your account is not deleted.", box)
     expect(box).to_have_attribute("aria-invalid", "true")
     box.check()
     page.get_by_role("button", name="Delete my account").click()
@@ -511,7 +596,7 @@ def test_delete_account_journey(live, browser):
     page.get_by_label("Email address").fill("journey-delete@example.com")
     page.get_by_label("Password").fill(PASSWORD)
     page.get_by_role("button", name="Sign in").click()
-    assert heading(page) == "Sign in: please fix the problems"
+    assert heading(page) == "Please check 1 answer: Sign in"
 
 
 # ----- job pages --------------------------------------------------------------------------------
@@ -527,7 +612,7 @@ def test_job_pages_with_javascript(live, browser):
 
     page.goto(base + "/jobs")
     assert heading(page) == "Your recent work"
-    expect(page.get_by_text("Nothing yet.")).to_be_visible()
+    expect(page.get_by_text("No work yet.")).to_be_visible()
     assert_page_ok(page, "jobs, empty")
 
     # Work that finishes while the page is open: the page checks by itself, taps three times and moves focus.
@@ -542,6 +627,9 @@ def test_job_pages_with_javascript(live, browser):
     result = page.get_by_role("link", name="Done. Open the result: Summarise my notes")
     expect(result).to_be_focused(timeout=20_000)
     assert page.evaluate("window.__taps") == 3
+    # The heading and the title say it is done, and "Check again" is gone.
+    assert heading(page) == "Done: Summarise my notes" and page.title().startswith("Done: Summarise my notes")
+    expect(page.get_by_role("link", name="Check again")).to_have_count(0)
     page.keyboard.press("Enter")
     page.wait_for_url(base + "/account")
     assert heading(page) == "Your account"
@@ -554,13 +642,16 @@ def test_job_pages_with_javascript(live, browser):
     expect(page.get_by_role("link", name="Done. Open the result: Quiet work")).to_be_focused(timeout=20_000)
     assert page.evaluate("window.__taps") == 0
 
-    # Work that fails while the page is open: the page says so in its status message.
+    # Work that fails while the page is open: the heading says so, the status message gives the reason, and
+    # focus moves to the way on.
     job = SlowJob(uid, "Research my question",
                   lambda ctx: live["fake_ai"].text(system="s", prompt="p", purpose="journey.fail"))
     page.goto(base + f"/jobs/{job.job_id}")
     job.finish()
-    expect(page.get_by_role("status").filter(has_text="This did not finish.")).to_contain_text(
-        "The AI is busy right now (rate limit).", timeout=20_000)
+    expect(page.get_by_role("link", name="See all your recent work")).to_be_focused(timeout=20_000)
+    expect(page.get_by_role("status")).to_contain_text("The AI is busy right now (rate limit).")
+    assert heading(page) == "This did not finish: Research my question"
+    assert page.title().startswith("This did not finish: Research my question")
     page.reload()
     assert heading(page) == "This did not finish: Research my question"
     expect(page.get_by_text("The AI is busy right now (rate limit). Please try again in a minute.")).to_be_visible()
@@ -616,7 +707,8 @@ def test_account_pages_without_javascript(live, browser, monkeypatch):
     page.goto(base + "/account/profile")
     page.get_by_label("Your name").fill("")
     page.get_by_role("button", name="Save my profile").click()
-    follow_error(page, "Enter the name you want other members to see.", page.get_by_label("Your name"))
+    follow_error(page, "Enter your name. Other members see your code name unless you choose to show your name.",
+                 page.get_by_label("Your name"))
     page.get_by_label("Your name").fill("Still No JS")
     page.get_by_role("button", name="Save my profile").click()
     assert heading(page) == "Your profile is saved"

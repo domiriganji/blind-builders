@@ -55,7 +55,8 @@ def test_build_diff_of_ordinary_html_list_is_fast_and_small_edits_stay_exact():
 
 def _recovery_code(text: str) -> str:
     import re
-    return re.search(r"<code>([A-Z2-9]{4}(?:-[A-Z2-9]{4}){3})</code>", text).group(1)
+    return re.search(r'id="recovery-code" type="text" class="code-box" value="([A-Z2-9]{4}(?:-[A-Z2-9]{4}){3})"',
+                     text).group(1)
 
 
 def _copy_session(app, source):
@@ -102,7 +103,7 @@ def test_new_recovery_code_needs_the_current_password(user_client):
     r = post(user_client, "/account/recovery-code", {})
     assert r.status_code == 400 and 'href="#field-password"' in r.text
     r = post(user_client, "/account/recovery-code", {"password": "not my password"})
-    assert r.status_code == 400 and "not your current password" in r.text
+    assert r.status_code == 400 and "That is not the password you use now, so no new code was made." in r.text
     r = post(user_client, "/account/recovery-code", {"password": "correct horse battery"})
     assert r.status_code == 200 and "Your new recovery code: save it now" in r.text
 
@@ -128,7 +129,8 @@ def test_sign_in_guesses_are_limited(client):
         r = post(client, "/login", {"email": "amina@example.com", "password": "wrong password!"})
         assert r.status_code == 400
     r = post(client, "/login", {"email": "amina@example.com", "password": "correct horse battery"})
-    assert r.status_code == 429 and "Too many wrong tries" in r.text
+    assert r.status_code == 429 and "sign-in is paused for 15 minutes" in r.text
+    assert "Your account and your work are unchanged." in r.text and "wrong tries" not in r.text
 
 
 def test_a_stranger_cannot_lock_a_member_out_of_signing_in(app, client):
@@ -174,7 +176,7 @@ def test_registrations_are_limited_per_internet_address(app, settings):
         assert r.status_code == 200
         post(c, "/logout")
     r = post(c, "/register", {"email": "one-more@example.com", "display_name": "M", "password": "correct horse battery"})
-    assert r.status_code == 400 and "Too many new accounts" in r.text
+    assert r.status_code == 400 and "making another is paused for an hour" in r.text
 
 
 # ----- Welcome credits are not unlimited ---------------------------------------------------------
@@ -519,7 +521,8 @@ def test_one_member_cannot_fill_every_job_thread(user_client):
         jobs.submit(uid, "x", "x", lambda ctx: "/")
     # Through a page: a plain explanation, not an error.
     r = post(user_client, "/do/new", {"kind": "find", "request": "When does the pool open?"})
-    assert r.status_code == 429 and "You have too much AI work running" in r.text
+    assert r.status_code == 429 and "Please wait for your other AI work to finish" in r.text
+    assert 'href="/jobs">Go to Your recent work' in r.text
 
 
 def test_a_job_waiting_for_a_worker_is_not_called_stopped(user_client):
@@ -745,7 +748,7 @@ def test_help_shows_the_code_name_to_the_public_by_default(app, user_client):
     for url in ("/help", f"/help/q/{qid}"):
         page = public.get(url).text
         assert "Amina" not in page and pseudonym in page
-    assert "Anyone can read Help" in user_client.get("/account/profile").text
+    assert "Anyone can read Ask the community" in user_client.get("/account/profile").text
     post(user_client, "/account/profile", {"display_name": "Amina", "screen_reader": "", "device": "", "language": "en",
                                            "sight_onset": "prefer_not", "verbosity": "summary_first",
                                            "show_name_on_help": "yes"})

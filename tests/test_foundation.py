@@ -51,7 +51,9 @@ def test_open_redirect_blocked(client):
     # Sign-up first shows the recovery code; its "continue" link must not lead to another site.
     assert r.headers["location"] == "/account/recovery-code"
     page = client.get("/account/recovery-code")
-    assert 'href="/">I have saved my code' in page.text and "evil.example" not in page.text
+    assert 'action="/account/recovery-code/saved"' in page.text and "evil.example" not in page.text
+    r = post(client, "/account/recovery-code/saved", follow_redirects=False)
+    assert r.headers["location"] == "/"
 
 
 def test_job_runs_and_redirects(user_client):
@@ -267,10 +269,10 @@ def test_sign_in_with_backslash_next_stays_on_site(client):
 
 def test_form_errors_keep_h1_and_title_the_same(client):
     r = post(client, "/register", {"email": "bad", "display_name": "", "password": "short"})
-    assert _h1(r.text) == _title(r.text) == "Create your account: please fix the problems"
+    assert _h1(r.text) == _title(r.text) == "Please check 3 answers: Create your account"
     r = post(client, "/login", {"email": "nobody@example.com", "password": "whatever whatever"})
     assert r.status_code == 400
-    assert _h1(r.text) == _title(r.text) == "Sign in: please fix the problems"
+    assert _h1(r.text) == _title(r.text) == "Please check 1 answer: Sign in"
     assert a11y_check.check_html(r.text).errors == []
 
 
@@ -307,7 +309,7 @@ def test_after_signing_in_out_and_registering_the_h1_says_so(client):
     r = post(client, "/login", {"email": "amina@example.com", "password": "correct horse battery"})
     assert _h1(r.text) == "You are signed in"
     # Only once: reloading shows the normal home page.
-    assert _h1(client.get("/").text) == "Build your ideas with AI, without needing to see the screen"
+    assert _h1(client.get("/").text) == "Build your ideas with AI: websites, apps, writing and research"
     post(client, "/logout")
     r = post(client, "/login", {"email": "amina@example.com", "password": "correct horse battery",
                                 "next": "/jobs"})
@@ -327,7 +329,7 @@ def test_wrong_email_and_wrong_password_get_the_same_answer(client):
 def test_done_job_without_result_link_is_listed_as_done(user_client):
     jobs.submit(user_id(), "test", "Quiet job", lambda ctx: "")
     page = user_client.get("/jobs").text
-    assert "Quiet job: done." in page and "still working" not in page
+    assert re.search(r"Quiet job \(\d\d:\d\d\): done\.", page) and "still working" not in page
     assert "<h2>Done (1)</h2>" in page
 
 
@@ -346,7 +348,9 @@ def test_job_list_is_split_under_headings(user_client):
     page = user_client.get("/jobs").text
     assert "<h2>Still working (1)</h2>" in page and "<h2>Did not finish (1)</h2>" in page
     assert page.index("Still working (1)") < page.index("Did not finish (1)") < page.index("Done (1)")
-    assert '<a href="/account">Good job</a>' in page and '<a href="/jobs/w1">Slow job</a>' in page
+    # Each link name has the time the work started, so two runs of the same work can be told apart.
+    assert re.search(r'<a href="/account">Good job \(\d\d:\d\d\)</a>', page)
+    assert re.search(r'<a href="/jobs/w1">Slow job \(\d\d:\d\d\)</a>', page)
     assert "1 still working, 1 did not finish, 1 done" in page
     assert a11y_check.check_html(page).errors == []
 
@@ -395,10 +399,12 @@ def test_working_job_page_and_json(user_client):
     assert _h1(r.text) == _title(r.text) == "Working on it: Slow job"
     assert "Reading your idea" in r.text and 'href="/jobs/run1"' in r.text
     assert 'data-job-status="running"' in r.text
-    assert re.search(r"Started \d+ seconds? ago", r.text)
-    assert user_client.get("/jobs/run1.json").json() == {
-        "id": "run1", "status": "running", "title": "Slow job", "progress": "Reading your idea",
-        "result_url": "", "error": ""}
+    assert re.search(r'Started <span id="job-elapsed">\d+ seconds?</span> ago', r.text)
+    data = user_client.get("/jobs/run1.json").json()
+    assert re.fullmatch(r"\d+ seconds?", data.pop("elapsed"))
+    assert data == {
+        "id": "run1", "status": "running", "state": "working", "title": "Slow job", "progress": "Reading your idea",
+        "result_url": "", "back_url": "", "error": ""}
     post(user_client, "/logout")
     register(user_client, "b@example.com", "B")
     assert user_client.get("/jobs/run1.json").status_code == 404
@@ -410,3 +416,186 @@ def test_elapsed_words():
     assert _elapsed_words(45) == "45 seconds"
     assert _elapsed_words(300) == "5 minutes"
     assert _elapsed_words(3 * 3600) == "3 hours"
+
+
+def test_stalled_job_json_says_so_and_names_the_way_back(user_client):
+    uid = user_id()
+    with db.session() as conn:
+        conn.execute("INSERT INTO jobs (id, user_id, kind, title, status, created_at, started_at, back_url) VALUES"
+                     " ('old2', ?, 'test', 'Old job', 'running', '2020-01-01T00:00:00+00:00',"
+                     " '2020-01-01T00:00:00+00:00', '/build/3')", (uid,))
+    data = user_client.get("/jobs/old2.json").json()
+    # The page would say it has stopped, so the script stops checking too, and offers the way back.
+    assert data["status"] == "running" and data["state"] == "stalled" and data["back_url"] == "/build/3"
+
+
+def test_job_page_says_how_the_news_arrives_without_sound(user_client):
+    uid = user_id()
+    with db.session() as conn:
+        conn.execute("INSERT INTO jobs (id, user_id, kind, title, status, progress, created_at) VALUES"
+                     " ('run2', ?, 'test', 'Slow job', 'running', 'Reading your idea', ?)", (uid, db.now()))
+    page = user_client.get("/jobs/run2").text
+    assert "Either way, focus moves to a link to your result." in page
+    assert 'aria-describedby="hint-job-sound"' in page
+    assert "between half a minute and 10 minutes" in page and "After 30 minutes" in page
+
+
+# ----- ease of use: members' words are never lost to a form that could not be sent ---------------
+
+PROFILE_PAGE = {"referer": "http://testserver/account/profile"}
+
+
+def _profile_form(name: str, token: str) -> dict:
+    return {"display_name": name, "screen_reader": "JAWS with a Focus 40", "language": "en",
+            "sight_onset": "prefer_not", "verbosity": "summary_first", "password": "never kept anywhere",
+            "csrf_token": token}
+
+
+def test_words_come_back_after_signing_in_again(client):
+    from .conftest import csrf
+    register(client)
+    token = csrf(client)
+    with db.session() as conn:  # signed out on every device, for example from another phone
+        conn.execute("UPDATE users SET session_epoch = session_epoch + 1")
+    r = client.post("/account/profile", data=_profile_form("Amina Kept", token), headers=PROFILE_PAGE,
+                    follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/login?next=%2Faccount%2Fprofile"
+    login = client.get(r.headers["location"]).text
+    assert "You were signed out before this was saved. Sign in and your words will be put back in the form." in login
+    r = post(client, "/login", {"email": "amina@example.com", "password": "correct horse battery",
+                                "next": "/account/profile"})
+    assert _h1(r.text) == "Your profile and preferences"
+    assert 'value="Amina Kept"' in r.text and 'value="JAWS with a Focus 40"' in r.text
+    assert "You were signed out before this was sent, so nothing was saved yet." in r.text
+    assert "Your words are back in the form." in r.text
+    assert "never kept anywhere" not in r.text  # passwords are never kept
+    with db.session() as conn:
+        assert conn.execute("SELECT display_name FROM users").fetchone()[0] == "Amina"  # nothing was saved
+        assert conn.execute("SELECT COUNT(*) FROM kept_forms").fetchone()[0] == 0  # shown once, then gone
+    assert 'value="Amina Kept"' not in client.get("/account/profile").text
+
+
+def test_kept_words_are_not_shown_to_someone_else_who_signs_in(client):
+    from .conftest import csrf
+    register(client)
+    token = csrf(client)
+    with db.session() as conn:
+        conn.execute("UPDATE users SET session_epoch = session_epoch + 1")
+    client.post("/account/profile", data=_profile_form("Amina Private", token), headers=PROFILE_PAGE)
+    register(client, "other@example.com", "Other")
+    page = client.get("/account/profile").text
+    assert "Amina Private" not in page and "nothing was saved yet" not in page
+
+
+def test_expired_form_comes_back_with_the_words_in_it(user_client):
+    r = user_client.post("/account/profile", data=_profile_form("Amina Again", "stale-token"), headers=PROFILE_PAGE,
+                         follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/account/profile"
+    page = user_client.get("/account/profile").text
+    assert 'value="Amina Again"' in page
+    assert "This form needed refreshing to keep your account safe, so nothing was saved yet." in page
+    assert "never kept anywhere" not in page
+
+
+def test_expired_form_without_a_page_to_return_to_shows_the_words(user_client):
+    data = {"csrf_token": "stale-token", "idea": "A quiz about rivers, " * 300}
+    r = user_client.post("/build/new", data=data)
+    assert r.status_code == 400
+    assert _h1(r.text) == _title(r.text) == "This form needs refreshing: nothing was saved"
+    assert "Back button" in r.text and "reload" not in r.text.lower()
+    assert "<h2 id=\"kept-title\">Your words from before</h2>" in r.text
+    assert "A quiz about rivers, A quiz about rivers," in r.text and "readonly" in r.text
+    assert a11y_check.check_html(r.text).errors == []
+
+
+def test_secrets_are_never_kept(client):
+    from studio.web import kept_fields
+    kept = kept_fields({"note": "my password is Tr0ub4dor&3", "api_key": "sk-ant-abc", "code": "ABCD",
+                        "idea": "A bakery website"})
+    assert kept == {"idea": "A bakery website"}
+
+
+# ----- ease of use: the header, the menu and where you are ---------------------------------------
+
+def test_every_page_starts_close_to_its_heading(client):
+    page = client.get("/about").text
+    header = page[page.index('<header'):page.index('</header>')]
+    # The header holds the site name, a link to the menu and the account links: not every section.
+    assert '<a href="#sections">Menu: all sections</a>' in header
+    assert 'aria-label="Sections"' not in header
+    assert page.index("</main>") < page.index('<nav id="sections" class="site-sections" aria-label="Sections"')
+    assert page.index('aria-label="Sections"') < page.index("<footer")
+    assert a11y_check.check_html(page).errors == []
+
+
+def test_current_section_and_account_page_are_marked(user_client):
+    page = user_client.get("/help").text
+    assert '<a href="/learn" aria-current="true">Learn and help</a>' in page
+    page = user_client.get("/account").text
+    assert '<a href="/account" aria-current="page">Your account</a>' in page
+    assert '<li class="sign-out">' in page
+    assert '<a href="/jobs" aria-current="page">Your recent work</a>' in user_client.get("/jobs").text
+
+
+def test_sign_in_says_why_and_keeps_the_way_back(client):
+    page = client.get("/login?next=/build/3").text
+    assert "Sign in to use Build. You come straight back to the page afterwards." in page
+    assert 'href="/register?next=/build/3"' in page
+    page = client.get("/register?next=/build/3").text
+    assert 'href="/login?next=/build/3"' in page
+    assert "Sign in to" not in client.get("/login").text
+
+
+def test_register_explains_the_recovery_code_and_keeps_typed_words(client):
+    page = client.get("/register").text
+    assert "cannot reset a forgotten password" not in page
+    assert "Next you get a recovery code. It is the only way back in if you forget your password" in page
+    assert 'data-shows="field-password"' in page and "Show my password" in page
+    assert "Other members see a code name such as Member 5A3C." in page
+    r = post(client, "/register", {"email": "bad", "display_name": "Ola", "password": "long enough password"})
+    assert r.status_code == 400 and "Please type your password again." in r.text and 'value="Ola"' in r.text
+
+
+def test_register_while_signed_in_says_so(user_client):
+    page = user_client.get("/register").text
+    assert _h1(page) == "You are already signed in"
+    assert "You are already signed in as amina@example.com. To make another account, sign out first." in page
+    assert 'action="/register"' not in page
+
+
+def test_wrong_method_offers_a_way_on(user_client):
+    r = user_client.get("/logout")
+    assert r.status_code == 405 and "only works from its form" in r.text
+    assert '<button type="submit" class="button button-primary">Sign out</button>' in r.text
+    r = user_client.get("/account/ai-key/remove")
+    assert '<a href="/account/ai-key">Go to the page this form is on</a>' in r.text
+
+
+def test_missing_private_pages_offer_the_section(user_client):
+    r = user_client.get("/build/99999")
+    assert r.status_code == 404 and '<a href="/build">Go to Build</a>' in r.text
+    assert 'href="/">Go to the home page' in r.text
+
+
+def test_radio_hints_reach_each_radio(user_client):
+    page = user_client.get("/account/profile").text
+    assert re.search(r'id="field-verbosity-1" name="verbosity" value="summary_first"[^>]*aria-describedby="hint-verbosity"',
+                     page)
+
+
+# ----- ease of use: the home page says what comes next and what the AI costs ----------------------
+
+def test_signed_out_home_says_the_account_is_free_and_the_ai_is_paid(client):
+    page = client.get("/").text
+    assert "The account is free. To use the AI you connect a Claude API key from Anthropic" in page
+    assert "or buy credits" not in page  # payments are not set up in tests
+    assert "Every page here is built to work with a screen reader, a braille display, magnification" in page
+
+
+def test_first_signed_in_home_lists_next_steps_until_the_ai_is_set_up(client):
+    post(client, "/register", {"email": "new@example.com", "display_name": "New", "password": "correct horse battery"})
+    r = post(client, "/account/recovery-code/saved")
+    assert _h1(r.text) == "Your account is ready"
+    assert "<h2>Your next steps</h2>" in r.text and "Save your recovery code: done." in r.text
+    assert 'href="/account/ai-key">connect your Claude API key</a>' in r.text
+    assert 'href="/learn/start-here"' in r.text and r.text.index("Your next steps") < r.text.index("What you can do")

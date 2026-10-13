@@ -170,7 +170,8 @@ class AIClient:
         try:
             return json.loads(text)
         except json.JSONDecodeError as exc:
-            raise AIError("The AI's answer was cut off or malformed. Please try again.") from exc
+            raise AIError("The AI's answer came back cut off or incomplete, so nothing was saved. "
+                          "Please try again.") from exc
 
     def text(self, *, system: str, prompt: str, purpose: str, effort: str = "medium",
              max_tokens: int = 16000) -> str:
@@ -261,8 +262,8 @@ class AIClient:
                 have = credits.balance(self.user_id)
                 raise AINotAvailable(
                     f"This step can cost up to {credits.format_cents(worst)} in credits, and you have "
-                    f"{credits.format_cents(max(have, 0))} free to use. Buy credits or connect your own Claude API key "
-                    "on your account page.")
+                    f"{credits.format_cents(max(have, 0))} free to use, so it did not start and nothing was charged. "
+                    "To keep working, buy credits or connect your own Claude API key on Your account.")
         charged = 0
         try:
             try:
@@ -272,24 +273,41 @@ class AIClient:
                     message = stream.get_final_message()
             except anthropic.AuthenticationError as exc:
                 if self.paid_by == "own_key":
-                    raise AIError("Your Claude API key was rejected. Check it on your account page.") from exc
-                raise AIError("The site's AI key is not working. Please try again later.") from exc
+                    raise AIError("Anthropic did not accept your Claude API key, so nothing was done. The key may "
+                                  "have been deleted or changed in the Anthropic Console. Please connect it again on "
+                                  "Your account.") from exc
+                raise AIError("The site's own AI key is not working right now, so nothing was done and nothing was "
+                              "charged. Please try again later, or connect your own Claude API key on Your "
+                              "account.") from exc
             except anthropic.PermissionDeniedError as exc:
-                raise AIError("The Claude API key does not have permission for this model.") from exc
+                if self.paid_by == "own_key":
+                    raise AIError(f"Your Claude API key is not allowed to use the AI model chosen for it "
+                                  f"({site_ai.model_name(self.model)}), so nothing was done. Check the key's limits "
+                                  "in the Anthropic Console (console.anthropic.com), or choose another model or "
+                                  "connect a different key on Your account.") from exc
+                raise AIError("The site's own AI key is not allowed to use the AI model this site uses, so nothing "
+                              "was done and nothing was charged. Please try again later, or connect your own "
+                              "Claude API key on Your account.") from exc
             except anthropic.RateLimitError as exc:
-                raise AIError("The AI is busy right now (rate limit). Please try again in a minute.") from exc
+                raise AIError("The AI service is busy right now, so nothing was done. Please try again in a "
+                              "minute.") from exc
             except anthropic.APIStatusError as exc:
-                raise AIError(f"The AI service returned an error ({exc.status_code}). Please try again.") from exc
+                raise AIError(f"The AI service had a problem on its side (code {exc.status_code}), so nothing was "
+                              "done. Please try again in a few minutes.") from exc
             except anthropic.APIConnectionError as exc:
-                raise AIError("Could not reach the AI service. Please try again.") from exc
+                raise AIError("The site could not reach the AI service, so nothing was done. Please try again in a "
+                              "few minutes.") from exc
             charged = self._record_usage(purpose, message)
         finally:
             if hold_id is not None:
                 credits.settle(hold_id, self.user_id, charged if self.paid_by == "credits" else 0, f"AI: {purpose}")
         if message.stop_reason == "refusal":
-            raise AIRefused("The AI declined this request. Try rewording it, or ask in Help if you think this is a mistake.")
+            raise AIRefused("The AI would not do this request. This can happen by mistake, for example with words "
+                            "about passwords or PINs. Try saying it another way. If you think it should work, ask in "
+                            "Ask the community.")
         if message.stop_reason == "max_tokens":
-            raise AIError("The answer was too long and got cut off. Try asking for something smaller.")
+            raise AIError("The AI's answer was too long to finish, so nothing was saved. Please try again with a "
+                          "smaller request, for example one page or one change at a time.")
         return message
 
     def _record_usage(self, purpose: str, message: Any) -> int:

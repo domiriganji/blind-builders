@@ -3,12 +3,12 @@
 {% block content %}
 <h1>{{ title }}</h1>
 {% if total %}
-<p>Your latest {{ 'piece of work' if total == 1 else total ~ ' pieces of work' }}: {{ summary }}. Times are in UTC.</p>
+<p>Your latest {{ 'piece of work' if total == 1 else total ~ ' pieces of work' }}: {{ summary }}. Times are in UTC, the same as London time in winter.</p>
 {% if groups.working %}
 <h2>Still working ({{ groups.working|length }})</h2>
 <ul class="item-list">
 {% for j in groups.working %}
-  <li><a href="/jobs/{{ j.id }}">{{ j.title }}</a>: still working. <span class="meta">Started {{ j.when }}.</span></li>
+  <li><a href="/jobs/{{ j.id }}">{{ j.title }} ({{ j.clock }})</a>: still working. <span class="meta">Started {{ j.when }}.</span></li>
 {% endfor %}
 </ul>
 {% endif %}
@@ -16,7 +16,7 @@
 <h2>Did not finish ({{ groups.failed|length }})</h2>
 <ul class="item-list">
 {% for j in groups.failed %}
-  <li><a href="/jobs/{{ j.id }}">{{ j.title }}</a>: {{ 'seems to have stopped' if j.state == 'stalled' else 'did not finish' }}. <span class="meta">Started {{ j.when }}.</span></li>
+  <li><a href="/jobs/{{ j.id }}">{{ j.title }} ({{ j.clock }})</a>: {{ 'seems to have stopped' if j.state == 'stalled' else 'did not finish' }}. <span class="meta">Started {{ j.when }}.</span></li>
 {% endfor %}
 </ul>
 {% endif %}
@@ -24,7 +24,7 @@
 <h2>Done ({{ groups.done|length }})</h2>
 <ul class="item-list">
 {% for j in groups.done %}
-  <li>{% if j.result_url %}<a href="{{ j.result_url }}">{{ j.title }}</a>: done.{% else %}{{ j.title }}: done.{% endif %} <span class="meta">Started {{ j.when }}.</span></li>
+  <li>{% if j.result_url %}<a href="{{ j.result_url }}">{{ j.title }} ({{ j.clock }})</a>: done.{% else %}{{ j.title }} ({{ j.clock }}): done.{% endif %} <span class="meta">Started {{ j.when }}.</span></li>
 {% endfor %}
 </ul>
 {% endif %}
@@ -34,6 +34,6 @@
 {{ post_button('/jobs/clear', 'Clear finished work from this list') }}
 {% endif %}
 {% else %}
-<p>Nothing yet. When you ask the AI to do something, it appears here.</p>
+<p>No work yet. When you ask the AI to do something, it appears here.</p>
 {% endif %}
 {% endblock %}

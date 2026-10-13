@@ -1,5 +1,6 @@
 /* Large, high-contrast, single column. Works at 400% zoom. Respects light and dark preference. */
 :root {
+  color-scheme: light dark;
   --bg: #ffffff; --fg: #111111; --muted: #444444; --link: #0b4fa8; --visited: #5a2d91;
   --accent: #0b4fa8; --accent-fg: #ffffff; --border: #555555; --error: #a30000; --ok: #0a6b2a;
   --focus: #ffbf47; --panel: #f3f3f3;
@@ -21,12 +22,22 @@ main:focus { outline: none; box-shadow: none; }
 .skip-link { position: absolute; left: -9999px; top: 0; background: var(--focus); color: #000; padding: 0.6rem 1rem; z-index: 10; }
 .skip-link:focus { left: 0.5rem; top: 0.5rem; }
 .visually-hidden { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-.site-header, main, .site-footer { max-width: 48rem; margin: 0 auto; padding: 0 1rem; }
-.site-header { border-bottom: 2px solid var(--border); padding-bottom: 0.5rem; }
-.site-name { font-weight: 700; font-size: 1.2rem; margin: 0.75rem 0 0.25rem; }
-.site-header nav ul, .site-footer nav ul { list-style: none; margin: 0.25rem 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; }
-[aria-current] { font-weight: 700; }
-main { padding-top: 1rem; padding-bottom: 2rem; overflow-wrap: anywhere; }
+.site-header, main, .site-sections, .site-footer { max-width: 48rem; margin: 0 auto; padding: 0 1rem; }
+.site-header { border-bottom: 2px solid var(--border); padding-bottom: 0.25rem; }
+.site-name { font-weight: 700; font-size: 1.2rem; margin: 0.5rem 0 0; }
+.menu-link { margin: 0; }
+.site-header nav ul, .site-sections ul, .site-footer nav ul { list-style: none; margin: 0.25rem 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; }
+/* Links in the menus are large enough to tap, with room between rows. */
+.site-header a, .site-sections a, .site-footer nav a, .link-button { display: inline-flex; align-items: center; min-height: 44px; }
+.site-name a { min-height: 44px; }
+/* Sign out acts at once, so it sits on its own row, apart from the other links. */
+.site-header .sign-out { flex-basis: 100%; margin-top: 0.25rem; }
+.site-sections { border-top: 2px solid var(--border); padding-top: 0.5rem; padding-bottom: 0.5rem; }
+.site-sections:focus { outline: none; box-shadow: none; }
+.sections-title { margin-top: 0.5rem; font-size: 1.2rem; }
+/* The current page is bold and underlined by a bar, which also shows in forced colours. */
+[aria-current] { font-weight: 700; border-bottom: 3px solid currentColor; }
+main { padding-top: 1rem; padding-bottom: 2rem; overflow-wrap: break-word; }
 h1 { font-size: 1.7rem; line-height: 1.25; margin: 0.5rem 0 1rem; }
 h2 { font-size: 1.35rem; margin-top: 2rem; }
 h3 { font-size: 1.15rem; margin-bottom: 0.25rem; }
@@ -34,13 +45,21 @@ h3 { font-size: 1.15rem; margin-bottom: 0.25rem; }
 .site-footer { border-top: 2px solid var(--border); padding-top: 0.5rem; padding-bottom: 2rem; }
 .field { margin: 1.25rem 0; }
 label, legend { display: block; font-weight: 600; margin-bottom: 0.25rem; }
-.choice label { display: inline; font-weight: 400; margin-left: 0.4rem; }
-.choice { margin: 0.5rem 0; }
+/* Each choice row is one large target: the box and its whole label. */
+.choice { display: flex; flex-wrap: wrap; gap: 0 0.6rem; align-items: center; min-height: 44px; margin: 0.5rem 0; }
+.choice input { flex: none; margin: 0; }
+.choice label { flex: 1; display: block; font-weight: 400; margin: 0; padding: 0.4rem 0; }
+.choice > .hint, .choice > .field-error { flex-basis: 100%; padding-left: 2.2rem; }
+.js .choice.js-only { display: flex; }
 fieldset { border: 1px solid var(--border); padding: 0.75rem 1rem; }
 input[type=text], input[type=email], input[type=password], input[type=url], input[type=number], input[type=search], select, textarea {
   width: 100%; font: inherit; padding: 0.55rem; border: 2px solid var(--border); background: var(--bg); color: var(--fg); border-radius: 4px;
 }
-input[type=checkbox], input[type=radio] { width: 1.3rem; height: 1.3rem; vertical-align: middle; }
+input[type=checkbox], input[type=radio] { width: 1.6rem; height: 1.6rem; vertical-align: middle; accent-color: var(--accent); }
+input[type=file] { font: inherit; max-width: 100%; }
+input[type=file]::file-selector-button { font: inherit; font-weight: 600; min-height: 44px; padding: 0.55rem 1.1rem; margin-right: 0.75rem; border: 2px solid var(--accent); background: var(--bg); color: var(--accent); border-radius: 4px; cursor: pointer; }
+.code-box { font-family: ui-monospace, Consolas, monospace; font-size: 1.3rem; letter-spacing: 0.08em; }
+.kept-words textarea[readonly] { background: var(--panel); }
 textarea { min-height: 8rem; }
 .hint { color: var(--muted); margin: 0.1rem 0 0.4rem; }
 .optional { font-weight: 400; color: var(--muted); }
@@ -52,7 +71,7 @@ textarea { min-height: 8rem; }
 .button-primary, button[type=submit]:not(.link-button):not(.button-secondary) { background: var(--accent); color: var(--accent-fg); }
 .button-secondary { background: var(--bg); color: var(--accent); }
 a.button-primary:visited { color: var(--accent-fg); }
-.link-button { background: none; border: none; color: var(--link); text-decoration: underline; padding: 0; min-height: auto; font-weight: 400; }
+.link-button { background: none; border: none; color: var(--link); text-decoration: underline; padding: 0; font-weight: 400; }
 .inline-form { display: inline; }
 .actions { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; margin: 1.25rem 0; }
 .message { border-left: 6px solid var(--accent); background: var(--panel); padding: 0.6rem 0.9rem; }
@@ -72,7 +91,7 @@ pre, code { font-family: ui-monospace, Consolas, monospace; }
 code { overflow-wrap: anywhere; }
 pre { white-space: pre-wrap; word-break: break-word; background: var(--panel); padding: 0.75rem; border: 1px solid var(--border); }
 table { border-collapse: collapse; width: 100%; }
-th, td { border: 1px solid var(--border); padding: 0.4rem 0.5rem; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+th, td { border: 1px solid var(--border); padding: 0.4rem 0.5rem; text-align: left; vertical-align: top; overflow-wrap: break-word; }
 th[scope=row] { font-weight: normal; }
 .js-only { display: none; }
 .js .js-only { display: block; }

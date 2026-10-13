@@ -14,11 +14,9 @@
 </p>
 {% endif %}
 </div>
-<h2>Buy credits</h2>
 {% if status.can_buy %}
+<h2>Buy credits</h2>
 <p><a href="/account/credits/buy">Buy credits</a> in packs of $5, $10 or $20. <a href="/pricing">Read how paying works</a>.</p>
-{% else %}
-<p>Buying credits is not set up on this site yet. <a href="/account/ai-key">Connect your own Claude API key</a> to use the AI now. <a href="/pricing">Read how paying works</a>.</p>
 {% endif %}
 <h2>Credit history</h2>
 {% if ledger %}
@@ -42,13 +40,13 @@
   <thead><tr><th scope="col">Date</th><th scope="col">What it was for</th><th scope="col">Cost, paid by</th></tr></thead>
   <tbody>
   {% for u in usage %}
-  <tr><td>{{ u.date }}</td><td>{{ u.label }}</td><td>{{ u.cost }}, {{ 'your own key' if u.paid_by == 'own_key' else 'credits' }}</td></tr>
+  <tr><td>{{ u.date }}</td><td>{{ u.label }}</td><td>{{ u.cost }}, {{ {'own_key': 'your own key', 'site': 'free, paid by the site'}.get(u.paid_by, 'credits') }}</td></tr>
   {% endfor %}
   </tbody>
 </table>
-<p class="meta">Shows the latest {{ usage|length }} AI tasks, newest first. Costs on your own key are worked out from Anthropic's prices; Anthropic's bill is the final word.</p>
+<p class="meta">Shows the latest {{ usage|length }} AI tasks, newest first. Costs on your own key are worked out from Anthropic's prices. The amount on Anthropic's bill is the correct one.</p>
 {% else %}
 <p>You have not used the AI yet.</p>
 {% endif %}
-<p><a href="/account">Back to your account</a></p>
+<p><a href="/account">Back to Your account</a></p>
 {% endblock %}

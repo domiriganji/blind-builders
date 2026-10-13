@@ -9,11 +9,11 @@
 <h2>What happens</h2>
 <ul>
   <li>Your email address, name, password and preferences are removed.</li>
-  <li>Your Claude API key is removed from this site. To stop it working everywhere, delete it at console.anthropic.com too.</li>
+  <li>Your Claude API key is removed from this site. To stop it working everywhere, delete it in the Anthropic Console (console.anthropic.com) too.</li>
   <li>Any credits left on your account are lost.</li>
-  <li>What you posted for the community, such as answers and peer checks, stays so others can still use it. It shows as Former member or your code name, {{ user.pseudonym }}, and never your name or email.</li>
-  <li>Your private work is permanently deleted: projects in Build, documents in Write and publish, errands, research projects and your web searches in Find.</li>
-  <li>Records of credits, payments and AI usage stay, linked only to the anonymous account, so the site's accounts add up.</li>
+  <li>What you posted for the community, such as answers and peer checks, stays so others can still use it. It shows only your code name, {{ user.pseudonym }}, never your name or email.</li>
+  <li>Your private work is permanently deleted: projects in Build, documents in Write and publish, requests in Do this for me, research projects and your web searches in Find.</li>
+  <li>Records of credits, payments and AI usage stay, without your name, so the site's money records stay correct.</li>
 </ul>
 {{ error_summary(errors) }}
 <form method="post" action="/account/delete" novalidate>
@@ -22,8 +22,8 @@
   <div class="field choice{% if errors.confirm %} has-error{% endif %}">
     <input type="checkbox" id="field-confirm" name="confirm" value="yes" aria-describedby="hint-confirm{% if errors.confirm %} error-confirm{% endif %}"{% if errors.confirm %} aria-invalid="true"{% endif %}>
     <label for="field-confirm">I understand. Delete my account.</label>
-    <p class="hint" id="hint-confirm">Required. This cannot be undone.</p>
-    {% if errors.confirm %}<p class="field-error" id="error-confirm"><span class="visually-hidden">Error: </span>{{ errors.confirm }}</p>{% endif %}
+    <p class="hint" id="hint-confirm">Required.</p>
+    {% if errors.confirm %}<p class="field-error" id="error-confirm"><span class="visually-hidden">Please check: </span>{{ errors.confirm }}</p>{% endif %}
   </div>
   <button type="submit" class="button button-primary">Delete my account</button>
 </form>

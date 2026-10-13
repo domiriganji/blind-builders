@@ -7,6 +7,12 @@ from __future__ import annotations
 
 import re
 
+# The one wording for every refusal (docs/VOICE.md, 4.9). It allows for the detector being wrong, because
+# accessibility reports say "PIN" and "password" all the time. Add PUBLIC_SUFFIX where the text would be public.
+SECRET_MESSAGE = ("This looks like it includes a password, PIN, code, card number or API key, so it was not saved or "
+                  "sent to the AI. Please take it out: this site never needs them. If it is not one, change the "
+                  "wording a little, for example \"the PIN box is not announced\", and send it again.")
+PUBLIC_SUFFIX = " Everyone can read this page."
 
 _SECRET_WORD = r"(?:passwords?|passwd|passcodes?|passphrases?|pin(?:\s*(?:code|number))?)"
 # "password: x", "PIN = 1234"

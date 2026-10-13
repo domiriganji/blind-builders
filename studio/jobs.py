@@ -23,6 +23,10 @@ _inline = False
 
 
 RESTART_MESSAGE = "The site restarted before this finished. Nothing was lost except this step. Please try again."
+FAILED_MESSAGE = ("Something went wrong on our side. Your work so far is saved. Please try again. If it stops at the "
+                  "same step again, tell members in Ask the community which step it was.")
+# What the job page tells members to expect. Building a whole website or research can take this long.
+USUAL_MINUTES = 10
 # The job threads are shared by every member, so one member can have only this many jobs waiting or running.
 MAX_ACTIVE_PER_MEMBER = 3
 # A job still running after this long has almost certainly hung. Time spent waiting for a free worker
@@ -33,8 +37,9 @@ STALLED_AFTER_SECONDS = 30 * 60
 class TooManyJobs(Exception):
     """The member already has MAX_ACTIVE_PER_MEMBER jobs waiting or running."""
 
-    user_message = (f"You already have {MAX_ACTIVE_PER_MEMBER} pieces of AI work waiting or running. Wait for one "
-                    "to finish, then try again. You can follow them in Your recent work.")
+    user_message = (f"You already have {MAX_ACTIVE_PER_MEMBER} pieces of AI work waiting or running, so no new AI work "
+                    "was started. Please wait for one to finish, then try again. You can follow them in Your recent "
+                    "work.")
 
 
 def is_stalled(job: dict) -> bool:
@@ -130,7 +135,7 @@ def _run(job_id: str, user_id: int, fn: Callable[..., str], args: tuple, kwargs:
         _fail(job_id, exc.user_message)
     except Exception:  # noqa: BLE001 - a job must always end in a visible state
         log.exception("job %s failed", job_id)
-        _fail(job_id, "Something went wrong on our side. Your work so far is saved. Please try again.")
+        _fail(job_id, FAILED_MESSAGE)
 
 
 def _fail(job_id: str, message: str) -> None:

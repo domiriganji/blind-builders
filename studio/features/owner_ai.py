@@ -61,12 +61,13 @@ def _password_problem(request: Request, user: dict, password: str) -> str | None
     """A plain message if the owner's password is missing or not right. Wrong tries are limited."""
     key = limits.key("owner-password", user["id"])
     if limits.count("owner_password", key, HOUR) >= PASSWORD_TRIES_PER_HOUR:
-        return "Several password tries did not work, so this is paused for an hour to protect the site. Please try again after that."
+        return ("Several password tries did not work, so changing the site's key is paused for an hour to protect "
+                "the site. Nothing was changed. Please try again after that.")
     if not password:
-        return "Enter your password. Changing the site's key needs it."
+        return "Enter the password you sign in with. Changing the site's key needs it."
     if not verify_password(password[:1000], user["password_hash"]):
         limits.record("owner_password", key, HOUR)
-        return "That password is not right. Enter the password you sign in with."
+        return "That is not the password you sign in with, so nothing was changed. Check it and try again."
     return None
 
 
@@ -88,7 +89,7 @@ async def save_settings(request: Request, user: dict = Depends(require_user)):
     }
     errors: dict[str, str] = {}
     if values["model"] not in site_ai.MODEL_NAMES:
-        errors["model"] = "Choose one of the models."
+        errors["model"] = "Choose one of the models in the list."
     if values["pay_mode"] not in dict(site_ai.PAY_MODES):
         errors["pay_mode"] = "Choose who pays for AI on your key."
     amounts = {}
@@ -128,7 +129,7 @@ async def save_key(request: Request, user: dict = Depends(require_user)):
     if not key_errors:
         result = await run_in_threadpool(account.verify_api_key, key)
         if result is not True:
-            key_errors["api_key"] = str(result) if result else "Anthropic did not accept this key."
+            key_errors["api_key"] = str(result) if result else "Anthropic did not accept this key, so it was not saved."
     if key_errors:
         return _render(request, user, key_errors=key_errors, status_code=400)
     site_ai.save_key(request.app.state.settings, key, user["id"])

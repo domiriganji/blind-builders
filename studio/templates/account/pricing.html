@@ -4,44 +4,48 @@
 {% if free_for_members %}
 <p class="lead">On this site the AI is free for members: the site's owner pays for it{% if free_limit %}, up to {{ free_limit }} for each member a month{% endif %}. You can also use your own Claude API key, with no limit from this site.</p>
 {% endif %}
+{% if stripe_ready %}
 <p{% if not free_for_members %} class="lead"{% endif %}>There are two ways to pay for the AI. With your own Claude API key, you pay Anthropic's prices directly and this site charges nothing. With credits, you pay the AI price plus {{ markup_percent }} percent, which pays for running the site.</p>
+{% elif not free_for_members %}
+<p class="lead">To use the AI, you connect your own Claude API key. You pay Anthropic's prices directly, and this site charges nothing.</p>
+{% endif %}
 
-<h2>Way 1: your own Claude API key</h2>
+<h2>{{ 'Way 1: your own Claude API key' if stripe_ready else 'Your own Claude API key' }}</h2>
 <ul>
-  <li>You create a key at console.anthropic.com and add billing there.</li>
+  <li>A Claude API key is a private code from Anthropic, the company that makes this AI. It lets this site use the AI and send the bill to you.</li>
+  <li>You create a key in <a href="https://console.anthropic.com/" rel="noopener noreferrer">the Anthropic Console (console.anthropic.com)</a> and add billing there.</li>
   <li>Anthropic bills you for exactly what you use, at their prices. This site adds nothing.</li>
   <li>Your key is stored encrypted. The site only ever shows its last 4 characters.</li>
   <li>You can remove it at any time.</li>
 </ul>
-<p>{% if user %}<a href="/account/ai-key">Connect your Claude API key</a>{% else %}<a href="/register">Create an account</a>, then connect your key on your account page{% endif %}.</p>
+<p>{% if user %}<a href="/account/ai-key">Connect your Claude API key</a>{% else %}<a href="/register">Create an account</a>, then connect your key on Your account{% endif %}.</p>
 
-<h2>Way 2: credits</h2>
 {% if stripe_ready %}
+<h2>Way 2: credits</h2>
 <ul>
   <li>Buy credits in packs of $5, $10 or $20. You pay on a secure page run by Stripe; this site never sees your card number.</li>
   <li>Each AI task takes its cost from your credits: the AI price plus {{ markup_percent }} percent.</li>
   <li>Your credits page lists your latest AI tasks and what each one cost.</li>
 </ul>
 <p>{% if user %}<a href="/account/credits/buy">Buy credits</a>{% else %}<a href="/register">Create an account</a> to buy credits{% endif %}.</p>
-{% elif site_has_key %}
-<p>Credits would cost the AI price plus {{ markup_percent }} percent. Buying credits is not set up on this site yet, so for now the way to start is your own Claude API key.</p>
 {% else %}
-<p>This site does not offer credits yet. When it does, they will cost the AI price plus {{ markup_percent }} percent. For now the way to start is your own Claude API key.</p>
+<p>Credits are not on sale on this site yet.{% if site_has_key and not free_for_members %} When they are, they will cost the AI price plus {{ markup_percent }} percent.{% endif %}</p>
 {% endif %}
 {% if signup_credits %}
 <p>New members get {{ signup_credits }} of credits to try things out.</p>
 {% endif %}
 
 <h2>Rough costs of typical tasks</h2>
-<p>These are <strong>estimates</strong>, worked out by this site from Anthropic's prices for the model it uses and a typical size for each task. Real costs depend on how long your idea, writing or website is. Your credits page shows the actual cost of everything you did.</p>
+<p>A token is a piece of a word. 1,000 tokens is roughly 750 English words.</p>
+<p>These are <strong>estimates</strong>, worked out by this site from Anthropic's prices for the model it uses and a typical size for each task. Real costs depend on how long your idea, writing or website is. Your credits and AI usage page shows the actual cost of everything you did.</p>
 <table>
-  <caption>Estimated cost per task in US dollars, with your own key and with credits. Sizes are in tokens.</caption>
+  <caption>Estimated cost per task in US dollars{% if stripe_ready %}, with your own key and with credits{% else %}, with your own key{% endif %}.</caption>
   <thead>
-    <tr><th scope="col">Task and typical size</th><th scope="col">Own key</th><th scope="col">Credits</th></tr>
+    <tr><th scope="col">Task</th><th scope="col">Own key</th>{% if stripe_ready %}<th scope="col">Credits</th>{% endif %}</tr>
   </thead>
   <tbody>
   {% for r in rows %}
-    <tr><td>{{ r.label }}<br><span class="meta">{{ r.size }}</span></td><td>{{ r.own }}</td><td>{{ r.credits }}</td></tr>
+    <tr><th scope="row">{{ r.label }}. <span class="meta">{{ r.size }}</span></th><td>{{ r.own }}</td>{% if stripe_ready %}<td>{{ r.credits }}</td>{% endif %}</tr>
   {% endfor %}
   </tbody>
 </table>
@@ -50,7 +54,6 @@
 <ul>
   <li>The site uses the model {{ model_name }}.{% if not model_known %} Its prices are not in this site's price list, so the estimates use the prices of claude-opus-5-5.{% endif %}</li>
   <li>Prices used: ${{ in_price }} per million tokens read (input) and ${{ out_price }} per million tokens written (output), plus ${{ search_price }} per 1,000 web searches.</li>
-  <li>A token is a piece of a word. 1,000 tokens is roughly 750 English words.</li>
   <li>Anthropic sets its own prices and can change them. Check <a href="https://www.anthropic.com/pricing" rel="noopener noreferrer">Anthropic's pricing page</a> for the current figures.</li>
 </ul>
 {% endblock %}

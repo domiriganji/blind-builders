@@ -11,7 +11,9 @@ from starlette.concurrency import run_in_threadpool
 
 from . import credits, db, limits
 from .security import hash_password, verify_password
-from .web import checked_form, current_user, end_all_sessions, flash, redirect, render, require_user, sign_in
+from .sensitive import SECRET_MESSAGE
+from .web import (checked_form, current_user, end_all_sessions, error_title, flash, forget_kept_form, has_kept_form,
+                  redirect, render, require_user, sign_in)
 
 router = APIRouter()
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -27,7 +29,10 @@ LOGIN_WINDOW = 15 * 60
 LOGIN_MAX_PER_EMAIL_AND_IP = 10
 LOGIN_MAX_PER_IP = 30
 LOGIN_MAX_PER_EMAIL = 100
-LOGIN_TOO_MANY = "Too many wrong tries. Wait 15 minutes and try again. This protects your account from people guessing."
+LOGIN_TOO_MANY = ("Several sign-in tries did not work, so sign-in is paused for 15 minutes to protect your account "
+                  "from guessing. Your account and your work are unchanged. Please try again after that.")
+PASSWORD_CLEARED = ("The password box was emptied so your password is not kept on the page. "
+                    "Please type your password again.")
 REGISTER_WINDOW = 60 * 60
 WELCOME_PER_IP_SECONDS = 30 * 24 * 60 * 60
 DAY = 24 * 60 * 60
@@ -55,14 +60,14 @@ def secret_problem(text: str) -> str | None:
     if not text:
         return None
     if _SECRET_KEY_RE.search(text):
-        return ("This looks like a Claude API key. Take it out: other members could see it. "
-                "Connect your key on the Claude API key page instead.")
+        return ("This looks like a Claude API key, so it was not saved. Please take it out: other members could see "
+                "it. To use your key, connect it on Your account.")
     for run in _CARD_RUN_RE.finditer(text):
         digits = re.sub(r"\D", "", run.group(0))
         if 13 <= len(digits) <= 19 and _luhn_ok(digits):
-            return "This looks like a card number. Take it out. This site never needs your card details."
+            return SECRET_MESSAGE
     if _PASSWORD_SAID_RE.search(text):
-        return "This looks like a password or code. Take it out. This site never needs them here."
+        return SECRET_MESSAGE
     return None
 
 
@@ -104,8 +109,31 @@ def announce(request: Request, next_url: str, heading: str) -> None:
         flash(request, heading + ".", "success")
 
 
+# Where a sign-in link was sent from, in words: "Sign in to use Build."
+_NEXT_WORDS = {"/account": "to see Your account", "/jobs": "to see Your recent work",
+               "/help": "to use Ask the community"}
+
+
+def next_words(request: Request, next_url: str) -> str:
+    """Why the member is asked to sign in, from the page they came from, or "" for the home page."""
+    path = next_url.split("?", 1)[0]
+    if path in ("", "/"):
+        return ""
+    for item in request.app.state.nav:
+        if path == item["url"] or path.startswith(item["url"] + "/"):
+            return f"to use {item['label']}"
+    for prefix, words in _NEXT_WORDS.items():
+        if path == prefix or path.startswith(prefix + "/"):
+            return words
+    return "to continue"
+
+
 @router.get("/register")
 def register_form(request: Request, next: str = "/"):
+    user = current_user(request)
+    if user:
+        return render(request, "auth/register.html", title="You are already signed in", values={}, errors={},
+                      next=_safe_next(next), signed_in_as=user["email"])
     return render(request, "auth/register.html", title="Create your account", values={}, errors={}, next=_safe_next(next))
 
 
@@ -120,7 +148,7 @@ async def register(request: Request):
     elif len(values["email"]) > EMAIL_MAX or not EMAIL_RE.match(values["email"]):
         errors["email"] = "Enter a whole email address, like name@example.com."
     if not values["display_name"]:
-        errors["display_name"] = "Enter the name you want other members to see."
+        errors["display_name"] = "Enter your name. Other members see your code name unless you choose to show your name."
     elif len(values["display_name"]) > NAME_MAX:
         errors["display_name"] = f"Use {NAME_MAX} characters or fewer for your name."
     if len(password) < PASSWORD_MIN:
@@ -139,8 +167,8 @@ async def register(request: Request):
     settings = request.app.state.settings
     ip_key = limits.key(limits.client_ip(request))
     if not errors and limits.count("register", ip_key, REGISTER_WINDOW) >= settings.registrations_per_ip_per_hour:
-        errors["email"] = ("Too many new accounts were made from your internet connection in the last hour. "
-                           "Wait an hour and try again.")
+        errors["email"] = ("Several new accounts were made from your internet connection in the last hour, so "
+                           "making another is paused for an hour. Nothing was saved. Please try again after that.")
     if not errors:
         with db.session() as conn:
             taken = conn.execute("SELECT 1 FROM users WHERE email = ?", (values["email"].lower(),)).fetchone()
@@ -162,14 +190,17 @@ async def register(request: Request):
     if errors:
         for name in ("email", "display_name", "screen_reader", "device"):
             values[name] = values[name][:300]
-        return render(request, "auth/register.html", title="Create your account: please fix the problems",
+        if "password" not in errors:
+            errors["password"] = PASSWORD_CLEARED
+        return render(request, "auth/register.html", title=error_title("Create your account", errors),
                       values=values, errors=errors, next=next_url, status_code=400)
     limits.record("register", ip_key, REGISTER_WINDOW)
     _give_welcome_credits(settings, user_id, ip_key)
     sign_in(request, user_id)
     from .features import recovery  # local import: features import auth's helpers
     code = await run_in_threadpool(recovery.set_new_code, user_id)
-    recovery.show_once(request, code, "Your account is ready: save your recovery code", next_url)
+    recovery.show_once(request, code, "Your account is ready: save your recovery code", next_url,
+                       done="Your account is ready")
     return redirect("/account/recovery-code")
 
 
@@ -196,7 +227,9 @@ def _login_keys(email: str, ip: str) -> list[tuple[str, int]]:
 def login_form(request: Request, next: str = "/"):
     if current_user(request):
         return redirect(_safe_next(next))
-    return render(request, "auth/login.html", title="Sign in", values={}, errors={}, next=_safe_next(next))
+    next_url = _safe_next(next)
+    return render(request, "auth/login.html", title="Sign in", values={}, errors={}, next=next_url,
+                  reason=next_words(request, next_url), words_kept=has_kept_form(request))
 
 
 @router.post("/login")
@@ -231,8 +264,9 @@ async def login(request: Request):
             else:
                 limits.clear("login", keys[0][0])
     if errors:
-        return render(request, "auth/login.html", title="Sign in: please fix the problems",
-                      values={"email": email[:300]}, errors=errors, next=next_url, status_code=status_code)
+        return render(request, "auth/login.html", title=error_title("Sign in", errors),
+                      values={"email": email[:300]}, errors=errors, next=next_url, status_code=status_code,
+                      reason=next_words(request, next_url), words_kept=has_kept_form(request))
     sign_in(request, row["id"])
     announce(request, next_url, "You are signed in")
     return redirect(next_url)
@@ -241,6 +275,7 @@ async def login(request: Request):
 @router.post("/logout")
 async def logout(request: Request):
     await checked_form(request)
+    forget_kept_form(request)
     request.session.clear()
     announce(request, "/", "You are signed out")
     return redirect("/")
@@ -252,6 +287,7 @@ async def logout_everywhere(request: Request, user: dict = Depends(require_user)
     await checked_form(request)
     with db.session() as conn:
         end_all_sessions(conn, user["id"])
+    forget_kept_form(request)
     request.session.clear()
     announce(request, "/", "You are signed out on every device")
     return redirect("/")

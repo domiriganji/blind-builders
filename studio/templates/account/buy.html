@@ -6,8 +6,8 @@
 <p>You can choose a pack again in the form on this page, or come back later.</p>
 {% endif %}
 {% if not stripe_ready %}
-<p><strong>Buying credits is not set up on this site yet.</strong> You can still use the AI today by <a href="/account/ai-key">connecting your own Claude API key</a>. You then pay Anthropic directly and this site charges nothing.</p>
-<p>Your credit balance is {{ status.balance_text }}.</p>
+<p><strong>Credits are not on sale on this site yet.</strong> You can use the AI today by <a href="/account/ai-key">connecting your own Claude API key</a>. You then pay Anthropic directly and this site charges nothing.</p>
+{% if status.balance %}<p>Your credit balance is {{ status.balance_text }}.</p>{% endif %}
 {% else %}
 <p>Your credit balance is {{ status.balance_text }}. Credits are in US dollars. They pay for the AI at Anthropic's price plus {{ markup_percent }} percent, which pays for running this site.</p>
 {{ error_summary(errors) }}
@@ -18,18 +18,18 @@
   <fieldset class="field{% if errors.pack %} has-error{% endif %}" aria-describedby="hint-pack{% if errors.pack %} error-pack{% endif %}">
     <legend>How many credits</legend>
     <p class="hint" id="hint-pack">You pay on a secure page run by Stripe, then come back here. This site never sees your card number.</p>
-    {% if errors.pack %}<p class="field-error" id="error-pack"><span class="visually-hidden">Error: </span>{{ errors.pack }}</p>{% endif %}
+    {% if errors.pack %}<p class="field-error" id="error-pack"><span class="visually-hidden">Please check: </span>{{ errors.pack }}</p>{% endif %}
     {% for value, text in packs %}
     <div class="choice"><input type="radio" id="field-pack{{ '' if loop.first else '-' ~ loop.index }}" name="pack" value="{{ value }}"{% if errors.pack %} aria-invalid="true"{% endif %}><label for="field-pack{{ '' if loop.first else '-' ~ loop.index }}">{{ text }}</label></div>
     {% endfor %}
   </fieldset>
   <button type="submit" class="button button-primary">Go to the payment page</button>
 </form>
-{% endif %}
 <h2>Packs</h2>
 <ul>
 {% for value, label in packs %}  <li>{{ label }} for {{ label.split(' ')[0] }}</li>
 {% endfor %}</ul>
 <p>Credits do not expire. See <a href="/pricing">how paying works</a> for what typical tasks cost.</p>
+{% endif %}
 <p><a href="/account/credits">Back to your credits</a></p>
 {% endblock %}

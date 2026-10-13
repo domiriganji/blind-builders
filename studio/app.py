@@ -4,7 +4,7 @@ from __future__ import annotations
 import importlib
 import logging
 from pathlib import Path
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlencode, urlparse, urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -17,7 +17,7 @@ from . import ai, credits, db, jobs, site_ai
 from .auth import router as auth_router
 from .config import Settings, load_settings
 from .core_routes import router as core_router
-from .web import LoginRequired, redirect, render
+from .web import FormExpired, LoginRequired, flash, keep_form, redirect, render
 
 log = logging.getLogger("studio")
 
@@ -26,9 +26,10 @@ FEATURES = ["build", "errands", "write", "find", "research", "checks", "ai_tools
             "owner_ai"]
 
 TOO_LARGE_PAGE = b"""<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1"><title>That was too large</title></head>
-<body><main><h1>That was too large</h1><p>What you sent is bigger than this site accepts.
-Go back, make it smaller (for example a shorter text or a smaller file) and try again.</p>
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>That was too large to send</title></head>
+<body><main><h1>That was too large to send</h1><p>What you sent is bigger than this site accepts, so nothing was saved.
+Use your browser's Back button to return to what you typed, make it smaller (for example a shorter text or a
+smaller file) and send it again.</p>
 <p><a href="/">Go to the home page</a></p></main></body></html>"""
 
 
@@ -141,34 +142,103 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.exception_handler(LoginRequired)
     async def login_required(request: Request, exc: LoginRequired):
+        if request.method == "POST":
+            # Signed out before the form was sent: keep the member's words, to put back after signing in.
+            try:
+                form = await request.form()
+            except Exception:  # noqa: BLE001 - a body that is not a form has no words to keep
+                form = None
+            if form is not None:
+                keep_form(request, form, exc.next_url, "signed_out", exc.last_user_id)
         return redirect("/login?" + urlencode({"next": exc.next_url}))
+
+    def _same_site_referer(request: Request) -> str:
+        referer = urlparse(request.headers.get("referer") or "")
+        if referer.netloc != request.url.netloc or not referer.path.startswith("/") or referer.path.startswith("//"):
+            return ""
+        return referer.path + ("?" + referer.query if referer.query else "")
+
+    def _section_link(path: str) -> tuple[str, str]:
+        """The section a missing page was in, so the page can offer a way back there."""
+        for item in app.state.nav:
+            if path.startswith(item["url"] + "/"):
+                return item["url"], f"Go to {item['label']}"
+        if path.startswith("/help/"):
+            return "/help", "Go to Ask the community"
+        if path.startswith("/account/"):
+            return "/account", "Go to Your account"
+        if path.startswith("/jobs/"):
+            return "/jobs", "Go to Your recent work"
+        return "", ""
+
+    async def form_expired(request: Request, exc: FormExpired):
+        page = _same_site_referer(request)
+        if "studio_session" not in request.cookies:
+            heading = "This form needs refreshing: nothing was saved"
+            return render(request, "error.html", title=heading, heading=heading, status_code=400, kept_note=False,
+                          message="Your browser did not send this site's cookie. The page may have been open for a "
+                                  "very long time, or cookies may be turned off for this site, which needs them to "
+                                  "send forms. Use your browser's Back button to return to the form, or copy your "
+                                  "words from below, then send it again.",
+                          kept=keep_form(request, exc.form, request.url.path, "expired"))
+        if page:
+            kept = keep_form(request, exc.form, page, "expired")
+            if not kept:
+                flash(request, "This form needed refreshing to keep your account safe, so nothing was done. "
+                               "Please choose the button again.", "info")
+            return redirect(page)
+        heading = "This form needs refreshing: nothing was saved"
+        return render(request, "error.html", title=heading, heading=heading, status_code=400, kept_note=False,
+                      message="It stopped working to keep your account safe, for example because the page was open "
+                              "for a long time. Use your browser's Back button to return to what you typed (Alt+Left "
+                              "Arrow, or Command+[ on a Mac), then send it again.",
+                      kept=keep_form(request, exc.form, request.url.path, "expired"))
 
     @app.exception_handler(StarletteHTTPException)
     async def http_error(request: Request, exc: StarletteHTTPException):
+        back_url = back_label = ""
+        sign_out = False
+        if isinstance(exc, FormExpired):
+            return await form_expired(request, exc)
         if exc.status_code == 404:
-            heading, message = "Page not found", (exc.detail if exc.detail and exc.detail != "Not Found" else
-                                                  "We could not find that page. Check the address or go to the home page.")
+            heading = "Page not found"
+            message = (exc.detail if exc.detail and exc.detail != "Not Found" else
+                       "We could not find that page. Check the address, or use the links below.")
+            back_url, back_label = _section_link(request.url.path)
         elif exc.status_code == 405:
-            heading, message = "That page only works from its form", "Go back to the form and try again."
+            heading = "That page only works from its form"
+            if request.url.path == "/logout":
+                message = "To sign out, choose the button below."
+                sign_out = True
+            else:
+                message = ("This address is the one a form sends to, so it has nothing to show by itself. "
+                           "Nothing was changed.")
+                parent = request.url.path.rstrip("/").rsplit("/", 1)[0]
+                if parent:
+                    back_url, back_label = parent, "Go to the page this form is on"
         else:
             heading, message = "Something is not right", str(exc.detail)
-        return render(request, "error.html", title=heading, heading=heading, message=message, status_code=exc.status_code)
+        return render(request, "error.html", title=heading, heading=heading, message=message, back_url=back_url,
+                      back_label=back_label, sign_out=sign_out, status_code=exc.status_code)
 
     @app.exception_handler(jobs.TooManyJobs)
     async def too_many_jobs(request: Request, exc: jobs.TooManyJobs):
-        heading = "You have too much AI work running"
-        return render(request, "error.html", title=heading, heading=heading, message=exc.user_message, status_code=429)
+        heading = "Please wait for your other AI work to finish"
+        return render(request, "error.html", title=heading, heading=heading, message=exc.user_message,
+                      back_url="/jobs", back_label="Go to Your recent work", status_code=429)
 
     @app.exception_handler(OverflowError)
     async def number_too_large(request: Request, exc: OverflowError):
         # An id in the address too large for the database cannot belong to anything.
         return render(request, "error.html", title="Page not found", heading="Page not found",
-                      message="We could not find that page. Check the address or go to the home page.", status_code=404)
+                      message="We could not find that page. Check the address, or use the links below.", status_code=404)
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, exc: RequestValidationError):
-        return render(request, "error.html", title="Something is missing", heading="Something is missing",
-                      message="Part of the request was missing or not in the right form. Go back and try again.",
+        return render(request, "error.html", title="Some information did not arrive",
+                      heading="Some information did not arrive",
+                      message="This can happen when a link is cut short. Nothing was changed. Please go back and "
+                              "try again.",
                       status_code=400)
 
     return app

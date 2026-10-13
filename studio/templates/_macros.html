@@ -1,4 +1,5 @@
-{# Form helpers. Every field gets a visible label, an optional hint and an error, all linked with aria-describedby. #}
+{# Form helpers. Every field gets a visible label, an optional hint and an error, all linked with aria-describedby.
+   restored(name, value) gives back a member's words kept from a form that could not be sent (web.keep_form). #}
 {% macro csrf_input() %}<input type="hidden" name="csrf_token" value="{{ csrf_value() }}">{% endmacro %}
 
 {% macro error_summary(errors) %}
@@ -28,7 +29,7 @@
 <div class="field{% if error %} has-error{% endif %}">
   <label for="field-{{ name }}">{{ label }}{% if not required and mark_optional %} <span class="optional">(optional)</span>{% endif %}</label>
   {{ _hint_error(name, hint, error) }}
-  <input id="field-{{ name }}" name="{{ name }}" type="{{ type }}" value="{{ value or '' }}"{% if required %} required{% endif %}{% if autocomplete %} autocomplete="{{ autocomplete }}"{% endif %}{{ _described(name, hint, error) }} {{ extra|safe }}>
+  <input id="field-{{ name }}" name="{{ name }}" type="{{ type }}" value="{{ (value if type == 'password' else restored(name, value)) or '' }}"{% if required %} required{% endif %}{% if autocomplete %} autocomplete="{{ autocomplete }}"{% endif %}{{ _described(name, hint, error) }} {{ extra|safe }}>
 </div>
 {% endmacro %}
 
@@ -36,11 +37,12 @@
 <div class="field{% if error %} has-error{% endif %}">
   <label for="field-{{ name }}">{{ label }}{% if not required and mark_optional %} <span class="optional">(optional)</span>{% endif %}</label>
   {{ _hint_error(name, hint, error) }}
-  <textarea id="field-{{ name }}" name="{{ name }}" rows="{{ rows }}"{% if required %} required{% endif %}{{ _described(name, hint, error) }}>{{ value or '' }}</textarea>
+  <textarea id="field-{{ name }}" name="{{ name }}" rows="{{ rows }}"{% if required %} required{% endif %}{{ _described(name, hint, error) }}>{{ restored(name, value) or '' }}</textarea>
 </div>
 {% endmacro %}
 
 {% macro select(name, label, options, selected='', hint='', error='', required=false) %}
+{% set selected = restored(name, selected) %}
 <div class="field{% if error %} has-error{% endif %}">
   <label for="field-{{ name }}">{{ label }}{% if not required %} <span class="optional">(optional)</span>{% endif %}</label>
   {{ _hint_error(name, hint, error) }}
@@ -50,12 +52,14 @@
 </div>
 {% endmacro %}
 
-{% macro radios(name, legend, options, selected='', hint='', error='') %}
+{% macro radios(name, legend, options, selected='', hint='', error='', required=false) %}
+{% set selected = restored(name, selected) %}
 <fieldset class="field{% if error %} has-error{% endif %}" id="field-{{ name }}" tabindex="-1"{{ _described(name, hint, error) }}>
   <legend>{{ legend }}</legend>
   {{ _hint_error(name, hint, error) }}
+  {#- The hint and error are tied to each radio button too: moving into the group with Tab or arrows often skips the fieldset's own description. -#}
   {% for value, text in options %}
-  <div class="choice"><input type="radio" id="field-{{ name }}-{{ loop.index }}" name="{{ name }}" value="{{ value }}"{% if value == selected %} checked{% endif %}{% if error %} aria-invalid="true"{% endif %}><label for="field-{{ name }}-{{ loop.index }}">{{ text }}</label></div>
+  <div class="choice"><input type="radio" id="field-{{ name }}-{{ loop.index }}" name="{{ name }}" value="{{ value }}"{% if value == selected %} checked{% endif %}{% if required %} required{% endif %}{{ _described(name, hint, error) }}><label for="field-{{ name }}-{{ loop.index }}">{{ text }}</label></div>
   {% endfor %}
 </fieldset>
 {% endmacro %}

@@ -1,6 +1,7 @@
 """Shared web helpers for every feature: rendering, forms with CSRF checks, flash messages, Markdown, current user."""
 from __future__ import annotations
 
+import json
 import re
 from contextvars import ContextVar
 from pathlib import Path
@@ -119,6 +120,29 @@ templates.env.filters["date_words"] = date_words
 # render() sets this before the template renders, so csrf_input() works in any template.
 _csrf_for_render: ContextVar[str] = ContextVar("csrf_for_render", default="")
 templates.env.globals["csrf_value"] = lambda: _csrf_for_render.get()
+# A member's words kept from a form that could not be sent (see keep_form). The form macros put them back.
+_restored_for_render: ContextVar[dict | None] = ContextVar("restored_for_render", default=None)
+
+
+def _restored(name: str, value=""):
+    """The kept value for this field if the member's words were kept for this page, else `value`."""
+    kept = _restored_for_render.get()
+    if kept and name in kept["fields"]:
+        kept["used"].add(name)
+        return kept["fields"][name]
+    return value
+
+
+def _restored_unused() -> list[tuple[str, str]]:
+    """Kept words that no form field on the page took, so the page can show them to copy."""
+    kept = _restored_for_render.get()
+    if not kept:
+        return []
+    return [(name, text) for name, text in kept["fields"].items() if name not in kept["used"]]
+
+
+templates.env.globals["restored"] = _restored
+templates.env.globals["restored_unused"] = _restored_unused
 
 
 # ----- session, user, CSRF ---------------------------------------------------------------------
@@ -131,12 +155,24 @@ def csrf_token(request: Request) -> str:
     return token
 
 
+FORM_EXPIRED = ("This page was open for a long time, or you signed in or out in another tab, so the form stopped "
+                "working to keep your account safe. Nothing was saved.")
+
+
+class FormExpired(HTTPException):
+    """The form's CSRF token did not match. Carries what the member sent, so their words are not lost."""
+
+    def __init__(self, form):
+        super().__init__(status_code=400, detail=FORM_EXPIRED)
+        self.form = form
+
+
 async def checked_form(request: Request) -> dict[str, Any]:
     """Read a POSTed form and verify its CSRF token. Use this for every form handler."""
     form = await request.form()
     sent = form.get("csrf_token")
     if not sent or sent != request.session.get("csrf"):
-        raise HTTPException(status_code=400, detail="This form expired. Go back, reload the page and try again.")
+        raise FormExpired(form)
     data: dict[str, Any] = {}
     for key in form.keys():
         values = form.getlist(key)
@@ -177,7 +213,10 @@ def sign_in(request: Request, user_id: int) -> None:
     """Start a fresh session for this member. It stays valid until they are signed out everywhere."""
     with db.session() as conn:
         row = conn.execute("SELECT session_epoch FROM users WHERE id = ?", (user_id,)).fetchone()
+    kept = request.session.get("kept_form")  # words from a form sent while signed out, to be put back
     request.session.clear()
+    if isinstance(kept, str):
+        request.session["kept_form"] = kept
     request.session["user_id"] = user_id
     request.session["epoch"] = row["session_epoch"] if row else 0
 
@@ -188,12 +227,14 @@ def end_all_sessions(conn, user_id: int) -> None:
 
 
 class LoginRequired(Exception):
-    def __init__(self, next_url: str):
+    def __init__(self, next_url: str, last_user_id: int | None = None):
         self.next_url = next_url
+        self.last_user_id = last_user_id  # who this browser was signed in as, if the old session still says
 
 
 def require_user(request: Request) -> dict:
     """FastAPI dependency: the signed-in user, or a redirect to sign in."""
+    last_user_id = request.session.get("user_id")
     user = current_user(request)
     if user is None:
         if request.method != "GET":
@@ -202,10 +243,100 @@ def require_user(request: Request) -> dict:
             referer = urlparse(request.headers.get("referer") or "")
             same_site = referer.netloc == request.url.netloc and referer.path.startswith("/")
             raise LoginRequired((referer.path + ("?" + referer.query if referer.query else "")) if same_site
-                                else str(request.url.path))
+                                else str(request.url.path), last_user_id if isinstance(last_user_id, int) else None)
         query = request.url.query
         raise LoginRequired(str(request.url.path) + ("?" + query if query else ""))
     return user
+
+
+# ----- keeping a member's words when a form cannot be sent ---------------------------------------
+
+KEPT_FORMS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS kept_forms (
+    token TEXT PRIMARY KEY,
+    path TEXT NOT NULL,
+    fields TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    user_id INTEGER,
+    created_at TEXT NOT NULL
+);
+"""
+KEPT_FORM_MAX_CHARS = 200_000
+KEPT_FORM_SECONDS = 2 * 60 * 60
+# Never kept, whatever the field holds: passwords, keys, codes and the form's own token.
+_NEVER_KEEP = re.compile(r"pass|csrf|token|api_key|secret|code|card", re.IGNORECASE)
+
+
+def kept_fields(form) -> dict[str, str]:
+    """The member's own words from a submitted form: text fields only, never passwords, keys, codes or
+    anything that looks like a secret, at most KEPT_FORM_MAX_CHARS in all."""
+    from .sensitive import find_secret
+    out: dict[str, str] = {}
+    total = 0
+    for name in form.keys():
+        if name in out or _NEVER_KEEP.search(name):
+            continue
+        value = form.get(name)
+        if not isinstance(value, str) or not value.strip() or find_secret(value):
+            continue
+        if total + len(value) > KEPT_FORM_MAX_CHARS:
+            continue
+        out[name] = value
+        total += len(value)
+    return out
+
+
+def keep_form(request: Request, form, page_path: str, reason: str, user_id: int | None = None) -> dict | None:
+    """Keep the member's words from a form that could not be sent (reason "signed_out" or "expired"), so the
+    page at `page_path` puts them back in its form, once. The session holds only a random token; the words
+    stay on the server for at most KEPT_FORM_SECONDS. Returns what was kept, or None if there was nothing."""
+    fields = kept_fields(form)
+    if not fields:
+        return None
+    from datetime import datetime, timedelta, timezone
+    oldest = (datetime.now(timezone.utc) - timedelta(seconds=KEPT_FORM_SECONDS)).isoformat(timespec="seconds")
+    token = new_token()
+    with db.session() as conn:
+        conn.execute("DELETE FROM kept_forms WHERE created_at < ?", (oldest,))
+        old = request.session.get("kept_form")
+        if isinstance(old, str):
+            conn.execute("DELETE FROM kept_forms WHERE token = ?", (old,))
+        conn.execute("INSERT INTO kept_forms (token, path, fields, reason, user_id, created_at)"
+                     " VALUES (?, ?, ?, ?, ?, ?)",
+                     (token, page_path.split("?", 1)[0], json.dumps(fields), reason, user_id, db.now()))
+    request.session["kept_form"] = token
+    return {"fields": fields, "reason": reason, "used": set()}
+
+
+def has_kept_form(request: Request) -> bool:
+    return isinstance(request.session.get("kept_form"), str)
+
+
+def forget_kept_form(request: Request) -> None:
+    token = request.session.pop("kept_form", None)
+    if isinstance(token, str):
+        with db.session() as conn:
+            conn.execute("DELETE FROM kept_forms WHERE token = ?", (token,))
+
+
+def _take_kept_form(request: Request, user: dict | None) -> dict | None:
+    """The kept words for this page, once: they are removed as they are shown."""
+    token = request.session.get("kept_form")
+    if not isinstance(token, str) or request.method != "GET":
+        return None
+    with db.session() as conn:
+        row = conn.execute("SELECT * FROM kept_forms WHERE token = ?", (token,)).fetchone()
+        if row is not None and row["path"] != request.url.path:
+            return None
+        conn.execute("DELETE FROM kept_forms WHERE token = ?", (token,))
+    request.session.pop("kept_form", None)
+    if row is None or (row["user_id"] is not None and (user is None or user["id"] != row["user_id"])):
+        return None  # gone, or someone else signed in on this browser: their words are not shown to them
+    try:
+        fields = json.loads(row["fields"])
+    except ValueError:
+        return None
+    return {"fields": fields, "reason": row["reason"], "used": set()}
 
 
 def flash(request: Request, text: str, kind: str = "info") -> None:
@@ -222,10 +353,15 @@ def render(request: Request, template: str, *, title: str, status_code: int = 20
     messages = request.session.pop("flash", [])
     settings = request.app.state.settings
     _csrf_for_render.set(csrf_token(request))
+    user = current_user(request)
+    # `kept` (from keep_form) shows a member's words on this page; otherwise words kept for this page, if any.
+    kept = context.pop("kept", None) or _take_kept_form(request, user)
+    _restored_for_render.set(kept)
     ctx = {
         "request": request,
         "title": title,
-        "user": current_user(request),
+        "user": user,
+        "kept_reason": kept["reason"] if kept else "",
         "csrf_token": csrf_token(request),
         "messages": messages,
         "site_name": settings.site_name,

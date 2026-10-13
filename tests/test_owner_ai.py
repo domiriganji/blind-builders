@@ -246,7 +246,11 @@ def test_members_see_free_ai_and_what_is_left(user_client, app):
     site_ai.save_key(settings, GOOD_KEY, None)
     site_ai.save({"pay_mode": "free", "member_month_cents": 500}, None)
     page = unescape(user_client.get("/account").text)
-    assert "The site's owner pays for your AI." in page and "<strong>$5.00</strong> left of $5.00" in page
+    assert "On this site the AI is free for you: the site's owner pays for it." in page
+    assert "<strong>$5.00</strong> left of $5.00" in page
+    home = unescape(user_client.get("/").text)
+    # The AI is set up (free), so the home page does not list setting it up as a next step.
+    assert "Your next steps" not in home and "the AI is free for members, up to $5.00 each a month" in home
     pricing = unescape(user_client.get("/pricing").text)
     assert "the AI is free for members" in pricing and "up to $5.00 for each member a month" in pricing
 

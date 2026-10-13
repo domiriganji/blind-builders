@@ -1,7 +1,8 @@
 """Your account and How paying works.
 
 - /account: who you are and how you pay for AI, summary first.
-- /account/profile: name, screen reader, device, language, sight onset, answer style, peer-check name.
+- /account/profile: name, screen reader, device, language, blind or low vision since, answer style, code name.
+- /account/password: change your password while signed in.
 - /account/ai-key: connect or remove your own Claude API key (stored encrypted, only the last 4 shown).
 - /account/credits: balance, credit history and AI usage history.
 - /account/credits/buy: buy credits through Stripe Checkout, only when the site owner has set up payments.
@@ -29,11 +30,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
-from .. import credits, db, site_ai
+from .. import credits, db, limits, site_ai
 from ..ai import PRICES, WEB_SEARCH_DOLLARS, cost_cents
-from ..auth import clean_text, secret_problem
-from ..security import decrypt_secret, encrypt_secret, hash_password
-from ..web import checked_form, flash, redirect, render, require_user
+from ..auth import PASSWORD_MAX, PASSWORD_MIN, clean_text, secret_problem
+from ..security import decrypt_secret, encrypt_secret, hash_password, verify_password
+from ..web import (KEPT_FORMS_SCHEMA, checked_form, date_words, end_all_sessions, error_title, flash, redirect,
+                   render, require_user, sign_in)
 
 log = logging.getLogger("studio.account")
 router = APIRouter()
@@ -51,14 +53,27 @@ CREATE TABLE IF NOT EXISTS payments (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id);
-"""
+""" + KEPT_FORMS_SCHEMA  # members' words kept from a form that could not be sent (studio/web.py, keep_form)
+
+
+def seed() -> None:
+    with db.session() as conn:
+        # "Which fits you best": blind, low vision or prefer not to say. It used to be an answer to "when", which
+        # does not fit someone born blind, so earlier "I have low vision" answers move here.
+        db.ensure_column(conn, "users", "vision", "TEXT NOT NULL DEFAULT 'prefer_not'")
+        conn.execute("UPDATE users SET vision = 'low_vision', sight_onset = 'prefer_not'"
+                     " WHERE sight_onset = 'low_vision'")
 
 # ----- choices for the profile form -------------------------------------------------------------
 
 SIGHT_ONSET = [
-    ("birth", "From birth or early childhood"),
+    ("birth", "Birth or early childhood"),
     ("later", "Later in life"),
-    ("low_vision", "I have low vision"),
+    ("prefer_not", "Prefer not to say"),
+]
+VISION = [
+    ("blind", "Blind"),
+    ("low_vision", "Low vision"),
     ("prefer_not", "Prefer not to say"),
 ]
 VERBOSITY = [
@@ -130,7 +145,7 @@ ESTIMATES = [
     ("A short answer or summary", 2_000, 800, 0),
     ("Checking a 2,000-word piece of writing", 6_000, 6_000, 0),
     ("Building a small website (one version)", 15_000, 20_000, 0),
-    ("A web search errand or research question", 30_000, 4_000, 5),
+    ("A web search in Do this for me, or a research question", 30_000, 4_000, 5),
 ]
 
 
@@ -194,7 +209,14 @@ def _reason_text(reason: str) -> str:
 
 
 def _date(text: str) -> str:
-    return (text or "")[:10]
+    return date_words(text)
+
+
+def typical_costs(settings) -> tuple[str, str]:
+    """The cheapest and dearest typical task on the pricing page, at Anthropic's prices for the site's model."""
+    model = site_ai.site_model(settings)
+    cents = [cost_cents(model, tin, tout, searches, 1.0) for _, tin, tout, searches in ESTIMATES]
+    return _estimate_text(min(cents)), _estimate_text(max(cents))
 
 
 def _require_admin(user: dict) -> None:
@@ -230,8 +252,8 @@ def _parse_dollars(text: str) -> int | None:
 def index(request: Request, user: dict = Depends(require_user)):
     settings = _settings(request)
     return render(request, "account/index.html", title=_done_title(request, "Your account"),
-                  status=ai_status(settings, user),
-                  sight=dict(SIGHT_ONSET), verbosity=dict(VERBOSITY))
+                  status=ai_status(settings, user), sight=dict(SIGHT_ONSET), vision=dict(VISION),
+                  verbosity=dict(VERBOSITY))
 
 
 # ----- profile ----------------------------------------------------------------------------------
@@ -242,7 +264,8 @@ def _profile_values(user: dict) -> dict:
         "screen_reader": user["screen_reader"],
         "device": user["device"],
         "language": user["language"],
-        "sight_onset": user["sight_onset"],
+        "sight_onset": user["sight_onset"] if user["sight_onset"] in dict(SIGHT_ONSET) else "prefer_not",
+        "vision": user.get("vision") or "prefer_not",
         "verbosity": user["verbosity"],
         "show_name_on_checks": bool(user["show_name_on_checks"]),
         "show_name_on_help": bool(user["show_name_on_help"]),
@@ -251,10 +274,11 @@ def _profile_values(user: dict) -> dict:
 
 
 def _render_profile(request: Request, user: dict, values: dict, errors: dict, status_code: int = 200):
-    title = "Your profile and preferences" + (": please fix the problems" if errors else "")
+    title = error_title("Your profile and preferences", errors)
     return render(request, "account/profile.html", title=title, values=values, errors=errors,
                   pseudonym=user["pseudonym"], languages=LANGUAGES, sight_options=SIGHT_ONSET,
-                  verbosity_options=VERBOSITY, looks_options=DESCRIBE_LOOKS, status_code=status_code)
+                  vision_options=VISION, verbosity_options=VERBOSITY, looks_options=DESCRIBE_LOOKS,
+                  status_code=status_code)
 
 
 @router.get("/account/profile")
@@ -270,7 +294,8 @@ async def profile_save(request: Request, user: dict = Depends(require_user)):
         "screen_reader": _clean(form, "screen_reader", 200),
         "device": _clean(form, "device", 200),
         "language": _clean(form, "language", 20),
-        "sight_onset": _clean(form, "sight_onset", 20),
+        "sight_onset": _clean(form, "sight_onset", 20) or "prefer_not",
+        "vision": _clean(form, "vision", 20) or "prefer_not",
         "verbosity": _clean(form, "verbosity", 20),
         "show_name_on_checks": form.get("show_name_on_checks") == "yes",
         "show_name_on_help": form.get("show_name_on_help") == "yes",
@@ -278,7 +303,7 @@ async def profile_save(request: Request, user: dict = Depends(require_user)):
     }
     errors: dict[str, str] = {}
     if not values["display_name"]:
-        errors["display_name"] = "Enter the name you want other members to see."
+        errors["display_name"] = "Enter your name. Other members see your code name unless you choose to show your name."
     elif len(values["display_name"]) > 80:
         errors["display_name"] = "Use 80 characters or fewer for your name."
     if len(values["screen_reader"]) > 100:
@@ -289,6 +314,8 @@ async def profile_save(request: Request, user: dict = Depends(require_user)):
         errors["language"] = "Choose a language from the list."
     if values["sight_onset"] not in dict(SIGHT_ONSET):
         errors["sight_onset"] = "Choose one of the options, or Prefer not to say."
+    if values["vision"] not in dict(VISION):
+        errors["vision"] = "Choose Blind, Low vision or Prefer not to say."
     if values["verbosity"] not in dict(VERBOSITY):
         errors["verbosity"] = "Choose how you want answers: summary first, or full detail."
     if values["describe_looks"] not in dict(DESCRIBE_LOOKS):
@@ -303,13 +330,68 @@ async def profile_save(request: Request, user: dict = Depends(require_user)):
     with db.session() as conn:
         conn.execute(
             "UPDATE users SET display_name = ?, screen_reader = ?, device = ?, language = ?, sight_onset = ?,"
-            " verbosity = ?, show_name_on_checks = ?, show_name_on_help = ?, describe_colours = ? WHERE id = ?",
+            " vision = ?, verbosity = ?, show_name_on_checks = ?, show_name_on_help = ?, describe_colours = ?"
+            " WHERE id = ?",
             (values["display_name"], values["screen_reader"], values["device"], values["language"],
-             values["sight_onset"], values["verbosity"], 1 if values["show_name_on_checks"] else 0,
+             values["sight_onset"], values["vision"], values["verbosity"], 1 if values["show_name_on_checks"] else 0,
              1 if values["show_name_on_help"] else 0, 1 if values["describe_looks"] == "colours" else 0,
              user["id"]),
         )
     _announce(request, "Your profile is saved")
+    return redirect("/account")
+
+
+# ----- change password --------------------------------------------------------------------------
+
+PASSWORD_TRIES_PER_HOUR = 10
+HOUR = 60 * 60
+
+
+def _render_password(request: Request, errors: dict | None = None, status_code: int = 200):
+    errors = errors or {}
+    return render(request, "account/password.html", title=error_title("Change your password", errors),
+                  errors=errors, status_code=status_code)
+
+
+@router.get("/account/password")
+def password_form(request: Request, user: dict = Depends(require_user)):
+    return _render_password(request)
+
+
+@router.post("/account/password")
+async def password_save(request: Request, user: dict = Depends(require_user)):
+    form = await checked_form(request)
+    current = str(form.get("current_password", ""))[:PASSWORD_MAX + 1]
+    new = str(form.get("new_password", ""))[:PASSWORD_MAX + 1]
+    errors: dict[str, str] = {}
+    try_key = limits.key("change-password", user["id"])
+    if not current:
+        errors["current_password"] = "Enter the password you use now."
+    elif limits.count("change_password", try_key, HOUR) >= PASSWORD_TRIES_PER_HOUR:
+        errors["current_password"] = ("Several tries did not work, so changing the password is paused for an hour "
+                                      "to protect your account. Your password is unchanged. Please try again "
+                                      "after that.")
+    elif not await run_in_threadpool(verify_password, current[:PASSWORD_MAX], user["password_hash"]):
+        limits.record("change_password", try_key, HOUR, subject=limits.key(user["email"]))
+        errors["current_password"] = "That is not the password you use now. Check it and try again."
+    if len(new) < PASSWORD_MIN:
+        errors["new_password"] = f"Use at least {PASSWORD_MIN} characters for your new password."
+    elif len(new) > PASSWORD_MAX:
+        errors["new_password"] = f"Use {PASSWORD_MAX} characters or fewer for your new password."
+    if errors:
+        if "new_password" not in errors:
+            errors["new_password"] = ("The password boxes were emptied so your passwords are not kept on the page. "
+                                      "Please type your new password again.")
+        return _render_password(request, errors, status_code=400)
+    password_hash = await run_in_threadpool(hash_password, new)
+    with db.session() as conn:
+        conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (password_hash, user["id"]))
+        end_all_sessions(conn, user["id"])  # anyone else signed in to this account is signed out
+    limits.clear("change_password", try_key)
+    sign_in(request, user["id"])  # this browser stays signed in
+    _announce(request, "Your password is changed")
+    flash(request, "Use your new password from now on. Any other device signed in to your account is signed out. "
+                   "Your recovery code still works.", "success")
     return redirect("/account")
 
 
@@ -324,9 +406,9 @@ def check_key_format(key: str) -> str | None:
     if not key.startswith("sk-ant-"):
         return "A Claude API key starts with sk-ant-. Check you copied the whole key."
     if len(key) < KEY_MIN:
-        return "This key is too short. Check you copied the whole key."
+        return "This is shorter than a Claude API key. Check you copied the whole key."
     if len(key) > KEY_MAX:
-        return "This is too long to be a Claude API key. Check you copied only the key."
+        return "This is longer than a Claude API key. Check you copied only the key."
     if not KEY_RE.match(key):
         return "The key has characters a Claude API key does not use. Copy it again."
     return None
@@ -337,31 +419,35 @@ def verify_api_key(key: str) -> bool | str:
     try:
         anthropic.Anthropic(api_key=key, max_retries=1, timeout=20.0).models.list(limit=1)
     except anthropic.AuthenticationError:
-        return "Anthropic says this key is not valid. It may have been deleted. Check the key at console.anthropic.com."
+        return ("Anthropic did not accept this key, so it was not saved. It may have been deleted, or part of it "
+                "may be missing. Check the key in the Anthropic Console and paste it again.")
     except anthropic.PermissionDeniedError:
-        return "Anthropic says this key does not have permission to use Claude. Check the key at console.anthropic.com."
+        return ("Anthropic says this key is not allowed to use Claude, so it was not saved. Check the key's settings "
+                "in the Anthropic Console.")
     except anthropic.RateLimitError:
-        return "Anthropic is busy right now and could not check the key. Please try again in a minute."
+        return ("Anthropic is busy right now and could not check the key, so it was not saved. "
+                "Please try again in a minute.")
     except anthropic.APIConnectionError:
-        return "We could not reach Anthropic to check the key. Please try again in a minute."
+        return "The site could not reach Anthropic to check the key, so it was not saved. Please try again in a minute."
     except anthropic.APIStatusError as exc:
-        return f"Anthropic could not check the key (error {exc.status_code}). Please try again later."
+        return (f"Anthropic had a problem on its side (code {exc.status_code}), so the key was not checked or saved. "
+                "Please try again later.")
     except Exception:  # noqa: BLE001 - any other failure is shown as a plain message, never a crash
         log.exception("unexpected error while checking an API key")
-        return "Something went wrong while checking the key. Please try again later."
+        return "Something went wrong on our side while checking the key, so it was not saved. Please try again later."
     return True
 
 
 def _render_key(request: Request, user: dict, error: str = "", status_code: int = 200):
     settings = _settings(request)
-    title = "Your Claude API key: please fix the problems" if error else _done_title(request, "Your Claude API key")
+    title = error_title("Your Claude API key", [error]) if error else _done_title(request, "Your Claude API key")
     site_model = site_ai.site_model(settings)
     model_options = [("", f"The site's choice, now {site_ai.model_name(site_model)}")] + [
         (model_id, f"{name}: {about}") for model_id, name, about in site_ai.MODELS]
     return render(request, "account/ai_key.html", title=title, errors={"api_key": error} if error else {},
                   last4=_key_last4(settings, user), has_saved=bool(user.get("own_api_key_enc")),
                   model_options=model_options, own_model=user.get("own_model") or "",
-                  status_code=status_code)
+                  costs=typical_costs(settings), status_code=status_code)
 
 
 @router.get("/account/ai-key")
@@ -377,7 +463,7 @@ async def key_save(request: Request, user: dict = Depends(require_user)):
     if error is None:
         result = await run_in_threadpool(verify_api_key, key)
         if result is not True:
-            error = str(result) if result else "Anthropic did not accept this key."
+            error = str(result) if result else "Anthropic did not accept this key, so it was not saved."
     if error:
         return _render_key(request, user, error, status_code=400)
     settings = _settings(request)
@@ -396,7 +482,7 @@ async def key_model(request: Request, user: dict = Depends(require_user)):
     form = await checked_form(request)
     choice = _clean(form, "own_model", 40)
     if choice and choice not in site_ai.MODEL_NAMES:
-        return _render_key(request, user, "Choose one of the models.", status_code=400)
+        return _render_key(request, user, "Choose one of the models in the list.", status_code=400)
     with db.session() as conn:
         conn.execute("UPDATE users SET own_model = ? WHERE id = ?", (choice, user["id"]))
     name = site_ai.model_name(choice) if choice else "the site's choice"
@@ -412,7 +498,7 @@ async def key_remove(request: Request, user: dict = Depends(require_user)):
         conn.execute("UPDATE users SET own_api_key_enc = NULL WHERE id = ?", (user["id"],))
     _announce(request, "Your Claude API key is removed")
     flash(request, "Your Claude API key is removed from this site. To stop it working everywhere, "
-                   "delete it at console.anthropic.com too.", "success")
+                   "delete it in the Anthropic Console (console.anthropic.com) too.", "success")
     return redirect("/account")
 
 
@@ -455,7 +541,7 @@ def _render_buy(request: Request, user: dict, errors: dict | None = None, status
                 cancelled: bool = False):
     settings = _settings(request)
     if errors:
-        title = "Buy credits: please fix the problems"
+        title = error_title("Buy credits", errors)
     elif cancelled:
         title = "You left the payment page: nothing was charged"
     else:
@@ -518,7 +604,8 @@ async def buy(request: Request, user: dict = Depends(require_user)):
     form = await checked_form(request)
     settings = _settings(request)
     if not payments_ready(settings):
-        flash(request, "Buying credits is not set up on this site yet.", "error")
+        flash(request, "Credits are not on sale on this site yet, so nothing was charged. You can use the AI by "
+                       "connecting your own Claude API key.", "info")
         return redirect("/account/credits/buy")
     pack = _clean(form, "pack", 10)
     if not pack.isdigit() or int(pack) not in PACKS:
@@ -683,7 +770,8 @@ def pricing(request: Request):
     for label, tin, tout, searches in ESTIMATES:
         own = cost_cents(model, tin, tout, searches, 1.0)
         site = cost_cents(model, tin, tout, searches, settings.credit_markup)
-        size = f"{tin:,} tokens in, {tout:,} out" + (f", {searches} web searches" if searches else "")
+        searched = f", {searches} web searches" if searches else ""
+        size = f"Typical size: {tin:,} tokens in, {tout:,} out{searched}."
         rows.append({"label": label, "size": size, "own": _estimate_text(own), "credits": _estimate_text(site)})
     free = site_ai.key_source(settings) is not None and site_ai.pay_mode() == "free"
     member_limit = site_ai.member_month_limit()
@@ -740,7 +828,7 @@ def _render_admin(request: Request, values: dict, errors: dict, status_code: int
     counts = site_counts()
     for key in ("ai_credits_cents", "ai_own_key_cents", "paid_cents"):
         counts[key + "_text"] = credits.format_cents(counts[key])
-    title = "Site owner tools: please fix the problems" if errors else _done_title(request, "Site owner tools")
+    title = error_title("Site owner tools", errors) if errors else _done_title(request, "Site owner tools")
     token = values.get("grant_token") or secrets.token_urlsafe(16)
     return render(request, "account/admin.html", title=title, counts=counts, values=values, errors=errors,
                   grant_token=token,
@@ -764,7 +852,7 @@ async def admin_grant(request: Request, user: dict = Depends(require_user)):
         ref = f"admin:{user['id']}:{token}"
         if _grant_already_given(ref):
             _announce(request, "Site owner tools: those credits were already given")
-            flash(request, "This form was sent twice. The credits were given once and nothing more was added.", "info")
+            flash(request, "This form was sent twice. The credits were given once, and nothing more was added.", "info")
             return redirect("/account/admin")
     else:
         ref = f"admin:{user['id']}:{secrets.token_urlsafe(16)}"
@@ -781,7 +869,7 @@ async def admin_grant(request: Request, user: dict = Depends(require_user)):
     elif cents > MAX_GRANT_CENTS:
         errors["amount"] = f"Grant at most {credits.format_cents(MAX_GRANT_CENTS)} at a time."
     if not values["reason"]:
-        errors["reason"] = "Say why, for example: thank you for answering questions in Help."
+        errors["reason"] = "Say why, for example: thank you for answering questions in Ask the community."
     elif len(values["reason"]) > 200:
         errors["reason"] = "Use 200 characters or fewer for the reason."
     elif secret_problem(values["reason"]):
@@ -799,9 +887,10 @@ def anonymise_user(user_id: int) -> None:
     """Remove everything that identifies the member, and their job list. Community posts stay under their code name."""
     with db.session() as conn:
         conn.execute("DELETE FROM jobs WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM kept_forms WHERE user_id = ?", (user_id,))
         conn.execute(
             "UPDATE users SET email = ?, display_name = 'Former member', password_hash = ?, own_api_key_enc = NULL,"
-            " screen_reader = '', device = '', language = 'en', sight_onset = 'prefer_not',"
+            " screen_reader = '', device = '', language = 'en', sight_onset = 'prefer_not', vision = 'prefer_not',"
             " verbosity = 'summary_first', show_name_on_checks = 0, show_name_on_help = 0, describe_colours = 0, own_model = '',"
             " is_admin = 0 WHERE id = ?",
             (f"deleted-{user_id}@invalid", hash_password(secrets.token_urlsafe(32)), user_id),
@@ -812,7 +901,7 @@ def _render_delete(request: Request, errors: dict, status_code: int = 200, faile
     if failed:
         title = "Your account is not deleted yet"
     else:
-        title = "Delete your account" + (": please fix the problems" if errors else "")
+        title = error_title("Delete your account", errors)
     return render(request, "account/delete.html", title=title, errors=errors, failed=failed,
                   status_code=status_code)
 
@@ -826,7 +915,8 @@ def delete_form(request: Request, user: dict = Depends(require_user)):
 async def delete_account(request: Request, user: dict = Depends(require_user)):
     form = await checked_form(request)
     if form.get("confirm") != "yes":
-        return _render_delete(request, {"confirm": "Tick the box to confirm you want to delete your account."},
+        return _render_delete(request, {"confirm": "To delete your account, tick the box that says I understand. "
+                                                   "Your account is not deleted."},
                               status_code=400)
     # Delete private work first. If any section fails, stop before the account is anonymised, so the
     # member is still signed in and can simply try again (every forget_user is safe to run twice).
@@ -846,5 +936,6 @@ async def delete_account(request: Request, user: dict = Depends(require_user)):
             log.exception("forget_user hook %r failed again for user %s", hook, user["id"])
     request.session.clear()
     request.session["home_heading"] = "Your account is deleted"
-    flash(request, "You are signed out. Your private work and your details are removed from this site.", "success")
+    flash(request, "You are signed out. Your private work and your details are removed from this site. "
+                   "Thank you for being part of this community.", "success")
     return redirect("/")

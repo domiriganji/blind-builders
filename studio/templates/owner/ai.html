@@ -12,7 +12,7 @@
 {% else %}
 <p>No key is saved yet. Until there is one, members can use the AI only with their own key.</p>
 {% endif %}
-{% if key_unreadable %}<p>A key was saved here, but it can no longer be read because the site's secret key changed. Please save it again.</p>{% endif %}
+{% if key_unreadable %}<p>The key saved here stopped working because the site's secret key (STUDIO_SECRET_KEY) changed. Please save the key again.</p>{% endif %}
 <p>How the key is kept safe:</p>
 <ul>
   <li>Anthropic checks the key before it is saved.</li>
@@ -25,8 +25,12 @@
 <h3>{{ 'Replace the key' if key_source == 'page' else 'Save a key' }}</h3>
 <form method="post" action="/account/admin/ai/key" novalidate>
   {{ csrf_input() }}
-  {{ field('api_key', 'Claude API key', '', type='password', required=true, autocomplete='off', hint='It starts with sk-ant-. Create one in the Anthropic Console under API keys.', error=key_errors.api_key, extra='spellcheck="false" autocapitalize="off"') }}
-  {{ field('password', 'Your password', '', type='password', required=true, autocomplete='current-password', hint='The password you sign in with.', error=key_errors.password) }}
+  {{ field('api_key', 'Claude API key', '', type='password', required=true, autocomplete='off', hint='It starts with sk-ant-. Create one in the Anthropic Console under API keys.', error=key_errors.api_key, extra='spellcheck="false" autocapitalize="off" autocorrect="off"') }}
+  <div class="field choice js-only">
+    <input type="checkbox" id="show-api_key" data-shows="field-api_key">
+    <label for="show-api_key">Show the key, to check what you pasted</label>
+  </div>
+  {{ field('password', 'Your password, to save the key', '', type='password', required=true, autocomplete='current-password', hint='The password you sign in with.', error=key_errors.password) }}
   <button type="submit" class="button button-primary">Check and save the key</button>
 </form>
 {% if key_source == 'page' %}
@@ -34,7 +38,7 @@
 <p>After you remove it, members can use the AI only with their own key, or with the server's ANTHROPIC_API_KEY setting if the server has one.</p>
 <form method="post" action="/account/admin/ai/key/remove" novalidate>
   {{ csrf_input() }}
-  {{ field('remove_password', 'Your password', '', type='password', required=true, autocomplete='current-password', error=key_errors.remove_password) }}
+  {{ field('remove_password', 'Your password, to remove the key', '', type='password', required=true, autocomplete='current-password', hint='The password you sign in with.', error=key_errors.remove_password) }}
   <button type="submit" class="button">Remove the key</button>
 </form>
 {% endif %}

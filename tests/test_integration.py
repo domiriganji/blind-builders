@@ -77,7 +77,7 @@ def test_too_large_requests_get_a_plain_page(settings):
     c = TestClient(create_app(settings))
     big = "x" * 5000
     r = c.post("/login", content=big, headers={"content-type": "application/x-www-form-urlencoded"})
-    assert r.status_code == 413 and "That was too large" in r.text
+    assert r.status_code == 413 and "That was too large to send" in r.text and "nothing was saved" in r.text
 
     def chunks():
         for _ in range(10):

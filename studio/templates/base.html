@@ -9,45 +9,72 @@
 </head>
 <body>
 {% from "_macros.html" import csrf_input %}
+{#- The page's own content is rendered first, so the notice about kept words can say where they went. -#}
+{% if false %}{% block content %}{% endblock %}{% endif %}
+{% set page_content = self.content() %}
+{% set kept_unused = restored_unused() %}
 <a class="skip-link" href="#main">Skip to main content</a>
 <header class="site-header">
   <p class="site-name"><a href="/">{{ site_name }}</a></p>
-  <nav aria-label="Sections">
-    <ul>
-    {% for item in nav %}
-      {% set here = request.url.path == item.url or request.url.path.startswith(item.url ~ '/') %}
-      <li><a href="{{ item.url }}"{% if here %} aria-current="{{ 'page' if request.url.path == item.url else 'true' }}"{% endif %}>{{ item.label }}</a></li>
-    {% endfor %}
-    </ul>
-  </nav>
+  {#- The full list of sections is after the page's content, so every page starts close to its heading. -#}
+  <p class="menu-link"><a href="#sections">Menu: all sections</a></p>
   <nav aria-label="Your account">
     <ul>
     {% if user %}
-      <li><a href="/account">Your account</a></li>
-      <li><a href="/jobs">Your recent work</a></li>
-      <li><form method="post" action="/logout" class="inline-form">{{ csrf_input() }}<button type="submit" class="link-button">Sign out</button></form></li>
+      <li><a href="/account"{% if request.url.path == '/account' %} aria-current="page"{% elif request.url.path.startswith('/account/') %} aria-current="true"{% endif %}>Your account</a></li>
+      <li><a href="/jobs"{% if request.url.path == '/jobs' %} aria-current="page"{% elif request.url.path.startswith('/jobs/') %} aria-current="true"{% endif %}>Your recent work</a></li>
+      <li class="sign-out"><form method="post" action="/logout" class="inline-form">{{ csrf_input() }}<button type="submit" class="link-button">Sign out</button></form></li>
     {% else %}
-      <li><a href="/login">Sign in</a></li>
-      <li><a href="/register">Create an account</a></li>
+      <li><a href="/login"{% if request.url.path == '/login' %} aria-current="page"{% endif %}>Sign in</a></li>
+      <li><a href="/register"{% if request.url.path == '/register' %} aria-current="page"{% endif %}>Create an account</a></li>
     {% endif %}
     </ul>
   </nav>
 </header>
 <main id="main" tabindex="-1"{% block main_attrs %}{% endblock %}>
-{% if messages %}
+{% if messages or (kept_reason and kept_note is not sameas false) %}
 <div class="messages">
+{% if kept_reason and kept_note is not sameas false %}
+<p class="message message-info" role="status">{% if kept_reason == 'signed_out' %}You were signed out before this was sent, so nothing was saved yet.{% else %}This form needed refreshing to keep your account safe, so nothing was saved yet.{% endif %}
+{% if kept_unused %}Your words are at the end of this page, under Your words from before, to copy into the form.{% else %}Your words are back in the form. Check them, then send the form again.{% endif %}</p>
+{% endif %}
 {% for m in messages %}<p class="message message-{{ m.kind }}" role="{{ 'alert' if m.kind == 'error' else 'status' }}">{{ m.text }}</p>{% endfor %}
 </div>
 {% endif %}
-{% block content %}{% endblock %}
+{{ page_content }}
+{% if kept_unused %}
+<section aria-labelledby="kept-title" class="kept-words">
+<h2 id="kept-title">Your words from before</h2>
+<p>Nothing was saved yet. Copy your words from here into the form, then send it.</p>
+{% for name, text in kept_unused %}
+<div class="field">
+  <label for="kept-{{ loop.index }}">{{ name|replace('_', ' ')|capitalize }}</label>
+  <textarea id="kept-{{ loop.index }}" rows="6" readonly>{{ text }}</textarea>
+</div>
+{% endfor %}
+</section>
+{% endif %}
 </main>
+{% set also_current = {'/learn': ['/help']} %}
+<nav id="sections" class="site-sections" aria-label="Sections" tabindex="-1">
+  <h2 class="sections-title">All sections</h2>
+  <ul>
+  {% for item in nav %}
+    {% set ns = namespace(here=false) %}
+    {% for prefix in [item.url] + also_current.get(item.url, []) %}
+      {% if request.url.path == prefix or request.url.path.startswith(prefix ~ '/') %}{% set ns.here = true %}{% endif %}
+    {% endfor %}
+    <li><a href="{{ item.url }}"{% if ns.here %} aria-current="{{ 'page' if request.url.path == item.url else 'true' }}"{% endif %}>{{ item.label }}</a></li>
+  {% endfor %}
+  </ul>
+</nav>
 <footer class="site-footer">
   <nav aria-label="About this site">
     <ul>
-      <li><a href="/about">How this site works</a></li>
-      <li><a href="/pricing">How paying works</a></li>
-      <li><a href="/accessibility">Accessibility</a></li>
-      <li><a href="/help">Ask the community</a></li>
+      <li><a href="/about"{% if request.url.path == '/about' %} aria-current="page"{% endif %}>How this site works</a></li>
+      <li><a href="/pricing"{% if request.url.path == '/pricing' %} aria-current="page"{% endif %}>How paying works</a></li>
+      <li><a href="/accessibility"{% if request.url.path == '/accessibility' %} aria-current="page"{% endif %}>Accessibility</a></li>
+      <li><a href="/help"{% if request.url.path == '/help' %} aria-current="page"{% endif %}>Ask the community</a></li>
     </ul>
   </nav>
 </footer>

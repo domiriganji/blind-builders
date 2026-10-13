@@ -1,15 +1,28 @@
 {% extends "base.html" %}
+{% from "_macros.html" import csrf_input %}
 {% block content %}
 <h1>{{ title }}</h1>
-<p>If you forget your password, this code lets you set a new one. The site sends no emails, so this code is the only way back in. It is shown only once.</p>
-<h2>Your recovery code</h2>
-<p class="panel"><code>{{ code }}</code></p>
-<p>Spelled out, one character at a time: {{ spelled }}.</p>
+{% if again %}<p><strong>This is the same code as before.</strong></p>{% endif %}
+<p>If you forget your password, this code lets you set a new one. The site sends no emails, so this code is the only way back in. It stays on this page until you choose "I have saved my code", then it is never shown again.</p>
+<h2>The code</h2>
+<div class="field">
+  <label for="recovery-code">Your recovery code</label>
+  <input id="recovery-code" type="text" class="code-box" value="{{ code }}" readonly spellcheck="false" autocomplete="off" aria-describedby="recovery-code-spelled">
+</div>
+<p id="recovery-code-spelled">Spelled out, one character at a time: {{ spelled }}.</p>
+<div class="actions">
+  <button type="button" class="button button-secondary js-only" data-copy="recovery-code" data-copied="copy-status">Copy the code</button>
+  <a class="button button-secondary" href="/account/recovery-code.txt" download>Save the code as a text file</a>
+</div>
+<p id="copy-status" role="status" class="meta"></p>
 <h2>Save it now</h2>
 <ul>
-  <li>Copy it into a note, a password manager or an email to yourself, or write it in braille.</li>
+  <li>Copy it into a note, a password manager or an email to yourself, save it as a text file, or write it in braille.</li>
   <li>Keep it private. Anyone with your email address and this code can change your password.</li>
-  <li>Using it gives you a new code. You can also make a new one on your account page at any time.</li>
+  <li>Using it gives you a new code. You can also make a new one on Your account at any time.</li>
 </ul>
-<p><a class="button button-primary" href="{{ next_url }}">I have saved my code: continue</a></p>
+<form method="post" action="/account/recovery-code/saved">
+  {{ csrf_input() }}
+  <button type="submit" class="button button-primary">I have saved my code: continue</button>
+</form>
 {% endblock %}

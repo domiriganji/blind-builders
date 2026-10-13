@@ -2,13 +2,20 @@
 {% block content %}
 <h1>How this site works</h1>
 <p>{{ site_name }} is a website where blind and low-vision people build their ideas with AI: websites and apps, writing and publishing, research, and tasks done for them on the web.</p>
+<h2>Getting started</h2>
+<ol>
+  <li><a href="/register">Create a free account</a> and save your recovery code.</li>
+  <li>{% if pay.free %}Use the AI: on this site it is free for members{% if pay.free_limit %}, up to {{ pay.free_limit }} each a month{% endif %}.{% else %}Connect a Claude API key from Anthropic. A typical task costs from {{ pay.cost_low }} to {{ pay.cost_high }}.{% endif %} <a href="/pricing">Read how paying works</a>.</li>
+  <li>Read <a href="/learn/start-here">Start here</a>, a short guide to the site.</li>
+</ol>
 <h2>Built around how you work</h2>
 <ul>
-  <li>Every page works without JavaScript, on cheap phones and slow connections.</li>
-  <li>Each page has one main heading that says where you are or what just happened. Use your screen reader's heading keys to move around.</li>
-  <li>Slow AI work runs in the background. You get a page that says what is happening, and a "Check again" link. If JavaScript is on, the page checks by itself, plays three short taps when the work is done, and moves you to the result.</li>
-  <li>Sounds use rhythm, not pitch, so they work with hearing loss and can be felt as vibration.</li>
+  <li>Every page works without JavaScript, on low-cost phones and slow connections.</li>
+  <li>Each page has one main heading that says where you are or what just happened. Use your screen reader's headings list, heading keys or rotor to move around.</li>
+  <li>Each page starts with a short menu: "Menu: all sections" takes you to the list of sections at the end of the page.</li>
+  <li>Slow AI work runs in the background. You get a page that says what is happening, and a "Check again" link. If JavaScript is on, the page checks by itself. When the work is done, it plays three short taps and moves your focus to a link to the result, so you get the news with or without sound.</li>
+  <li>The three taps are a rhythm on one note, not a tune, so they work with many kinds of hearing loss. If you cannot hear them, you miss nothing: focus moves to a link to your result, in speech, in braille or on screen.</li>
 </ul>
 <h2>Help comes from the community</h2>
-<p>There is no phone line. Members answer each other's questions in <a href="/help">Ask the community</a>, check each other's work in <a href="/checks">Peer checks</a>, and share guides in <a href="/learn">Learn</a>.</p>
+<p>Members answer each other's questions in <a href="/help">Ask the community</a>, check each other's work in <a href="/checks">Peer checks</a>, and share guides in <a href="/learn">Learn</a>. There is no phone line.</p>
 {% endblock %}
