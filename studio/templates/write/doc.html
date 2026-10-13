@@ -24,7 +24,7 @@
 <h2 id="edit-title">Edit your text</h2>
 <form method="post" action="/write/{{ doc.id }}/save" novalidate>
   {{ csrf_input() }}
-  {{ textarea('body', 'Your text', values.body, rows=20, error=errors.body, hint='Start a line with # to make it a heading, ## for a smaller heading. Each save keeps a version you can go back to.') }}
+  {{ textarea('body', 'Your text', values.body, rows=20, error=errors.body, mark_optional=false, hint='Start a line with # to make it a heading, ## for a smaller heading. Each save keeps a version you can go back to.') }}
   {{ field('target', 'Publication you are aiming for', values.target, error=errors.target, hint='Needed for a cover letter and for preparing the text for a publication.') }}
   {{ field('title', 'Title', values.title, required=true, error=errors.title) }}
   <button type="submit" class="button button-primary">Save</button>

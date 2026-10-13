@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% from "_macros.html" import post_button %}
+{% block content %}
+<h1>{{ title }}</h1>
+{% if has_code %}
+<p>You have a recovery code. For your safety it is never shown again. If you lost it, make a new one: the old one stops working.</p>
+{% else %}
+<p>A recovery code lets you set a new password if you forget yours. The site sends no emails, so without a code a forgotten password locks you out. Make one now and save it.</p>
+{% endif %}
+{{ post_button('/account/recovery-code', 'Make a new recovery code', 'primary') }}
+<p><a href="/account">Back to your account</a></p>
+{% endblock %}

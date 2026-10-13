@@ -28,6 +28,8 @@
 <h2>Running the site</h2>
 <p><a href="/account/admin">Site owner tools</a>: give credits and see how much the site is used.</p>
 {% endif %}
+<h2>Getting back in</h2>
+<p>{% if user.recovery_hash %}You have a recovery code for a forgotten password.{% else %}You have no recovery code yet. Without one, a forgotten password locks you out.{% endif %} <a href="/account/recovery-code">{% if user.recovery_hash %}Make a new recovery code{% else %}Make your recovery code now{% endif %}</a>.</p>
 <h2>Leaving</h2>
 <p><a href="/account/delete">Delete your account</a>.</p>
 {% endblock %}

@@ -48,7 +48,10 @@ def test_private_pages_ask_to_sign_in(client):
 def test_open_redirect_blocked(client):
     r = post(client, "/register", {"email": "z@example.com", "display_name": "Z", "password": "long enough pw",
                                    "next": "//evil.example"}, follow_redirects=False)
-    assert r.headers["location"] == "/"
+    # Sign-up first shows the recovery code; its "continue" link must not lead to another site.
+    assert r.headers["location"] == "/account/recovery-code"
+    page = client.get("/account/recovery-code")
+    assert 'href="/">I have saved my code' in page.text and "evil.example" not in page.text
 
 
 def test_job_runs_and_redirects(user_client):
@@ -243,8 +246,7 @@ def test_register_with_unicode_name_works(client):
 def test_after_signing_in_out_and_registering_the_h1_says_so(client):
     r = post(client, "/register", {"email": "amina@example.com", "display_name": "Amina",
                                    "password": "correct horse battery"})
-    assert _h1(r.text) == _title(r.text) == "Your account is ready"
-    assert "You are on the home page." in r.text
+    assert _h1(r.text) == _title(r.text) == "Your account is ready: save your recovery code"
     r = post(client, "/logout")
     assert _h1(r.text) == "You are signed out"
     r = post(client, "/login", {"email": "amina@example.com", "password": "correct horse battery"})

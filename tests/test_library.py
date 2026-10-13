@@ -149,7 +149,9 @@ def test_volunteers_are_unique_per_member(client):
         pseudonym = conn.execute("SELECT pseudonym FROM users WHERE email = 'v1@example.com'").fetchone()["pseudonym"]
     assert f"{pseudonym}: I test with JAWS and write C#" in r.text
     assert "Members helping keep it working (1)" in r.text
-    assert "V1" not in r.text.split("<main", 1)[1]  # listed by code name, not real name
+    import re as _re
+    main_html = _re.sub(r'name="csrf_token" value="[^"]*"', "", r.text.split("<main", 1)[1])  # tokens are random
+    assert "V1" not in main_html  # listed by code name, not real name
     switch_user(client, "v2@example.com", "V2")
     post(client, f"/library/tool/{tid}/volunteer", {"skills": "I can write docs"})
     assert count("SELECT COUNT(*) FROM upkeep_volunteers WHERE tool_id = ?", (tid,)) == 2

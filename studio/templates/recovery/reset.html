@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_input, error_summary, field %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p>You need the recovery code you saved when you created your account, or the newest one you made since.</p>
+{{ error_summary(errors) }}
+<form method="post" action="/reset-password" novalidate>
+  {{ csrf_input() }}
+  {{ field('email', 'Email address', values.email, type='email', required=true, autocomplete='email', error=errors.email) }}
+  {{ field('code', 'Recovery code', '', required=true, autocomplete='off', hint='16 letters and numbers. Spaces and dashes do not matter.', error=errors.code) }}
+  {{ field('password', 'New password', '', type='password', required=true, autocomplete='new-password', hint='At least 10 characters.', error=errors.password) }}
+  <button type="submit" class="button button-primary">Set my new password</button>
+</form>
+<p>No recovery code? This site cannot reset your password another way, because it sends no emails and has no staff. You can create a new account with another email address.</p>
+{% endblock %}

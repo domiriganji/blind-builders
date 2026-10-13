@@ -103,7 +103,7 @@ def test_signing_in_after_a_form_returns_to_the_page_not_the_form(client):
     assert r.status_code == 303 and r.headers["location"] == "/login?next=%2Fwrite%3Ftab%3D1"
     r = client.post("/write/new", data={"title": "x"}, headers={"referer": "https://evil.example/write"},
                     follow_redirects=False)
-    assert r.headers["location"] == "/login?next=%2F"
+    assert r.headers["location"] == "/login?next=%2Fwrite%2Fnew"
 
 
 def test_jobs_dedupe_back_url_and_restart_recovery(user_client, app, settings):
@@ -155,3 +155,21 @@ def test_radio_groups_can_take_focus_from_the_error_summary(client):
     html = t.render()
     assert 'id="field-kind" tabindex="-1"' in html and 'aria-invalid="true"' in html
     assert 'aria-describedby="error-agree"' in html and 'id="error-agree"' in html
+
+
+def test_sources_list_links_only_web_addresses_and_optional_marks_can_be_hidden():
+    from studio.web import templates
+    t = templates.env.from_string('{% from "_macros.html" import sources_list, textarea %}'
+                                  '{{ sources_list(sources) }}{{ textarea("body", "Your text", mark_optional=false) }}'
+                                  '{{ textarea("note", "Note") }}')
+    html = t.render(sources=[{"url": "https://example.org", "title": "Good"}, {"url": "javascript:alert(1)", "title": "Bad"}])
+    assert '<a href="https://example.org"' in html and "javascript:" not in html.split("Bad")[0].split("Good")[1]
+    assert 'href="javascript' not in html
+    assert ">Your text</label>" in html and "Note <span class=\"optional\">(optional)</span>" in html
+
+
+def test_form_text_takes_the_first_value_and_limits_length():
+    from studio.web import form_text
+    assert form_text({"a": ["one", "two"]}, "a") == "one"
+    assert form_text({"a": "x" * 50}, "a", 10) == "x" * 10
+    assert form_text({}, "missing") == ""

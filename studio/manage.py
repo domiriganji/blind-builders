@@ -63,6 +63,22 @@ def grant(email: str, cents_text: str, reason: str) -> int:
     return 0
 
 
+def set_password(email: str, password: str) -> int:
+    """Give a member a new password (for a member who lost both their password and their recovery code)."""
+    from .security import hash_password
+    if len(password) < 10:
+        print("Use at least 10 characters.", file=sys.stderr)
+        return 1
+    user = _find_user(email)
+    if user is None:
+        print(f"No member has the email address {email}.", file=sys.stderr)
+        return 1
+    with db.session() as conn:
+        conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (hash_password(password), user["id"]))
+    print(f"Set a new password for {user['email']}. Tell them to make a new recovery code on their account page.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m studio.manage", description="Site owner tools.")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -72,10 +88,19 @@ def main(argv: list[str] | None = None) -> int:
     p_grant.add_argument("email")
     p_grant.add_argument("cents", help="Whole US cents, for example 500 for $5.00.")
     p_grant.add_argument("reason", nargs="+", help="Why. The member sees this.")
+    p_pw = commands.add_parser("set-password", help="Give a member a new password (asks for it twice).")
+    p_pw.add_argument("email")
     args = parser.parse_args(argv)
     _open_db()
     if args.command == "make-admin":
         return make_admin(args.email)
+    if args.command == "set-password":
+        import getpass
+        first = getpass.getpass("New password: ")
+        if first != getpass.getpass("Type it again: "):
+            print("The two passwords are different. Nothing was changed.", file=sys.stderr)
+            return 1
+        return set_password(args.email, first)
     return grant(args.email, args.cents, " ".join(args.reason))
 
 

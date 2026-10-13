@@ -147,8 +147,10 @@ async def register(request: Request):
         credits.add(user_id, signup, "Welcome credits")
     request.session.clear()
     request.session["user_id"] = user_id
-    announce(request, next_url, "Your account is ready")
-    return redirect(next_url)
+    from .features import recovery  # local import: features import auth's helpers
+    recovery.show_once(request, recovery.set_new_code(user_id), "Your account is ready: save your recovery code",
+                       next_url)
+    return redirect("/account/recovery-code")
 
 
 @router.get("/login")

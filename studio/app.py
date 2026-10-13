@@ -21,7 +21,7 @@ from .web import LoginRequired, redirect, render
 log = logging.getLogger("studio")
 
 # Order here is the order of the main navigation and the home page.
-FEATURES = ["build", "errands", "write", "find", "research", "checks", "ai_tools", "library", "learn", "account"]
+FEATURES = ["build", "errands", "write", "find", "research", "checks", "ai_tools", "library", "learn", "account", "recovery"]
 
 TOO_LARGE_PAGE = b"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>That was too large</title></head>

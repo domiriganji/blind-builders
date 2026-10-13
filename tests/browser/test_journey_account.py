@@ -170,7 +170,12 @@ def test_register_sign_out_and_sign_in(live, browser):
     page.get_by_label("Password").fill(PASSWORD)
     page.get_by_label("Screen reader you use most").fill("TalkBack")
     page.get_by_role("button", name="Create account").click()
-    assert heading(page) == "Your account is ready"
+    assert heading(page) == "Your account is ready: save your recovery code"
+    assert_page_ok(page, "recovery code after registering")
+    recovery_code = page.locator("main code").inner_text()
+    assert len(recovery_code) == 19
+    page.get_by_role("link", name="I have saved my code: continue").click()
+    assert heading(page) == "Build your ideas with AI, without needing to see the screen"
     assert_page_ok(page, "home after registering")
 
     page.get_by_role("button", name="Sign out").click()
@@ -191,6 +196,20 @@ def test_register_sign_out_and_sign_in(live, browser):
     page.get_by_role("button", name="Sign in").click()
     assert heading(page) == "You are signed in"
     assert_page_ok(page, "home after signing in")
+
+    # Forgotten password: reset it with the recovery code, from the sign-in page.
+    page.get_by_role("button", name="Sign out").click()
+    page.get_by_role("navigation", name="Your account").get_by_role("link", name="Sign in").click()
+    page.get_by_role("link", name="Reset it with your recovery code").click()
+    assert heading(page) == "Reset your password with your recovery code"
+    assert_page_ok(page, "reset password")
+    page.get_by_label("Email address").fill("journey-register@example.com")
+    page.get_by_label("Recovery code").fill(recovery_code.lower().replace("-", " "))
+    page.get_by_label("New password").fill("a new password for the journey")
+    page.get_by_role("button", name="Set my new password").click()
+    assert heading(page) == "Your password is changed: save your new recovery code"
+    assert_page_ok(page, "new recovery code after reset")
+    assert page.locator("main code").inner_text() != recovery_code
 
 
 def test_sign_in_returns_to_the_page_asked_for(live, browser):

@@ -118,6 +118,14 @@ async def checked_form(request: Request) -> dict[str, Any]:
     return data
 
 
+def form_text(form: dict, name: str, limit: int = 10_000) -> str:
+    """One form value as text: a repeated field counts as its first value; very long text is cut to `limit`."""
+    value = form.get(name, "")
+    if isinstance(value, list):
+        value = value[0] if value else ""
+    return str(value)[:limit]
+
+
 def current_user(request: Request) -> dict | None:
     user_id = request.session.get("user_id")
     if not user_id:
@@ -146,10 +154,12 @@ def require_user(request: Request) -> dict:
     user = current_user(request)
     if user is None:
         if request.method != "GET":
-            # After signing in we can only send people back to a page, not replay a form.
+            # A form cannot be replayed after signing in. Send people back to the page the form was on if it
+            # is on this site, else to the form's own address (sections answer a GET there with the form).
             referer = urlparse(request.headers.get("referer") or "")
             same_site = referer.netloc == request.url.netloc and referer.path.startswith("/")
-            raise LoginRequired((referer.path + ("?" + referer.query if referer.query else "")) if same_site else "/")
+            raise LoginRequired((referer.path + ("?" + referer.query if referer.query else "")) if same_site
+                                else str(request.url.path))
         query = request.url.query
         raise LoginRequired(str(request.url.path) + ("?" + query if query else ""))
     return user

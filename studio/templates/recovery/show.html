@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p>If you forget your password, this code lets you set a new one. The site sends no emails, so this code is the only way back in. It is shown only once.</p>
+<h2>Your recovery code</h2>
+<p class="panel"><code>{{ code }}</code></p>
+<p>Spelled out, one character at a time: {{ spelled }}.</p>
+<h2>Save it now</h2>
+<ul>
+  <li>Copy it into a note, a password manager or an email to yourself, or write it in braille.</li>
+  <li>Keep it private. Anyone with your email address and this code can change your password.</li>
+  <li>Using it gives you a new code. You can also make a new one on your account page at any time.</li>
+</ul>
+<p><a class="button button-primary" href="{{ next_url }}">I have saved my code: continue</a></p>
+{% endblock %}

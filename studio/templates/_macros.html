@@ -24,17 +24,17 @@
 {% if error %}<p class="field-error" id="error-{{ name }}"><span class="visually-hidden">Error: </span>{{ error }}</p>{% endif %}
 {% endmacro %}
 
-{% macro field(name, label, value='', type='text', hint='', error='', required=false, autocomplete='', extra='') %}
+{% macro field(name, label, value='', type='text', hint='', error='', required=false, autocomplete='', extra='', mark_optional=true) %}
 <div class="field{% if error %} has-error{% endif %}">
-  <label for="field-{{ name }}">{{ label }}{% if not required %} <span class="optional">(optional)</span>{% endif %}</label>
+  <label for="field-{{ name }}">{{ label }}{% if not required and mark_optional %} <span class="optional">(optional)</span>{% endif %}</label>
   {{ _hint_error(name, hint, error) }}
   <input id="field-{{ name }}" name="{{ name }}" type="{{ type }}" value="{{ value or '' }}"{% if required %} required{% endif %}{% if autocomplete %} autocomplete="{{ autocomplete }}"{% endif %}{{ _described(name, hint, error) }} {{ extra|safe }}>
 </div>
 {% endmacro %}
 
-{% macro textarea(name, label, value='', hint='', error='', rows=8, required=false) %}
+{% macro textarea(name, label, value='', hint='', error='', rows=8, required=false, mark_optional=true) %}
 <div class="field{% if error %} has-error{% endif %}">
-  <label for="field-{{ name }}">{{ label }}{% if not required %} <span class="optional">(optional)</span>{% endif %}</label>
+  <label for="field-{{ name }}">{{ label }}{% if not required and mark_optional %} <span class="optional">(optional)</span>{% endif %}</label>
   {{ _hint_error(name, hint, error) }}
   <textarea id="field-{{ name }}" name="{{ name }}" rows="{{ rows }}"{% if required %} required{% endif %}{{ _described(name, hint, error) }}>{{ value or '' }}</textarea>
 </div>
@@ -82,7 +82,7 @@
 <section aria-labelledby="sources-title">
 <h{{ heading_level }} id="sources-title">{{ heading }} ({{ sources|length }})</h{{ heading_level }}>
 <ol class="sources">
-{% for s in sources %}<li><a href="{{ s.url }}" rel="noopener noreferrer">{{ s.title or s.url }}</a>{% if s.quote %}<br><span class="quote">"{{ s.quote }}"</span>{% endif %}</li>{% endfor %}
+{% for s in sources %}<li>{% if s.url and (s.url.startswith('https://') or s.url.startswith('http://')) %}<a href="{{ s.url }}" rel="noopener noreferrer">{{ s.title or s.url }}</a>{% else %}{{ s.title or s.url }}{% endif %}{% if s.quote %}<br><span class="quote">"{{ s.quote }}"</span>{% endif %}</li>{% endfor %}
 </ol>
 </section>
 {% endif %}
