@@ -6,7 +6,8 @@
 <p class="lead">{% if docs %}You have {{ docs|length }} document{{ '' if docs|length == 1 else 's' }}. The most recently changed is first.{% else %}You have no documents yet. Start one under "Start a new document" on this page.{% endif %}</p>
 <p>Write or paste your text. When you ask, the AI suggests changes one at a time, each shown as your words and the suggested words. Nothing changes until you accept it, and every saved change is kept as a version.</p>
 {% if docs %}
-<h2>Your documents</h2>
+<h2 id="your-documents-title">Your documents</h2>
+<div class="table-scroll" role="region" aria-labelledby="your-documents-title" tabindex="0">
 <table>
   <caption>Your documents, most recently changed first</caption>
   <thead><tr><th scope="col">Title</th><th scope="col">Kind</th><th scope="col">Words</th><th scope="col">Last changed</th></tr></thead>
@@ -16,6 +17,7 @@
   {% endfor %}
   </tbody>
 </table>
+</div>
 {% endif %}
 <h2>Start a new document</h2>
 {{ error_summary(errors) }}

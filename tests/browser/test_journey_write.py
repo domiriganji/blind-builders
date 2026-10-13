@@ -97,7 +97,7 @@ def test_create_validation_moves_focus_to_the_field(live, browser):
     follow_error_link(page, "This looks like it includes a password, PIN, code, card number or API key, so it was "
                             "not saved or sent to the AI. Please take it out: this site never needs them. If it is "
                             "not one, change the wording a little, for example \"the PIN box is not announced\", "
-                            "and send it again. Then save again.",
+                            "and send it again.",
                       page.get_by_role("textbox", name="Your text"))
     follow_error_link(page, "Enter a title for your document.", page.get_by_label("Title", exact=True))
 

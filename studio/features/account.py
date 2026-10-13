@@ -420,10 +420,10 @@ def verify_api_key(key: str) -> bool | str:
         anthropic.Anthropic(api_key=key, max_retries=1, timeout=20.0).models.list(limit=1)
     except anthropic.AuthenticationError:
         return ("Anthropic did not accept this key, so it was not saved. It may have been deleted, or part of it "
-                "may be missing. Check the key in the Anthropic Console and paste it again.")
+                "may be missing. Check the key in the Claude Console (platform.claude.com) and paste it again.")
     except anthropic.PermissionDeniedError:
         return ("Anthropic says this key is not allowed to use Claude, so it was not saved. Check the key's settings "
-                "in the Anthropic Console.")
+                "in the Claude Console (platform.claude.com).")
     except anthropic.RateLimitError:
         return ("Anthropic is busy right now and could not check the key, so it was not saved. "
                 "Please try again in a minute.")
@@ -498,7 +498,7 @@ async def key_remove(request: Request, user: dict = Depends(require_user)):
         conn.execute("UPDATE users SET own_api_key_enc = NULL WHERE id = ?", (user["id"],))
     _announce(request, "Your Claude API key is removed")
     flash(request, "Your Claude API key is removed from this site. To stop it working everywhere, "
-                   "delete it in the Anthropic Console (console.anthropic.com) too.", "success")
+                   "delete it in the Claude Console (platform.claude.com) too.", "success")
     return redirect("/account")
 
 

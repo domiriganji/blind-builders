@@ -271,7 +271,7 @@ def test_remove_key(user_client, key_ok):
     post(user_client, "/account/ai-key", {"api_key": GOOD_KEY})
     r = post(user_client, "/account/ai-key/remove")
     assert r.status_code == 200 and h1(r.text) == "Your Claude API key is removed"
-    assert "console.anthropic.com" in r.text
+    assert "delete it in the Claude Console (platform.claude.com) too." in r.text
     assert user_row()["own_api_key_enc"] is None
     assert "To start using the AI, connect your own Claude API key." in user_client.get("/account").text
     assert "Remove my key" not in user_client.get("/account/ai-key").text

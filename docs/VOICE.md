@@ -241,7 +241,7 @@ Where the text would be public, add: "Everyone can read this page."
 | Before | After |
 |---|---|
 | "Too many wrong tries. Wait 15 minutes and try again. This protects your account from people guessing." | "Several sign-in tries did not work, so sign-in is paused for 15 minutes to protect your account from guessing. Your account and your work are unchanged. Please try again after that." |
-| "Your Claude API key was rejected. Check it on your account page." | "Anthropic did not accept your Claude API key, so nothing was done. The key may have been deleted or changed in the Anthropic Console. Please connect it again on Your account." |
+| "Your Claude API key was rejected. Check it on your account page." | "Anthropic did not accept your Claude API key, so nothing was done. The key may have been deleted or changed in the Claude Console (platform.claude.com). Please connect it again on Your account." |
 | "The AI's answer was cut off or malformed. Please try again." | "The AI's answer came back cut off or incomplete, so nothing was saved. Please try again." |
 | "The AI made files the site cannot accept, so nothing was saved. The file name "/x" starts with a slash..." | "The AI made a mistake in the files, so nothing was saved. Please try again. If it happens again, ask for something smaller. Technical detail: ..." |
 | "This looks like a card number, a password or a one-time code. Never put those here. Remove it and try again." | The shared secrets message above. |

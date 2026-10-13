@@ -630,7 +630,7 @@ def _edit_errors(values: dict) -> dict[str, str]:
         errors["body"] = (f"Your text has {len(body):,} characters, and one document can hold up to {MAX_BODY:,}. "
                           "Please split it into two documents.")
     elif _secret_error(body):
-        errors["body"] = _secret_error(body) + " Then save again."
+        errors["body"] = _secret_error(body)
     if not new_title:
         errors["title"] = "Enter a title for your document."
     elif len(new_title) > MAX_TITLE:

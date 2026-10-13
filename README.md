@@ -13,7 +13,7 @@ There is no phone line and no support staff. The AI does the work, and members h
 | Write and publish | Write articles, papers, letters and stories. AI suggestions are shown as before and after, and you accept or reject each one. Every version is kept. Export to Markdown, text, HTML, Word or LaTeX. Find where to publish and draft a cover letter. |
 | Find before you build | A directory of tools, seeded from research on what was built for blind people in 2026, with reports from members about whether each one worked for them. The AI can also search the web for tools that already exist. |
 | Research | Run your own research: prior work with sources, a study plan that is accessible to blind participants, statistics the site computes from your data, and a draft paper whose citations the site checks. |
-| Peer checks | Ask other blind members to test your website with their screen reader, and check theirs. Sighted friends or volunteers can also check how it looks, answering in plain outcomes (does it look finished, is anything broken, would you trust it). Each check goes into a public record that shows if anyone changes it later. Optional credit rewards go from the person asking to the person checking. |
+| Peer checks | Ask blind and low-vision members to test your website with their own screen reader, braille display or magnifier, and check theirs. Sighted friends or volunteers can also check how it looks, answering in plain outcomes (does it look finished, is anything broken, would you trust it). Each check goes into a public record that shows if anyone changes it later. Optional credit rewards go from the person asking to the person checking. |
 | AI tools report | Which AI coding tools work with screen readers right now, reported by members after each update. |
 | Tool library | Tools blind people made for each other, and a way to report what broke after an update and volunteer to fix it. |
 | Learn and help | Screen-reader-first guides, and a place to ask the community, with an optional AI-suggested answer while you wait. |
@@ -38,7 +38,7 @@ pip install -r requirements.txt
 STUDIO_SECRET_KEY=any-long-random-text uvicorn studio.app:get_app --factory --port 8000
 ```
 
-Open http://localhost:8000, create an account, and connect your Claude API key on your account page (get one at console.anthropic.com).
+Open http://localhost:8000, create an account, and connect your Claude API key on your account page (get one in the Claude Console at platform.claude.com).
 
 ## Put it on the internet
 
@@ -69,7 +69,7 @@ Start it with `uvicorn studio.app:get_app --factory --host 0.0.0.0 --port 8000`.
 - save the site's Claude API key: Anthropic checks it first, it is stored encrypted, only its last 4 characters are ever shown, and saving or removing it needs your password;
 - choose the model members use with it: Claude Opus 5.5 (recommended), Sonnet 5.5 (half the price), Haiku 5.5 (lowest cost, weaker at building and research) or Fable 5.1 (most capable, most expensive);
 - choose who pays: members with credits, or you, free for members;
-- set monthly limits: the most your key may spend for the whole site, and the most each member may use. Before each AI step the site sets aside the most it can cost, so a limit is never passed; when one is reached, members are told plainly and can still use their own key. When the AI is free for members, at least one limit is required. Set a spending limit in the Anthropic Console too.
+- set monthly limits: the most your key may spend for the whole site, and the most each member may use. Before each AI step the site sets aside the most it can cost, so a limit is never passed; when one is reached, members are told plainly and can still use their own key. When the AI is free for members, at least one limit is required. Set a spending limit in the Claude Console (platform.claude.com) too.
 
 Members who connect their own key choose their own model on their key page. Limits never apply to them.
 

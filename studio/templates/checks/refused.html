@@ -3,10 +3,10 @@
 {% block content %}
 <h1>{{ title }}</h1>
 <p>{{ reason }}</p>
-{% if kept %}
+{% if kept_words %}
 <h2>What you wrote</h2>
 <p>Your words are here, so you can copy them and keep them.</p>
-{% for words, text in kept %}
+{% for words, text in kept_words %}
 <h3>{{ words }}</h3>
 <div class="panel">{{ literal(text) }}</div>
 {% endfor %}

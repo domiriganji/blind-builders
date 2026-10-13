@@ -274,7 +274,7 @@ class AIClient:
             except anthropic.AuthenticationError as exc:
                 if self.paid_by == "own_key":
                     raise AIError("Anthropic did not accept your Claude API key, so nothing was done. The key may "
-                                  "have been deleted or changed in the Anthropic Console. Please connect it again on "
+                                  "have been deleted or changed in the Claude Console (platform.claude.com). Please connect it again on "
                                   "Your account.") from exc
                 raise AIError("The site's own AI key is not working right now, so nothing was done and nothing was "
                               "charged. Please try again later, or connect your own Claude API key on Your "
@@ -283,7 +283,7 @@ class AIClient:
                 if self.paid_by == "own_key":
                     raise AIError(f"Your Claude API key is not allowed to use the AI model chosen for it "
                                   f"({site_ai.model_name(self.model)}), so nothing was done. Check the key's limits "
-                                  "in the Anthropic Console (console.anthropic.com), or choose another model or "
+                                  "in the Claude Console (platform.claude.com), or choose another model or "
                                   "connect a different key on Your account.") from exc
                 raise AIError("The site's own AI key is not allowed to use the AI model this site uses, so nothing "
                               "was done and nothing was charged. Please try again later, or connect your own "

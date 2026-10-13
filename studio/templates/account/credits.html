@@ -18,8 +18,9 @@
 <h2>Buy credits</h2>
 <p><a href="/account/credits/buy">Buy credits</a> in packs of $5, $10 or $20. <a href="/pricing">Read how paying works</a>.</p>
 {% endif %}
-<h2>Credit history</h2>
+<h2 id="credit-history-title">Credit history</h2>
 {% if ledger %}
+<div class="table-scroll" role="region" aria-labelledby="credit-history-title" tabindex="0">
 <table>
   <caption class="visually-hidden">Credit history, newest first</caption>
   <thead><tr><th scope="col">Date</th><th scope="col">Change</th><th scope="col">Reason</th></tr></thead>
@@ -29,12 +30,14 @@
   {% endfor %}
   </tbody>
 </table>
+</div>
 <p class="meta">Shows the latest {{ ledger|length }} changes, newest first.</p>
 {% else %}
 <p>No credits have been added or used yet.</p>
 {% endif %}
-<h2>AI usage history</h2>
+<h2 id="ai-usage-title">AI usage history</h2>
 {% if usage %}
+<div class="table-scroll" role="region" aria-labelledby="ai-usage-title" tabindex="0">
 <table>
   <caption class="visually-hidden">AI usage history, newest first</caption>
   <thead><tr><th scope="col">Date</th><th scope="col">What it was for</th><th scope="col">Cost, paid by</th></tr></thead>
@@ -44,6 +47,7 @@
   {% endfor %}
   </tbody>
 </table>
+</div>
 <p class="meta">Shows the latest {{ usage|length }} AI tasks, newest first. Costs on your own key are worked out from Anthropic's prices. The amount on Anthropic's bill is the correct one.</p>
 {% else %}
 <p>You have not used the AI yet.</p>

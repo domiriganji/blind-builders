@@ -35,9 +35,10 @@
 <p>New members get {{ signup_credits }} of credits to try things out.</p>
 {% endif %}
 
-<h2>Rough costs of typical tasks</h2>
+<h2 id="rough-costs-title">Rough costs of typical tasks</h2>
 <p>A token is a piece of a word. 1,000 tokens is roughly 750 English words.</p>
 <p>These are <strong>estimates</strong>, worked out by this site from Anthropic's prices for the model it uses and a typical size for each task. Real costs depend on how long your idea, writing or website is. Your credits and AI usage page shows the actual cost of everything you did.</p>
+<div class="table-scroll" role="region" aria-labelledby="rough-costs-title" tabindex="0">
 <table>
   <caption>Estimated cost per task in US dollars{% if stripe_ready %}, with your own key and with credits{% else %}, with your own key{% endif %}.</caption>
   <thead>
@@ -49,6 +50,7 @@
   {% endfor %}
   </tbody>
 </table>
+</div>
 
 <h2>Where these numbers come from</h2>
 <ul>

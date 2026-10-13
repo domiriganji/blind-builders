@@ -826,7 +826,7 @@ KEPT_LABELS = [("heard_first", "What your screen reader said or showed first"), 
 
 def _refuse(request: Request, req: dict, reason: str, kept: list[tuple[str, str]] | None = None):
     return render(request, "checks/refused.html", title=f"This check is not open to you: {label(req)}", req=req,
-                  reason=reason, kept=kept or [], status_code=403)
+                  reason=reason, kept_words=kept or [], status_code=403)
 
 
 def _already_saved(request: Request, request_id: int):

@@ -20,12 +20,12 @@
   <li>It is never sent to anyone's browser, and members never see it.</li>
   <li>Saving or removing it needs your password.</li>
   <li>Keep the site's secret key private, and away from copies of the database: with both, the key could be read.</li>
-  <li>As a second safety net, set a monthly spending limit in the Anthropic Console too.</li>
+  <li>As a second safety net, set a monthly spending limit in the Claude Console (platform.claude.com) too.</li>
 </ul>
 <h3>{{ 'Replace the key' if key_source == 'page' else 'Save a key' }}</h3>
 <form method="post" action="/account/admin/ai/key" novalidate>
   {{ csrf_input() }}
-  {{ field('api_key', 'Claude API key', '', type='password', required=true, autocomplete='off', hint='It starts with sk-ant-. Create one in the Anthropic Console under API keys.', error=key_errors.api_key, extra='spellcheck="false" autocapitalize="off" autocorrect="off"') }}
+  {{ field('api_key', 'Claude API key', '', type='password', required=true, autocomplete='off', hint='It starts with sk-ant-. Create one in the Claude Console (platform.claude.com) under API keys.', error=key_errors.api_key, extra='spellcheck="false" autocapitalize="off" autocorrect="off"') }}
   <div class="field choice js-only">
     <input type="checkbox" id="show-api_key" data-shows="field-api_key">
     <label for="show-api_key">Show the key, to check what you pasted</label>

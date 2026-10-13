@@ -4,7 +4,8 @@
 <p class="lead">Which AI building tools work with a screen reader right now, version by version, as reported by members. Read the reports before you start with a tool, and add your own after each update so problems show up within days.</p>
 <p>{% if recent_total %}{{ recent_total }} member {{ 'report' if recent_total == 1 else 'reports' }} in the last {{ summary_days }} days, across {{ tools|length }} tools.{% else %}No member reports in the last {{ summary_days }} days.{% endif %} {{ reports_about }} Each tool's page also has what public sources said as of {{ research_as_of }}.</p>
 
-<h2>Tools and what members report</h2>
+<h2 id="tools-reports-title">Tools and what members report</h2>
+<div class="table-scroll" role="region" aria-labelledby="tools-reports-title" tabindex="0">
 <table>
 <caption>AI tools, with member verdicts from the last {{ summary_days }} days and the date of the latest report</caption>
 <thead>
@@ -19,6 +20,7 @@
 {% endfor %}
 </tbody>
 </table>
+</div>
 
 <h2>The six checks members answer</h2>
 <p>Each report answers yes, no or not tested for these six things, then gives an overall verdict: usable, usable with workarounds, or not usable.</p>
