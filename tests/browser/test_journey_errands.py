@@ -132,28 +132,29 @@ def test_find_journey_with_corrections_follow_up_and_delete(live, browser):
     _expect_h1(page, "Do this for me")
     _check(page, "index (empty)")
     expect(page.get_by_role("heading", name="What this site will never do")).to_be_visible()
-    expect(page.get_by_text("You have no errands yet")).to_be_visible()
+    expect(page.get_by_text("You have no requests yet")).to_be_visible()
     expect(page.get_by_label("Find information and bring it back to me")).to_be_checked()
 
     # Sending the form empty shows the error summary; its link moves focus to the box.
     page.get_by_role("button", name="Read back my request").click()
-    _expect_h1(page, "Do this for me: please fix the problems")
+    _expect_h1(page, "Please check 1 answer: Do this for me")
     _check(page, "index with an empty request")
     _follow_error_link(page, "Write what you need in the box", "What you need")
 
     # A request with a password is refused before anything is saved, and says how to fix it.
     page.get_by_label("What you need", exact=True).fill("Log me in to the library, my password is Sunflower77")
     page.get_by_role("button", name="Read back my request").click()
-    _expect_h1(page, "Do this for me: please fix the problems")
+    _expect_h1(page, "Please check 1 answer: Do this for me")
     _check(page, "index with a password")
     _follow_error_link(page, "Please take it out", "What you need")
-    expect(page.get_by_text("You have no errands yet")).to_be_visible()
+    expect(page.get_by_text("You have no requests yet")).to_be_visible()
 
     # A real request: the AI reads it back before doing anything.
     page.get_by_label("What you need", exact=True).fill("When is the central library open?")
     page.get_by_role("button", name="Read back my request").click()
-    _expect_h1(page, "Here is what I understood: Find the opening hours of the central library")
+    _expect_h1(page, "Here is what I understood: When is the central library open?")
     _check(page, "read-back")
+    expect(page.get_by_text("Find the opening hours of the central library", exact=True)).to_be_visible()
     expect(page.get_by_text("Nothing has been done yet")).to_be_visible()
     expect(page.get_by_role("heading", name="Questions for you")).to_be_visible()
     expect(page.get_by_text("Which city is the library in?")).to_be_visible()
@@ -162,22 +163,23 @@ def test_find_journey_with_corrections_follow_up_and_delete(live, browser):
     expect(page.get_by_role("heading", name="Your request, in your words")).to_be_visible()
 
     # Update with nothing written: the error says what to do, and its link moves focus to the box.
-    page.get_by_role("button", name="Update").click()
-    _expect_h1(page, "Here is what I understood: Find the opening hours of the central library: please fix the problems")
+    page.get_by_role("button", name="Update what you understood").click()
+    _expect_h1(page, "Please check 1 answer: Here is what I understood: When is the central library open?")
     _check(page, "read-back with an empty correction")
     _follow_error_link(page, "Write your corrections or answers", "Corrections or answers")
 
     # A correction: the AI reads it back again, and the person's words are shown unchanged.
     page.get_by_label("Corrections or answers").fill("It is the one in Leeds.")
-    page.get_by_role("button", name="Update").click()
-    _expect_h1(page, "Here is what I understood: Find the opening hours of Leeds central library")
+    page.get_by_role("button", name="Update what you understood").click()
+    _expect_h1(page, "Here is what I understood: When is the central library open?")
     _check(page, "second read-back")
+    expect(page.get_by_text("Find the opening hours of Leeds central library", exact=True)).to_be_visible()
     expect(page.get_by_role("listitem").filter(has_text="It is the one in Leeds.")).to_be_visible()
     expect(page.get_by_role("heading", name="Questions for you")).to_have_count(0)
 
     # Go ahead: the answer comes back with sources, labelled as the AI's, and says what was checked.
-    page.get_by_role("button", name="Go ahead").click()
-    _expect_h1(page, "Found: Find the opening hours of Leeds central library")
+    page.get_by_role("button", name="This is right: go ahead").click()
+    _expect_h1(page, "Answer ready: When is the central library open?")
     _check(page, "found")
     expect(page.get_by_role("heading", name="Answer written by the AI", level=2)).to_be_visible()
     expect(page.get_by_role("heading", name="Opening hours", level=3)).to_be_visible()
@@ -189,49 +191,51 @@ def test_find_journey_with_corrections_follow_up_and_delete(live, browser):
         "href", "https://library.example.org/hours")
     expect(page.get_by_role("link", name="Bad link")).to_have_count(0)
     expect(page.get_by_role("heading", name="What was checked")).to_be_visible()
-    expect(page.get_by_text("Nobody at the site has checked it")).to_be_visible()
+    expect(page.get_by_text("Nobody has checked it.")).to_be_visible()
 
     # Follow-up: an empty question shows the error, then a real one is read back first.
     page.get_by_role("button", name="Ask the follow-up").click()
-    _expect_h1(page, "Found: Find the opening hours of Leeds central library: please fix the problems")
+    _expect_h1(page, "Please check 1 answer: Answer ready: When is the central library open?")
     _check(page, "found with an empty follow-up")
     _follow_error_link(page, "Write your follow-up question in the box", "Your follow-up question")
     fake.on("errands.understand", SUMMER_CONTRACT).on("errands.find", SUMMER_ANSWER)
     page.get_by_label("Your follow-up question").fill("Are the hours different in summer?")
     page.get_by_role("button", name="Ask the follow-up").click()
-    _expect_h1(page, "Here is what I understood: Find the summer opening hours")
+    _expect_h1(page, "Here is what I understood: Are the hours different in summer?")
     _check(page, "follow-up read-back")
-    expect(page.get_by_role("link", name="your earlier errand")).to_be_visible()
-    page.get_by_role("button", name="Go ahead").click()
-    _expect_h1(page, "Found: Find the summer opening hours")
+    expect(page.get_by_role("link", name="your earlier request")).to_be_visible()
+    page.get_by_role("button", name="This is right: go ahead").click()
+    _expect_h1(page, "Answer ready: Are the hours different in summer?")
     _check(page, "follow-up found")
     expect(page.get_by_role("link", name="Summer hours")).to_be_visible()
 
-    # The earlier errand is one link away.
-    page.get_by_role("link", name="your earlier errand").click()
-    _expect_h1(page, "Found: Find the opening hours of Leeds central library")
+    # The earlier request is one link away.
+    page.get_by_role("link", name="your earlier request").click()
+    _expect_h1(page, "Answer ready: When is the central library open?")
 
-    # The index lists both errands under a heading.
-    page.get_by_role("link", name="Back to all your errands").click()
+    # The index lists both requests first, under a heading, by the member's own words.
+    page.get_by_role("link", name="Back to all your requests").click()
     _expect_h1(page, "Do this for me")
-    _check(page, "index with errands")
+    _check(page, "index with requests")
+    expect(page.get_by_role("heading", level=2).first).to_have_text("Your requests")
     done = page.get_by_role("heading", name="Done (2)", level=3)
     expect(done).to_be_visible()
-    expect(page.get_by_role("link", name="Find the summer opening hours", exact=True)).to_be_visible()
+    expect(page.get_by_role("link", name="Are the hours different in summer?", exact=True)).to_be_visible()
+    expect(page.get_by_text("The AI understood: Find the summer opening hours.")).to_be_visible()
 
     # Delete: a confirmation page, a way back, then the next h1 says what happened.
-    page.get_by_role("link", name="Delete errand: Find the summer opening hours").click()
-    _expect_h1(page, "Delete this errand: Find the summer opening hours")
+    page.get_by_role("link", name="Delete request: Are the hours different in summer?").click()
+    _expect_h1(page, "Delete this request: Are the hours different in summer?")
     _check(page, "delete confirmation")
     expect(page.get_by_text("You cannot undo this")).to_be_visible()
     page.get_by_role("link", name="Keep it and go back").click()
-    _expect_h1(page, "Found: Find the summer opening hours")
-    page.get_by_role("link", name="Delete this errand").click()
-    _expect_h1(page, "Delete this errand: Find the summer opening hours")
-    page.get_by_role("button", name="Delete this errand").click()
-    _expect_h1(page, "Errand deleted: Find the summer opening hours")
+    _expect_h1(page, "Answer ready: Are the hours different in summer?")
+    page.get_by_role("link", name="Delete this request").click()
+    _expect_h1(page, "Delete this request: Are the hours different in summer?")
+    page.get_by_role("button", name="Delete this request").click()
+    _expect_h1(page, "Request deleted: Are the hours different in summer?")
     _check(page, "index after delete")
-    expect(page.get_by_role("link", name="Find the summer opening hours", exact=True)).to_have_count(0)
+    expect(page.get_by_role("link", name="Are the hours different in summer?", exact=True)).to_have_count(0)
     expect(page.get_by_role("heading", name="Done (1)", level=3)).to_be_visible()
 
 
@@ -243,7 +247,7 @@ def test_task_journey_prepares_answers_and_hides_secrets(live, browser):
     sign_up(page, base, "errands-task@example.com", "Errand Tasker")
 
     _new_errand(page, base, "Help me do a task on a website", "Help me renew my library card on the library website")
-    _expect_h1(page, "Here is what I understood: Renew my library card online")
+    _expect_h1(page, "Here is what I understood: Help me renew my library card on the library website")
     _check(page, "task read-back")
     help_heading = page.get_by_role("heading", name="Information that would help me prepare your answers")
     expect(help_heading).to_be_visible()
@@ -254,14 +258,14 @@ def test_task_journey_prepares_answers_and_hides_secrets(live, browser):
 
     # An answer with a card number is refused and the link moves focus to the box.
     page.get_by_label("Corrections or answers").fill("Pay with 4111 1111 1111 1111")
-    page.get_by_role("button", name="Go ahead").click()
-    _expect_h1(page, "Here is what I understood: Renew my library card online: please fix the problems")
+    page.get_by_role("button", name="This is right: go ahead").click()
+    _expect_h1(page, "Please check 1 answer: Here is what I understood: Help me renew my library card on the library website")
     _check(page, "task read-back with a card number")
     _follow_error_link(page, "This looks like it includes a card number", "Corrections or answers")
 
     page.get_by_label("Corrections or answers").fill("My name is Amina Yusuf.")
-    page.get_by_role("button", name="Go ahead").click()
-    _expect_h1(page, "Ready for you to do: Renew my library card online")
+    page.get_by_role("button", name="This is right: go ahead").click()
+    _expect_h1(page, "Ready for you to do: Help me renew my library card on the library website")
     _check(page, "task ready")
     expect(page.get_by_text("The AI wrote this plan from web pages it found")).to_be_visible()
     expect(page.get_by_role("link", name="Renew your library card")).to_have_attribute(
@@ -269,12 +273,22 @@ def test_task_journey_prepares_answers_and_hides_secrets(live, browser):
     for heading in ("Where to go", "Before you start", "Steps", "Prepared answers", "Known accessibility problems",
                     "What happens after", "What was checked"):
         expect(page.get_by_role("heading", name=heading, exact=True, level=2)).to_be_visible()
-    expect(page.get_by_text("Screen reader tip: Press H")).to_be_visible()
-    expect(page.get_by_role("heading", name="Full name", level=3)).to_be_visible()
-    expect(page.get_by_text("Amina Yusuf", exact=True)).to_be_visible()
+    # Each step ends with a full stop, and its tip is a paragraph of its own, so they never run together.
+    expect(page.get_by_text("Open the renewal page.", exact=True)).to_be_visible()
+    expect(page.get_by_text("Screen reader tip: Press H to move to the heading 'Renew'.", exact=True)).to_be_visible()
+    # Each prepared answer is a read-only box named by its field, reachable by heading and by form field.
+    expect(page.get_by_role("heading", name="Answer for: Full name", level=3)).to_be_visible()
+    answer = page.get_by_role("textbox", name="Answer for: Full name")
+    expect(answer).to_have_value("Amina Yusuf")
+    expect(answer).not_to_be_editable()
+    expect(answer).to_have_accessible_description("Note: From your answer.")
+    # "Select all" in the box selects that answer only, ready to copy by keyboard or voice.
+    answer.focus()
+    page.keyboard.press("ControlOrMeta+a")
+    assert answer.evaluate("el => el.value.substring(el.selectionStart, el.selectionEnd)") == "Amina Yusuf"
     # The password the AI suggested is never shown: it is a gap for the person to fill in.
-    expect(page.get_by_text("hunter2")).to_have_count(0)
-    expect(page.get_by_text("[your password]", exact=True)).to_be_visible()
+    assert "hunter2" not in page.content()
+    expect(page.get_by_role("textbox", name="Answer for: Password")).to_have_value("[your password]")
     expect(page.get_by_role("link", name="ask the community for help")).to_be_visible()
     expect(page.get_by_text("Checked by the site")).to_be_visible()
     # No follow-up form on a task: nothing to ask.
@@ -293,7 +307,7 @@ def test_failures_can_be_retried(live, browser):
     _check(page, "failed read-back job")
     expect(page.get_by_text("The AI is busy right now")).to_be_visible()
 
-    # The errand is saved; its page explains and offers to read it back.
+    # The request is saved; its page explains and offers to read it back.
     page.goto(base + "/do")
     _expect_h1(page, "Do this for me")
     expect(page.get_by_role("heading", name="Being worked on or not finished (1)")).to_be_visible()
@@ -305,32 +319,32 @@ def test_failures_can_be_retried(live, browser):
     expect(page.get_by_role("link", name="Check how you pay for the AI")).to_be_visible()
     fake.on("errands.understand", dict(CONTRACT, goal="Find bus times from Leeds to York", questions=[]))
     page.get_by_role("button", name="Read back my request").click()
-    _expect_h1(page, "Here is what I understood: Find bus times from Leeds to York")
+    _expect_h1(page, "Here is what I understood: Bus times from Leeds to York")
 
     # The search fails: Try again finishes it.
     fake.on("errands.find", AIError("Could not reach the AI service. Please try again."))
-    page.get_by_role("button", name="Go ahead").click()
-    _expect_h1(page, "This did not finish: Finding the information: Find bus times from Leeds to York")
+    page.get_by_role("button", name="This is right: go ahead").click()
+    _expect_h1(page, "This did not finish: Finding the information: Bus times from Leeds to York")
     _check(page, "failed search job")
     page.goto(base + "/do")
-    page.get_by_role("link", name="Find bus times from Leeds to York", exact=True).click()
-    _expect_h1(page, "Not finished yet: Find bus times from Leeds to York")
+    page.get_by_role("link", name="Bus times from Leeds to York", exact=True).click()
+    _expect_h1(page, "Not finished yet: Bus times from Leeds to York")
     _check(page, "not finished")
     expect(page.get_by_text("Could not reach the AI service")).to_be_visible()
     fake.on("errands.find", ResearchResult(text="Trains leave every 15 minutes.",
                                            sources=[Source(url="https://trains.example.org", title="Timetable")]))
     page.get_by_role("button", name="Try again").click()
-    _expect_h1(page, "Found: Find bus times from Leeds to York")
+    _expect_h1(page, "Answer ready: Bus times from Leeds to York")
     _check(page, "found after retry")
 
-    # Another member gets "Page not found" for this errand.
+    # Another member gets "Page not found" for this request.
     errand_url = page.url
     other = new_page(browser)
     sign_up(other, base, "errands-other@example.com", "Someone Else")
     other.goto(errand_url)
     _expect_h1(other, "Page not found")
-    _check(other, "another member's errand")
-    expect(other.get_by_text("We could not find that errand.")).to_be_visible()
+    _check(other, "another member's request")
+    expect(other.get_by_text("We could not find that request.")).to_be_visible()
 
 
 def test_works_without_javascript(live, browser):
@@ -345,23 +359,23 @@ def test_works_without_javascript(live, browser):
     _expect_h1(page, "Do this for me")
     _check_without_js(page, browser, "index without JavaScript")
     page.get_by_role("button", name="Read back my request").click()
-    _expect_h1(page, "Do this for me: please fix the problems")
+    _expect_h1(page, "Please check 1 answer: Do this for me")
     _check_without_js(page, browser, "index with an error, without JavaScript")
     _follow_error_link(page, "Write what you need in the box", "What you need")
     page.get_by_label("What you need", exact=True).fill("When is the central library open?")
     page.get_by_role("button", name="Read back my request").click()
-    _expect_h1(page, "Here is what I understood: Find the opening hours of the central library")
+    _expect_h1(page, "Here is what I understood: When is the central library open?")
     _check_without_js(page, browser, "read-back without JavaScript")
     page.get_by_label("Corrections or answers").fill("Leeds, England")
-    page.get_by_role("button", name="Go ahead").click()
-    _expect_h1(page, "Found: Find the opening hours of the central library")
+    page.get_by_role("button", name="This is right: go ahead").click()
+    _expect_h1(page, "Answer ready: When is the central library open?")
     _check_without_js(page, browser, "found without JavaScript")
     expect(page.get_by_text("open 9am to 5pm")).to_be_visible()
-    page.get_by_role("link", name="Delete this errand").click()
-    _expect_h1(page, "Delete this errand: Find the opening hours of the central library")
+    page.get_by_role("link", name="Delete this request").click()
+    _expect_h1(page, "Delete this request: When is the central library open?")
     _check_without_js(page, browser, "delete without JavaScript")
-    page.get_by_role("button", name="Delete this errand").click()
-    _expect_h1(page, "Errand deleted: Find the opening hours of the central library")
+    page.get_by_role("button", name="Delete this request").click()
+    _expect_h1(page, "Request deleted: When is the central library open?")
     _check_without_js(page, browser, "index after delete, without JavaScript")
 
 

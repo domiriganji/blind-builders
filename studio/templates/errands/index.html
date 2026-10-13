@@ -1,9 +1,32 @@
 {% extends "base.html" %}
 {% from "_macros.html" import csrf_input, error_summary, radios, textarea %}
+{% macro request_list() %}
+<h2 id="your-requests">Your requests</h2>
+{% if errands %}
+<p>You have {{ errands|length }} request{{ '' if errands|length == 1 else 's' }}, newest change first. Times are in UTC, the same as London time in winter.</p>
+{% for heading, items in groups %}
+<h3>{{ heading }} ({{ items|length }})</h3>
+<ul class="item-list">
+{% for e in items %}
+  <li>
+    <a href="/do/{{ e.id }}">{{ e.label }}</a>
+    {% if e.goal and e.goal != e.label %}<br>The AI understood: {{ e.goal_sentence }}{% endif %}
+    <br><span class="meta">{{ e.kind_words }}. {{ e.status_words }}. Last changed {{ e.updated_words }}.</span>
+    <br><a href="/do/{{ e.id }}/delete">Delete request: {{ e.label }}</a>
+  </li>
+{% endfor %}
+</ul>
+{% endfor %}
+{% else %}
+<p>You have no requests yet. When you ask for something, it appears here.</p>
+{% endif %}
+{% endmacro %}
 {% block content %}
 <h1>{{ title }}</h1>
 {{ error_summary(errors) }}
-<p class="lead">Tell the AI what you need. It can find information on the web and bring it back with sources, or prepare a task on a website for you: where to go, the steps, tips for your screen reader and the answers to type. Before it does anything, it reads back what it understood, and you correct it or say go ahead.</p>
+<p class="lead">Tell the AI what you need. It can find information on the web and bring it back with sources, or prepare a task on a website for you: where to go, the steps, tips for your screen reader or braille display, and the answers to type. Before it does anything, it reads back what it understood, and you correct it or say go ahead.</p>
+{# A member with requests finds them first, as in Write and Research. #}
+{% if errands %}{{ request_list() }}{% endif %}
 
 <h2>What this site will never do</h2>
 <ul>
@@ -20,23 +43,5 @@
   {{ textarea('request', 'What you need', values.request, hint=hint, error=errors.request, rows=6, required=true) }}
   <button type="submit" class="button button-primary">Read back my request</button>
 </form>
-
-<h2>Your errands</h2>
-{% if errands %}
-<p>You have {{ errands|length }} errand{{ '' if errands|length == 1 else 's' }}, newest change first.</p>
-{% for heading, items in groups %}
-<h3>{{ heading }} ({{ items|length }})</h3>
-<ul class="item-list">
-{% for e in items %}
-  <li>
-    <a href="/do/{{ e.id }}">{{ e.label }}</a>
-    <br><span class="meta">{{ e.kind_words }}. {{ e.status_words }}. Last changed {{ e.updated_at[:10] }}.</span>
-    <br><a href="/do/{{ e.id }}/delete">Delete errand: {{ e.label }}</a>
-  </li>
-{% endfor %}
-</ul>
-{% endfor %}
-{% else %}
-<p>You have no errands yet. When you ask for something, it appears here.</p>
-{% endif %}
+{% if not errands %}{{ request_list() }}{% endif %}
 {% endblock %}
