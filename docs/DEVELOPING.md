@@ -48,6 +48,7 @@ Templates go in `studio/templates/<section>/`. Tests go in `tests/test_<section>
 | File | What it gives you |
 |---|---|
 | `studio/web.py` | `render(request, template, title=..., **ctx)`, `checked_form(request)`, `require_user`, `current_user`, `flash`, `redirect`, `get_ai(request, user)`, `error_title(title, errors)`, `date_words(iso)`, the `markdown`, `nest_headings`, `shift_headings` and `date_words` template filters |
+| `studio/site_ai.py` | The owner's AI settings: `site_key(settings)`, `site_model(settings)`, `member_model(settings, user)`, `pay_mode()`, monthly limits with `reserve` and `release` (used by `AIClient`, not by sections) |
 | `studio/ai.py` | `AIClient.structured / text / research`, `member_voice(user)`, `AIError`, `AINotAvailable`, `AIRefused`, `ResearchResult`, `Source` |
 | `studio/jobs.py` | `submit(user_id, kind, title, fn, *args, back_url="", dedupe_key="", item_ref="")`, `job_url(job_id)`, `JobContext.progress(text)`, `forget_item(conn, user_id, item_ref)`, `still_wanted(conn, ctx)` |
 | `studio/sensitive.py` | `find_secret(text)`: a plain message if the text holds a password, PIN, one-time code, API key or card number |

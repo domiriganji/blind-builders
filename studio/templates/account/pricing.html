@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>{{ title }}</h1>
-<p class="lead">There are two ways to pay for the AI. With your own Claude API key, you pay Anthropic's prices directly and this site charges nothing. With credits, you pay the AI price plus {{ markup_percent }} percent, which pays for running the site.</p>
+{% if free_for_members %}
+<p class="lead">On this site the AI is free for members: the site's owner pays for it{% if free_limit %}, up to {{ free_limit }} for each member a month{% endif %}. You can also use your own Claude API key, with no limit from this site.</p>
+{% endif %}
+<p{% if not free_for_members %} class="lead"{% endif %}>There are two ways to pay for the AI. With your own Claude API key, you pay Anthropic's prices directly and this site charges nothing. With credits, you pay the AI price plus {{ markup_percent }} percent, which pays for running the site.</p>
 
 <h2>Way 1: your own Claude API key</h2>
 <ul>
@@ -45,7 +48,7 @@
 
 <h2>Where these numbers come from</h2>
 <ul>
-  <li>The site uses the model {{ model }}.{% if not model_known %} Its prices are not in this site's price list, so the estimates use the prices of claude-opus-5-5.{% endif %}</li>
+  <li>The site uses the model {{ model_name }}.{% if not model_known %} Its prices are not in this site's price list, so the estimates use the prices of claude-opus-5-5.{% endif %}</li>
   <li>Prices used: ${{ in_price }} per million tokens read (input) and ${{ out_price }} per million tokens written (output), plus ${{ search_price }} per 1,000 web searches.</li>
   <li>A token is a piece of a word. 1,000 tokens is roughly 750 English words.</li>
   <li>Anthropic sets its own prices and can change them. Check <a href="https://www.anthropic.com/pricing" rel="noopener noreferrer">Anthropic's pricing page</a> for the current figures.</li>

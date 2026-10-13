@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import csrf_input, error_summary, field, post_button %}
+{% from "_macros.html" import csrf_input, error_summary, field, post_button, radios %}
 {% block content %}
 <h1>{{ title }}</h1>
 {% if last4 %}
@@ -18,6 +18,14 @@
   <button type="submit" class="button button-primary">Check and save my key</button>
 </form>
 <p>Anyone who has your key can spend your money. Never paste it into Help, a peer check or a project.</p>
+{% if last4 %}
+<h2>Model for your key</h2>
+<form method="post" action="/account/ai-key/model" novalidate>
+  {{ csrf_input() }}
+  {{ radios('own_model', 'Which Claude model the AI uses with your key', model_options, own_model, hint='A token is about three quarters of a word. Anthropic bills you for the model you choose.') }}
+  <button type="submit" class="button">Save my model choice</button>
+</form>
+{% endif %}
 {% if has_saved %}
 <h2>Remove your key</h2>
 <p>After you remove it, the AI uses credits if this site offers them and you have some.</p>

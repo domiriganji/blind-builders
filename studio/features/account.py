@@ -29,7 +29,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
-from .. import credits, db
+from .. import credits, db, site_ai
 from ..ai import PRICES, WEB_SEARCH_DOLLARS, cost_cents
 from ..auth import clean_text, secret_problem
 from ..security import decrypt_secret, encrypt_secret, hash_password
@@ -150,7 +150,7 @@ def _key_last4(settings, user: dict) -> str | None:
 
 def payments_ready(settings) -> bool:
     """Credits can be bought only when Stripe is set up and the site has its own Claude key to spend them on."""
-    return bool(settings.stripe_secret_key and settings.anthropic_api_key)
+    return bool(settings.stripe_secret_key and site_ai.site_key(settings))
 
 
 def ai_status(settings, user: dict) -> dict:
@@ -159,7 +159,7 @@ def ai_status(settings, user: dict) -> dict:
     status = {
         "balance": balance,
         "balance_text": credits.format_cents(balance),
-        "site_has_key": bool(settings.anthropic_api_key),
+        "site_has_key": site_ai.key_source(settings) is not None,
         "can_buy": payments_ready(settings),
         "key_unreadable": False,
     }
@@ -168,7 +168,13 @@ def ai_status(settings, user: dict) -> dict:
         if last4:
             return {**status, "mode": "own_key", "last4": last4}
         status["key_unreadable"] = True
-    if settings.anthropic_api_key and balance > 0:
+    if status["site_has_key"] and site_ai.pay_mode() == "free":
+        left = site_ai.member_left_this_month(user["id"])
+        limit = site_ai.member_month_limit()
+        return {**status, "mode": "free", "renews": site_ai.renews_on(),
+                "free_left_text": credits.format_cents(left) if left is not None else "",
+                "free_limit_text": credits.format_cents(limit) if limit else ""}
+    if status["site_has_key"] and balance > 0:
         return {**status, "mode": "credits"}
     return {**status, "mode": "none"}
 
@@ -348,9 +354,13 @@ def verify_api_key(key: str) -> bool | str:
 
 def _render_key(request: Request, user: dict, error: str = "", status_code: int = 200):
     settings = _settings(request)
-    title = "Your Claude API key" + (": please fix the problems" if error else "")
+    title = "Your Claude API key: please fix the problems" if error else _done_title(request, "Your Claude API key")
+    site_model = site_ai.site_model(settings)
+    model_options = [("", f"The site's choice, now {site_ai.model_name(site_model)}")] + [
+        (model_id, f"{name}: {about}") for model_id, name, about in site_ai.MODELS]
     return render(request, "account/ai_key.html", title=title, errors={"api_key": error} if error else {},
                   last4=_key_last4(settings, user), has_saved=bool(user.get("own_api_key_enc")),
+                  model_options=model_options, own_model=user.get("own_model") or "",
                   status_code=status_code)
 
 
@@ -378,6 +388,21 @@ async def key_save(request: Request, user: dict = Depends(require_user)):
     flash(request, f"Your Claude API key ending in {key[-4:]} is connected. The AI now uses it, "
                    "Anthropic bills you directly, and this site charges nothing for AI.", "success")
     return redirect("/account")
+
+
+@router.post("/account/ai-key/model")
+async def key_model(request: Request, user: dict = Depends(require_user)):
+    """The model the AI uses with the member's own key."""
+    form = await checked_form(request)
+    choice = _clean(form, "own_model", 40)
+    if choice and choice not in site_ai.MODEL_NAMES:
+        return _render_key(request, user, "Choose one of the models.", status_code=400)
+    with db.session() as conn:
+        conn.execute("UPDATE users SET own_model = ? WHERE id = ?", (choice, user["id"]))
+    name = site_ai.model_name(choice) if choice else "the site's choice"
+    _announce(request, "Your model choice is saved")
+    flash(request, f"With your own key, the AI now uses {name}.", "success")
+    return redirect("/account/ai-key")
 
 
 @router.post("/account/ai-key/remove")
@@ -651,18 +676,23 @@ def _estimate_text(cents: int) -> str:
 @router.get("/pricing")
 def pricing(request: Request):
     settings = _settings(request)
-    model_known = settings.model in PRICES
-    in_price, out_price = PRICES.get(settings.model, PRICES["claude-opus-5-5"])
+    model = site_ai.site_model(settings)
+    model_known = model in PRICES
+    in_price, out_price = PRICES.get(model, PRICES["claude-opus-5-5"])
     rows = []
     for label, tin, tout, searches in ESTIMATES:
-        own = cost_cents(settings.model, tin, tout, searches, 1.0)
-        site = cost_cents(settings.model, tin, tout, searches, settings.credit_markup)
+        own = cost_cents(model, tin, tout, searches, 1.0)
+        site = cost_cents(model, tin, tout, searches, settings.credit_markup)
         size = f"{tin:,} tokens in, {tout:,} out" + (f", {searches} web searches" if searches else "")
         rows.append({"label": label, "size": size, "own": _estimate_text(own), "credits": _estimate_text(site)})
-    return render(request, "account/pricing.html", title="How paying works", rows=rows, model=settings.model,
+    free = site_ai.key_source(settings) is not None and site_ai.pay_mode() == "free"
+    member_limit = site_ai.member_month_limit()
+    return render(request, "account/pricing.html", title="How paying works", rows=rows, model=model,
+                  model_name=site_ai.model_name(model), free_for_members=free,
+                  free_limit=credits.format_cents(member_limit) if member_limit else "",
                   model_known=model_known, in_price=f"{in_price:.2f}", out_price=f"{out_price:.2f}",
                   search_price=f"{WEB_SEARCH_DOLLARS * 1000:.0f}", markup_percent=_markup_percent(settings),
-                  site_has_key=bool(settings.anthropic_api_key), stripe_ready=payments_ready(settings),
+                  site_has_key=site_ai.key_source(settings) is not None, stripe_ready=payments_ready(settings),
                   signup_credits=credits.format_cents(settings.signup_credits) if settings.signup_credits > 0 else "")
 
 
@@ -714,7 +744,7 @@ def _render_admin(request: Request, values: dict, errors: dict, status_code: int
     token = values.get("grant_token") or secrets.token_urlsafe(16)
     return render(request, "account/admin.html", title=title, counts=counts, values=values, errors=errors,
                   grant_token=token,
-                  site_has_key=bool(_settings(request).anthropic_api_key), status_code=status_code)
+                  site_has_key=site_ai.key_source(_settings(request)) is not None, status_code=status_code)
 
 
 @router.get("/account/admin")
@@ -772,7 +802,7 @@ def anonymise_user(user_id: int) -> None:
         conn.execute(
             "UPDATE users SET email = ?, display_name = 'Former member', password_hash = ?, own_api_key_enc = NULL,"
             " screen_reader = '', device = '', language = 'en', sight_onset = 'prefer_not',"
-            " verbosity = 'summary_first', show_name_on_checks = 0, show_name_on_help = 0, describe_colours = 0,"
+            " verbosity = 'summary_first', show_name_on_checks = 0, show_name_on_help = 0, describe_colours = 0, own_model = '',"
             " is_admin = 0 WHERE id = ?",
             (f"deleted-{user_id}@invalid", hash_password(secrets.token_urlsafe(32)), user_id),
         )

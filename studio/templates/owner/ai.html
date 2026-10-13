@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_input, error_summary, field, radios %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p>These settings are for the Claude API key that you, the site owner, pay for. Members who connect their own key use their own key and their own choice of model, and these limits never apply to them.</p>
+{{ error_summary(key_errors) }}
+<h2>Your Claude API key</h2>
+{% if key_source == 'page' %}
+<p>A key ending in <strong>{{ key_last4 }}</strong> is saved{% if key_saved_at %}, since {{ key_saved_at }}{% endif %}. Members' AI work on the site's key uses it.</p>
+{% elif key_source == 'environment' %}
+<p>The key from the server's ANTHROPIC_API_KEY setting is in use. It ends in <strong>{{ key_last4 }}</strong>. A key saved here takes its place.</p>
+{% else %}
+<p>No key is saved yet. Until there is one, members can use the AI only with their own key.</p>
+{% endif %}
+{% if key_unreadable %}<p>A key was saved here, but it can no longer be read because the site's secret key changed. Please save it again.</p>{% endif %}
+<p>How the key is kept safe:</p>
+<ul>
+  <li>Anthropic checks the key before it is saved.</li>
+  <li>It is stored encrypted with the site's secret key (STUDIO_SECRET_KEY). It is never shown again, not even to you: only its last 4 characters.</li>
+  <li>It is never sent to anyone's browser, and members never see it.</li>
+  <li>Saving or removing it needs your password.</li>
+  <li>Keep the site's secret key private, and away from copies of the database: with both, the key could be read.</li>
+  <li>As a second safety net, set a monthly spending limit in the Anthropic Console too.</li>
+</ul>
+<h3>{{ 'Replace the key' if key_source == 'page' else 'Save a key' }}</h3>
+<form method="post" action="/account/admin/ai/key" novalidate>
+  {{ csrf_input() }}
+  {{ field('api_key', 'Claude API key', '', type='password', required=true, autocomplete='off', hint='It starts with sk-ant-. Create one in the Anthropic Console under API keys.', error=key_errors.api_key, extra='spellcheck="false" autocapitalize="off"') }}
+  {{ field('password', 'Your password', '', type='password', required=true, autocomplete='current-password', hint='The password you sign in with.', error=key_errors.password) }}
+  <button type="submit" class="button button-primary">Check and save the key</button>
+</form>
+{% if key_source == 'page' %}
+<h3>Remove the key</h3>
+<p>After you remove it, members can use the AI only with their own key, or with the server's ANTHROPIC_API_KEY setting if the server has one.</p>
+<form method="post" action="/account/admin/ai/key/remove" novalidate>
+  {{ csrf_input() }}
+  {{ field('remove_password', 'Your password', '', type='password', required=true, autocomplete='current-password', error=key_errors.remove_password) }}
+  <button type="submit" class="button">Remove the key</button>
+</form>
+{% endif %}
+
+<h2>Model, payment and limits</h2>
+{{ error_summary(errors) }}
+<p>This month your key has spent <strong>{{ spent }}</strong> on members' AI work, at Anthropic's prices. Monthly limits start again on {{ renews }}.</p>
+<form method="post" action="/account/admin/ai" novalidate>
+  {{ csrf_input() }}
+  {{ radios('model', 'Model members use with your key', model_options, values.model, hint='A token is about three quarters of a word. Members who use their own key choose their own model.', error=errors.model) }}
+  {{ radios('pay_mode', 'Who pays for AI on your key', pay_modes, values.pay_mode, error=errors.pay_mode) }}
+  {{ field('site_month', 'Most your key may spend in a month, for the whole site, in US dollars', values.site_month, hint='What Anthropic charges you. 0 means no limit. When it is reached, members are told plainly and can still use their own key.', error=errors.site_month, extra='inputmode="decimal"', mark_optional=false) }}
+  {{ field('member_month', 'Most each member may use in a month, in US dollars', values.member_month, hint='0 means no limit. When the AI is free for members, they see how much they have left.', error=errors.member_month, extra='inputmode="decimal"', mark_optional=false) }}
+  <button type="submit" class="button button-primary">Save the AI settings</button>
+</form>
+<p><a href="/account/admin">Back to Site owner tools</a></p>
+{% endblock %}

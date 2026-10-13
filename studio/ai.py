@@ -18,7 +18,7 @@ from typing import Any, Callable
 
 import anthropic
 
-from . import credits, db
+from . import credits, db, site_ai
 
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 # US dollars per million tokens (input, output), from Anthropic's published prices.
@@ -30,6 +30,10 @@ PRICES = {
     "claude-opus-5": (5.0, 25.0),
     "claude-opus-4-8": (5.0, 25.0),
 }
+# Claude Haiku 5.5 costs more per token when one request's input is over 100,000 tokens.
+LONG_PROMPT_PRICES = {"claude-haiku-5-5": (100_000, (0.50, 2.50))}
+# Models that take no server-side fallback (sending one is an error).
+NO_FALLBACK_MODELS = {"claude-haiku-5-5"}
 WEB_SEARCH_DOLLARS = 0.01  # per search
 # The most one image can cost in input tokens. Models with high-resolution vision (Opus 4.7 and later, including
 # Opus 5 and 5.5, and Sonnet 5 and later) take images up to 2576 pixels on the long edge, at up to about 4,784
@@ -124,8 +128,16 @@ def _field(obj: Any, name: str, default: Any = None) -> Any:
     return getattr(obj, name, default)
 
 
+def prices(model: str, input_tokens: int = 0) -> tuple[float, float]:
+    """US dollars per million tokens (input, output) for a request with this much input."""
+    long = LONG_PROMPT_PRICES.get(model)
+    if long and input_tokens > long[0]:
+        return long[1]
+    return PRICES.get(model, PRICES["claude-opus-5-5"])
+
+
 def cost_cents(model: str, input_tokens: int, output_tokens: int, web_searches: int, markup: float) -> int:
-    in_price, out_price = PRICES.get(model, PRICES["claude-opus-5-5"])
+    in_price, out_price = prices(model, input_tokens)
     dollars = input_tokens / 1e6 * in_price + output_tokens / 1e6 * out_price + web_searches * WEB_SEARCH_DOLLARS
     return int(math.ceil(dollars * 100 * markup))
 
@@ -138,7 +150,7 @@ class AIClient:
         self.model = model
         self.member_note = member_note  # member_voice(user), put before every system prompt
         self.user_id = user_id
-        self.paid_by = paid_by  # "own_key" or "credits"
+        self.paid_by = paid_by  # "own_key", "credits", or "site" (the owner pays, free for the member)
         self.markup = markup
         self._client = sdk_client or anthropic.Anthropic(api_key=api_key, max_retries=3)
 
@@ -197,7 +209,7 @@ class AIClient:
 
     # ----- internals ----------------------------------------------------------------------------
 
-    def _worst_case_cents(self, kwargs: dict) -> int:
+    def _worst_case_cents(self, kwargs: dict, markup: float | None = None) -> int:
         """The most a call can cost: the longest answer allowed, the input (about 3 characters a token, which
         overestimates; each image counts as the most an image can cost, IMAGE_MAX_TOKENS, however large its
         data), and every web search and page fetch allowed, each reading about 10,000 tokens."""
@@ -220,11 +232,25 @@ class AIClient:
             input_tokens += uses * 10_000
             if tool.get("name") == "web_search":
                 searches += uses
-        return cost_cents(self.model, input_tokens, int(kwargs.get("max_tokens", 0)), searches, self.markup)
+        return cost_cents(self.model, input_tokens, int(kwargs.get("max_tokens", 0)), searches,
+                          self.markup if markup is None else markup)
 
     def _call(self, *, purpose: str, **kwargs) -> Any:
         if self.member_note:
             kwargs["system"] = f"{self.member_note}\n\n{kwargs.get('system') or ''}".strip()
+        spend_hold = None
+        if self.paid_by in ("credits", "site"):
+            # The site owner's monthly limits cover all work on the site's key (see studio/site_ai.py).
+            spend_hold, reason = site_ai.reserve(self.user_id, self._worst_case_cents(kwargs, markup=1.0))
+            if spend_hold is None:
+                raise AINotAvailable(reason)
+        try:
+            return self._call_reserved(purpose, kwargs)
+        finally:
+            if spend_hold is not None:
+                site_ai.release(spend_hold)
+
+    def _call_reserved(self, purpose: str, kwargs: dict) -> Any:
         hold_id = None
         if self.paid_by == "credits":
             # Hold the most this call can cost before making it, and settle the real cost after, so a member
@@ -240,12 +266,9 @@ class AIClient:
         charged = 0
         try:
             try:
-                with self._client.beta.messages.stream(
-                    model=self.model,
-                    betas=[FALLBACK_BETA],
-                    fallbacks="default",
-                    **kwargs,
-                ) as stream:
+                # On a decline, Anthropic retries on its recommended model (not offered for every model).
+                fallback = {} if self.model in NO_FALLBACK_MODELS else {"betas": [FALLBACK_BETA], "fallbacks": "default"}
+                with self._client.beta.messages.stream(model=self.model, **fallback, **kwargs) as stream:
                     message = stream.get_final_message()
             except anthropic.AuthenticationError as exc:
                 if self.paid_by == "own_key":
@@ -283,6 +306,7 @@ class AIClient:
         per_attempt_searches = any(_field(a, "server_tool_use") for a in attempts)
         total_in = total_out = total_searches = 0
         dollars_cents = 0.0
+        raw_dollars_cents = 0.0  # what Anthropic charges, without the credits markup
         for attempt in attempts:
             input_tokens = (_field(attempt, "input_tokens", 0) or 0) + (_field(attempt, "cache_creation_input_tokens", 0) or 0)
             # Cache reads cost about a tenth of normal input.
@@ -293,18 +317,21 @@ class AIClient:
             if not per_attempt_searches and attempt is not attempts[-1]:
                 searches = 0  # the top-level count, added once
             model = _field(attempt, "model") or served_by
-            in_price, out_price = PRICES.get(model, PRICES["claude-opus-5-5"])
-            dollars_cents += (input_tokens / 1e6 * in_price + output_tokens / 1e6 * out_price
-                              + searches * WEB_SEARCH_DOLLARS) * 100 * markup
+            in_price, out_price = prices(model, input_tokens)
+            attempt_cents = (input_tokens / 1e6 * in_price + output_tokens / 1e6 * out_price
+                             + searches * WEB_SEARCH_DOLLARS) * 100
+            dollars_cents += attempt_cents * markup
+            raw_dollars_cents += attempt_cents
             total_in += input_tokens
             total_out += output_tokens
             total_searches += searches
         cents = int(math.ceil(dollars_cents))
         with db.session() as conn:
             conn.execute(
-                "INSERT INTO ai_usage (user_id, purpose, model, input_tokens, output_tokens, web_searches, cost_cents, paid_by, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (self.user_id, purpose, served_by, total_in, total_out, total_searches, cents, self.paid_by, db.now()),
+                "INSERT INTO ai_usage (user_id, purpose, model, input_tokens, output_tokens, web_searches, cost_cents,"
+                " raw_cents, paid_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (self.user_id, purpose, served_by, total_in, total_out, total_searches, cents,
+                 int(math.ceil(raw_dollars_cents)), self.paid_by, db.now()),
             )
         return cents
 
@@ -365,20 +392,30 @@ def _research_result(blocks: list[Any]) -> ResearchResult:
 
 
 def default_factory(settings) -> Callable[[dict], AIClient]:
-    """Build the function that gives each user an AI client, or explains why they cannot have one."""
+    """Build the function that gives each user an AI client, or explains why they cannot have one.
+
+    A member's own key comes first, with the model they chose. Otherwise the site's key (studio/site_ai.py)
+    with the owner's model: free for the member if the owner chose that, else paid with credits."""
     from .security import decrypt_secret
 
     def factory(user: dict) -> AIClient:
+        note = member_voice(user)
         if user.get("own_api_key_enc"):
             key = decrypt_secret(settings.secret_key, user["own_api_key_enc"])
             if key:
-                return AIClient(api_key=key, model=settings.model, user_id=user["id"], paid_by="own_key",
-                                markup=settings.credit_markup, member_note=member_voice(user))
-        if settings.anthropic_api_key:
+                return AIClient(api_key=key, model=site_ai.member_model(settings, user), user_id=user["id"],
+                                paid_by="own_key", markup=settings.credit_markup, member_note=note)
+        site_key = site_ai.site_key(settings)
+        if site_key:
+            model = site_ai.site_model(settings)
+            if site_ai.pay_mode() == "free":
+                return AIClient(api_key=site_key, model=model, user_id=user["id"], paid_by="site", markup=1.0,
+                                member_note=note)
             if credits.balance(user["id"]) > 0:
-                return AIClient(api_key=settings.anthropic_api_key, model=settings.model, user_id=user["id"],
-                                paid_by="credits", markup=settings.credit_markup, member_note=member_voice(user))
-            raise AINotAvailable("To use the AI, buy credits or connect your own Claude API key on your account page.")
-        raise AINotAvailable("To use the AI, connect your own Claude API key on your account page. This site does not provide AI credits yet.")
+                return AIClient(api_key=site_key, model=model, user_id=user["id"], paid_by="credits",
+                                markup=settings.credit_markup, member_note=note)
+            if settings.stripe_secret_key:
+                raise AINotAvailable("To use the AI, buy credits or connect your own Claude API key on Your account.")
+        raise AINotAvailable("To use the AI, connect your own Claude API key on Your account.")
 
     return factory

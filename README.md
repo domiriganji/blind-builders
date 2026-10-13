@@ -2,7 +2,7 @@
 
 A website where blind and low-vision people turn their ideas into reality with AI: websites and apps, writing and publishing, research, and tasks done on the web. Every page is built for screen readers, keyboards, voice and braille displays first, works without JavaScript, and is light enough for cheap phones on slow data.
 
-There is no phone line and no support staff. The AI does the work, and members help each other. Members pay for the AI themselves, either with their own Claude API key or with credits.
+There is no phone line and no support staff. The AI does the work, and members help each other. Members use the AI with their own Claude API key, or on the site's key: with credits, or free within limits the site owner sets.
 
 ## What you can do
 
@@ -50,10 +50,10 @@ Any host that runs Python works (a small virtual server, Render, Railway, Fly.io
 
 | Setting | What it is |
 |---|---|
-| `STUDIO_SECRET_KEY` | Required. Long random text. Keep it the same forever: it signs sign-ins and encrypts members' saved API keys. |
+| `STUDIO_SECRET_KEY` | Required. Long random text. Keep it the same forever: it signs sign-ins and encrypts saved API keys (members' and the site's). Keep it apart from copies of the database. |
 | `STUDIO_BASE_URL` | Your public address, for example `https://studio.example.org`. |
-| `ANTHROPIC_API_KEY` | Optional. The site's own Claude key, used for members who buy credits. Without it, members use their own keys. |
-| `STUDIO_MODEL` | Optional. Default `claude-opus-5-5`. |
+| `ANTHROPIC_API_KEY` | Optional. The site's own Claude key. You can instead save it on the site, in Your account, Site owner tools, AI settings for your key; a key saved there takes the place of this one. Without either, members use their own keys. |
+| `STUDIO_MODEL` | Optional. Default `claude-opus-5-5`. The model chosen in AI settings for your key takes its place. |
 | `STUDIO_CREDIT_MARKUP` | Optional. Default `1.25`: credits cost the AI price plus 25 percent. |
 | `STUDIO_SIGNUP_CREDITS` | Optional. Free credits for new members, in cents. Anyone can make accounts, so these are paid for with your Claude key: they go to one account per internet address every 30 days, and to at most `STUDIO_SIGNUP_CREDITS_PER_DAY` (default 20) new accounts a day. |
 | `STUDIO_PREVIEW_BASE_URL` | Recommended. A separate domain for members' build previews, for example `https://previews-studio.example.org`, pointed at the same app. Then a member's page can never pass for a page of your site. |
@@ -63,6 +63,15 @@ Any host that runs Python works (a small virtual server, Render, Railway, Fly.io
 **Visual checks for Build.** To check how members' builds look on a phone and a computer, the server needs a browser: run `pip install playwright` (it is in `requirements.txt`) and then `playwright install chromium` (add `--with-deps` on a fresh Linux server for the system libraries). Without them, builds still work, and each version page says plainly that the look was not checked. The built pages run in a locked-down Chromium with no network and a time limit per page; run the site as a user other than root so Chromium's own sandbox is on too. Set `STUDIO_VISUAL_CHECKS=off` to turn the visual checks off.
 
 Start it with `uvicorn studio.app:get_app --factory --host 0.0.0.0 --port 8000`. Sign-in tries and new accounts are limited per internet address. Behind a proxy on the same machine (Caddy, nginx), uvicorn reads the visitor's address from `X-Forwarded-For`; for a proxy elsewhere, add `--forwarded-allow-ips` with its address, or every visitor shares the proxy's address and its limits. Make yourself an admin with `python -m studio.manage make-admin you@example.com`.
+
+**AI settings for your key** (Your account, Site owner tools). As the site owner you can:
+
+- save the site's Claude API key: Anthropic checks it first, it is stored encrypted, only its last 4 characters are ever shown, and saving or removing it needs your password;
+- choose the model members use with it: Claude Opus 5.5 (recommended), Sonnet 5.5 (half the price), Haiku 5.5 (lowest cost, weaker at building and research) or Fable 5.1 (most capable, most expensive);
+- choose who pays: members with credits, or you, free for members;
+- set monthly limits: the most your key may spend for the whole site, and the most each member may use. Before each AI step the site sets aside the most it can cost, so a limit is never passed; when one is reached, members are told plainly and can still use their own key. When the AI is free for members, at least one limit is required. Set a spending limit in the Anthropic Console too.
+
+Members who connect their own key choose their own model on their key page. Limits never apply to them.
 
 ## Tests
 

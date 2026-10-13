@@ -28,7 +28,7 @@
 </ul>
 {% if user.is_admin %}
 <h2>Running the site</h2>
-<p><a href="/account/admin">Site owner tools</a>: give credits and see how much the site is used.</p>
+<p><a href="/account/admin">Site owner tools</a>: give credits, see how much the site is used, and <a href="/account/admin/ai">AI settings for your key</a>.</p>
 {% endif %}
 <h2>Getting back in</h2>
 <p>{% if user.recovery_hash %}You have a recovery code for a forgotten password.{% else %}You have no recovery code yet. Without one, a forgotten password locks you out.{% endif %} <a href="/account/recovery-code">{% if user.recovery_hash %}Make a new recovery code{% else %}Make your recovery code now{% endif %}</a>.</p>

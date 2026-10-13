@@ -61,6 +61,18 @@ CREATE TABLE IF NOT EXISTS ai_usage (
     paid_by TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS site_settings (
+    name TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    updated_by INTEGER
+);
+CREATE TABLE IF NOT EXISTS ai_spend_holds (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    cents INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS attempts (
     id INTEGER PRIMARY KEY,
     action TEXT NOT NULL,
@@ -130,6 +142,10 @@ def init(feature_schemas: list[str]) -> None:
         ensure_column(conn, "users", "show_name_on_help", "INTEGER NOT NULL DEFAULT 0")
         # How the AI describes looks: 0 = the effect only (the default), 1 = the effect, then the main colours.
         ensure_column(conn, "users", "describe_colours", "INTEGER NOT NULL DEFAULT 0")
+        # The model a member chose for their own key ('' = the site's choice, see site_ai.member_model).
+        ensure_column(conn, "users", "own_model", "TEXT NOT NULL DEFAULT ''")
+        # What Anthropic charged for the call, without the credits markup (site_ai limits count this).
+        ensure_column(conn, "ai_usage", "raw_cents", "INTEGER NOT NULL DEFAULT 0")
         for schema in feature_schemas:
             if schema:
                 conn.executescript(schema)

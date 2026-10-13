@@ -1,6 +1,9 @@
 {# How this member pays for AI. Needs `status` from account.ai_status(). #}
 {% if status.mode == 'own_key' %}
 <p>You use your own Claude API key ending in <strong>{{ status.last4 }}</strong>. Anthropic bills you directly and this site charges nothing for AI.</p>
+{% elif status.mode == 'free' %}
+<p>The site's owner pays for your AI.{% if status.free_limit_text %} You have <strong>{{ status.free_left_text }}</strong> left of {{ status.free_limit_text }} this month. It starts again on {{ status.renews }}.{% endif %}</p>
+{% if status.key_unreadable %}<p>Your saved Claude API key can no longer be read, so the AI uses the site's key instead. <a href="/account/ai-key">Connect your Claude API key again</a>.</p>{% endif %}
 {% elif status.mode == 'credits' %}
 <p>You use credits. Balance: <strong>{{ status.balance_text }}</strong>.</p>
 {% if status.key_unreadable %}<p>Your saved Claude API key can no longer be read, so the AI uses your credits instead. <a href="/account/ai-key">Connect your Claude API key again</a> to stop using credits.</p>{% endif %}

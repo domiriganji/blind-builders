@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import ai, credits, db, jobs
+from . import ai, credits, db, jobs, site_ai
 from .auth import router as auth_router
 from .config import Settings, load_settings
 from .core_routes import router as core_router
@@ -22,7 +22,8 @@ from .web import LoginRequired, redirect, render
 log = logging.getLogger("studio")
 
 # Order here is the order of the main navigation and the home page.
-FEATURES = ["build", "errands", "write", "find", "research", "checks", "ai_tools", "library", "learn", "account", "recovery"]
+FEATURES = ["build", "errands", "write", "find", "research", "checks", "ai_tools", "library", "learn", "account", "recovery",
+            "owner_ai"]
 
 TOO_LARGE_PAGE = b"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>That was too large</title></head>
@@ -90,6 +91,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             seed()
     jobs.configure(settings.job_workers, settings.jobs_inline)
     credits.release_all_holds()
+    site_ai.release_all_holds()
 
     app = FastAPI(title=settings.site_name, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.settings = settings
