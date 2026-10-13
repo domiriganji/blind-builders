@@ -4,15 +4,16 @@ from __future__ import annotations
 import importlib
 import logging
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.responses import PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import ai, db, jobs
+from . import ai, credits, db, jobs
 from .auth import router as auth_router
 from .config import Settings, load_settings
 from .core_routes import router as core_router
@@ -88,6 +89,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if callable(seed):
             seed()
     jobs.configure(settings.job_workers, settings.jobs_inline)
+    credits.release_all_holds()
 
     app = FastAPI(title=settings.site_name, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.settings = settings
@@ -103,6 +105,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("Referrer-Policy", "same-origin")
         return response
+
+    if settings.preview_base_url:
+        preview_host = urlsplit(settings.preview_base_url).netloc
+
+        @app.middleware("http")
+        async def previews_on_their_own_domain(request: Request, call_next):
+            # The preview domain serves build previews and nothing else; the site's own domain sends preview
+            # addresses there, so a member's page never appears under the site's address.
+            is_preview = request.url.path.startswith("/build/p/")
+            on_preview_host = request.headers.get("host", "") == preview_host
+            if on_preview_host and not is_preview:
+                return PlainTextResponse("Not found", status_code=404)
+            if is_preview and not on_preview_host:
+                query = ("?" + request.url.query) if request.url.query else ""
+                return RedirectResponse(settings.preview_base_url + request.url.path + query, status_code=307)
+            return await call_next(request)
 
     app.add_middleware(BodySizeLimit, max_bytes=settings.max_body_bytes)
     app.add_middleware(
@@ -133,6 +151,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         else:
             heading, message = "Something is not right", str(exc.detail)
         return render(request, "error.html", title=heading, heading=heading, message=message, status_code=exc.status_code)
+
+    @app.exception_handler(jobs.TooManyJobs)
+    async def too_many_jobs(request: Request, exc: jobs.TooManyJobs):
+        heading = "You have too much AI work running"
+        return render(request, "error.html", title=heading, heading=heading, message=exc.user_message, status_code=429)
 
     @app.exception_handler(OverflowError)
     async def number_too_large(request: Request, exc: OverflowError):

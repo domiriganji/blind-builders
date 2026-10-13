@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from markupsafe import Markup
 
-from .. import db, jobs
+from .. import db, jobs, sensitive
 from ..ai import AIError, AINotAvailable
 from ..web import checked_form, current_user, flash, get_ai, markdown, redirect, render, require_user
 
@@ -68,6 +68,8 @@ MAX_CSV_BYTES = 200 * 1024
 # A request far bigger than any allowed upload is refused before the body is read.
 MAX_UPLOAD_REQUEST = 1024 * 1024
 MAX_STAT_COLUMNS = 50
+MAX_CSV_COLUMNS = 1000      # more than this is refused: no real table needs it, and each one costs storage
+KEEP_UPLOADS = 10           # uploaded files kept per project (the AI's descriptions are kept separately)
 MAX_CELL_TEXT = 100
 SAMPLE_ROWS = 10
 MAX_SOURCES = 50
@@ -235,7 +237,9 @@ def _luhn_ok(digits: str) -> bool:
 
 
 def looks_secret(text: str) -> bool:
-    """True if the text seems to hold a card number, a password or a one-time code."""
+    """True if the text seems to hold a card number, a password, a PIN, a one-time code or an API key."""
+    if sensitive.find_secret(text or ""):
+        return True
     if _SECRET_RE.search(text or ""):
         return True
     for m in _CARD_RE.finditer(text or ""):
@@ -381,6 +385,9 @@ def compute_csv_stats(text: str) -> dict:
         raise CSVProblem("The file has a first row of column names but no rows of data after it. "
                          "Add your data rows, save the file and upload it again.")
     width = max(len(header), max(len(r) for r in data))
+    if width > MAX_CSV_COLUMNS:
+        raise CSVProblem(f"The file has {width:,} columns. The site reads files with up to {MAX_CSV_COLUMNS:,} "
+                         "columns. Remove the columns you do not need and upload it again.")
     names = []
     for i in range(width):
         name = " ".join(header[i].split())[:MAX_CELL_TEXT] if i < len(header) else ""
@@ -407,7 +414,7 @@ def compute_csv_stats(text: str) -> dict:
     return {
         "rows": len(data),
         "columns": width,
-        "column_names": names,
+        "column_names": names[:MAX_STAT_COLUMNS],  # the total is in "columns"
         "delimiter": _DELIMITER_NAMES.get(delimiter, repr(delimiter)),
         "uneven_rows": uneven,
         "empty_cells": sum(c["empty"] for c in columns),
@@ -424,7 +431,7 @@ def facts_as_text(stats: dict | None) -> str:
     lines = [
         f"Rows of data (not counting the column names): {stats['rows']}",
         f"Columns: {stats['columns']}",
-        "Column names: " + names_text(stats["column_names"]),
+        "Column names: " + names_text(stats["column_names"], stats["columns"]),
         f"Rows with a different number of cells than the first row: {stats['uneven_rows']}",
     ]
     for c in stats["column_stats"]:
@@ -440,9 +447,9 @@ def facts_as_text(stats: dict | None) -> str:
     return "\n".join(lines)
 
 
-def names_text(names: list[str]) -> str:
-    """Column names as one list: the first 50 only, then how many more there are."""
-    more = len(names) - MAX_STAT_COLUMNS
+def names_text(names: list[str], total: int | None = None) -> str:
+    """Column names as one list: the first 50 only, then how many more there are (of total columns)."""
+    more = (total if total is not None else len(names)) - MAX_STAT_COLUMNS
     return ", ".join(names[:MAX_STAT_COLUMNS]) + (f", and {more} more" if more > 0 else "")
 
 
@@ -534,11 +541,20 @@ def _notes(project_id: int) -> dict | None:
 
 
 def _save_item(project_id: int, kind: str, content: str, sources: list[dict] | None = None,
-               meta: dict | None = None) -> bool:
-    """Add a new version. Returns False if the project was deleted while the AI was working."""
+               meta: dict | None = None, owner: tuple[int, str] | None = None) -> bool:
+    """Add a new version. Returns False if the project was deleted while the AI was working.
+
+    owner is (user id, project created_at) for background work: ids of deleted projects can be reused, so a
+    job saves only into the very project it was started for."""
     stamp = db.now()
     with db.session() as conn:
-        if conn.execute("SELECT 1 FROM research_projects WHERE id = ?", (project_id,)).fetchone() is None:
+        conn.execute("BEGIN IMMEDIATE")
+        if owner is None:
+            found = conn.execute("SELECT 1 FROM research_projects WHERE id = ?", (project_id,)).fetchone()
+        else:
+            found = conn.execute("SELECT 1 FROM research_projects WHERE id = ? AND user_id = ? AND created_at = ?",
+                                 (project_id, *owner)).fetchone()
+        if found is None:
             return False
         conn.execute(
             "INSERT INTO research_items (project_id, kind, content_md, sources_json, meta_json, created_at)"
@@ -549,9 +565,11 @@ def _save_item(project_id: int, kind: str, content: str, sources: list[dict] | N
     return True
 
 
-def _load_project(project_id: int) -> dict | None:
+def _load_project(project_id: int, owner: tuple[int, str]) -> dict | None:
+    """The project a job was started for (same id, owner and creation time), or None if it was deleted."""
     with db.session() as conn:
-        row = conn.execute("SELECT * FROM research_projects WHERE id = ?", (project_id,)).fetchone()
+        row = conn.execute("SELECT * FROM research_projects WHERE id = ? AND user_id = ? AND created_at = ?",
+                           (project_id, *owner)).fetchone()
     return dict(row) if row else None
 
 
@@ -692,7 +710,8 @@ def _start(request: Request, user: dict, project: dict, kind: str, title: str, f
     except AINotAvailable as exc:
         flash(request, exc.user_message, "error")
         return redirect(back)
-    job_id = jobs.submit(user["id"], job_kind, title, fn, ai, project["id"])
+    job_id = jobs.submit(user["id"], job_kind, title, fn, ai, project["id"], project["created_at"],
+                         item_ref=f"research:{project['id']}:{project['created_at']}")
     return redirect(jobs.job_url(job_id))
 
 
@@ -746,8 +765,9 @@ def _project_brief(project: dict) -> str:
     return "\n".join(parts)
 
 
-def _run_prior_work(ctx, ai, project_id: int) -> str:
-    project = _load_project(project_id)
+def _run_prior_work(ctx, ai, project_id: int, created_at: str) -> str:
+    owner = (ctx.user_id, created_at)
+    project = _load_project(project_id, owner)
     if project is None:
         return "/research"
     ctx.progress("Searching for studies on your question")
@@ -760,7 +780,7 @@ def _run_prior_work(ctx, ai, project_id: int) -> str:
     text = _answer_text(getattr(result, "text", None))
     ctx.progress("Saving what was found")
     sources = _safe_sources(getattr(result, "sources", None))
-    if not _save_item(project_id, "prior_work", text, sources, {"source_count": len(sources)}):
+    if not _save_item(project_id, "prior_work", text, sources, {"source_count": len(sources)}, owner=owner):
         return "/research"
     return f"/research/{project_id}/prior-work?done=1"
 
@@ -772,8 +792,9 @@ def _prior_work_context(project_id: int) -> tuple[str, list[dict]]:
     return prior["content_md"][:15000], prior["sources"]
 
 
-def _run_plan(ctx, ai, project_id: int) -> str:
-    project = _load_project(project_id)
+def _run_plan(ctx, ai, project_id: int, created_at: str) -> str:
+    owner = (ctx.user_id, created_at)
+    project = _load_project(project_id, owner)
     if project is None:
         return "/research"
     prior_text, sources = _prior_work_context(project_id)
@@ -784,13 +805,14 @@ def _run_plan(ctx, ai, project_id: int) -> str:
                 f"Numbered sources:\n{_numbered_sources(sources)}\n\nWrite the study plan."),
         purpose="research.plan",
     ))
-    if not _save_item(project_id, "plan", text, sources, {"citations": check_citations(text, len(sources))}):
+    if not _save_item(project_id, "plan", text, sources, {"citations": check_citations(text, len(sources))}, owner=owner):
         return "/research"
     return f"/research/{project_id}/plan?done=1"
 
 
-def _run_data(ctx, ai, project_id: int) -> str:
-    project = _load_project(project_id)
+def _run_data(ctx, ai, project_id: int, created_at: str) -> str:
+    owner = (ctx.user_id, created_at)
+    project = _load_project(project_id, owner)
     if project is None:
         return "/research"
     latest = _latest(project_id, "data")
@@ -807,19 +829,20 @@ def _run_data(ctx, ai, project_id: int) -> str:
         purpose="research.data",
     ))
     now_latest = _latest(project_id, "data")
-    if (now_latest or {}).get("id") != (latest or {}).get("id") and _load_project(project_id) is not None:
+    if (now_latest or {}).get("id") != (latest or {}).get("id") and _load_project(project_id, owner) is not None:
         # A new file was uploaded while the AI worked. Saving would put the old file's facts back on
         # the page with an interpretation of the old file, so nothing is saved.
         raise AIError("You uploaded a new data file while the AI was working, so its answer describes the old "
                       "file. Nothing was saved. Ask the AI again to describe the new file.")
     meta["interpreted_at"] = db.now()
-    if not _save_item(project_id, "data", text, [], meta):
+    if not _save_item(project_id, "data", text, [], meta, owner=owner):
         return "/research"
     return f"/research/{project_id}/data?done=1"
 
 
-def _run_draft(ctx, ai, project_id: int) -> str:
-    project = _load_project(project_id)
+def _run_draft(ctx, ai, project_id: int, created_at: str) -> str:
+    owner = (ctx.user_id, created_at)
+    project = _load_project(project_id, owner)
     if project is None:
         return "/research"
     prior_text, sources = _prior_work_context(project_id)
@@ -843,7 +866,7 @@ def _run_draft(ctx, ai, project_id: int) -> str:
     ))
     ctx.progress("Checking the citation numbers")
     citations = check_citations(text, len(sources))
-    if not _save_item(project_id, "draft", text, sources, {"citations": citations}):
+    if not _save_item(project_id, "draft", text, sources, {"citations": citations}, owner=owner):
         return "/research"
     return f"/research/{project_id}/draft?done=1"
 
@@ -1044,6 +1067,11 @@ async def upload_csv(request: Request, project_id: int, user: dict = Depends(req
     except CSVProblem as exc:
         return _csv_error_page(request, project, str(exc))
     _save_item(project_id, "data", "", [], {"stats": stats, "filename": filename, "uploaded_at": db.now()})
+    with db.session() as conn:
+        # Keep the latest uploads only, so uploading again and again cannot fill the disk.
+        conn.execute("DELETE FROM research_items WHERE project_id = ? AND kind = 'data' AND content_md = '' AND id NOT IN"
+                     " (SELECT id FROM research_items WHERE project_id = ? AND kind = 'data' AND content_md = ''"
+                     " ORDER BY id DESC LIMIT ?)", (project_id, project_id, KEEP_UPLOADS))
     _say_done(request, f"/research/{project_id}/data",
               f"The site computed facts from {filename}: {_count(stats['rows'], 'row')} and "
               f"{_count(stats['columns'], 'column')}")
@@ -1066,6 +1094,7 @@ async def delete(request: Request, project_id: int, user: dict = Depends(require
         conn.execute("DELETE FROM research_items WHERE project_id = ?", (project_id,))
         conn.execute("DELETE FROM research_notes WHERE project_id = ?", (project_id,))
         conn.execute("DELETE FROM research_projects WHERE id = ? AND user_id = ?", (project_id, user["id"]))
+        jobs.forget_item(conn, user["id"], f"research:{project['id']}:{project['created_at']}")
     _say_done(request, "/research", f"Deleted the research project {project['title']}")
     return redirect("/research")
 

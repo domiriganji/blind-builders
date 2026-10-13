@@ -2,6 +2,8 @@
 and accessible name or by its label, never by CSS selectors or ids, so the test itself proves each control
 has a usable name. Every page reached passes check_page at full width and at 320 pixels.
 """
+import re
+
 import pytest
 
 from studio.features import learn
@@ -151,6 +153,11 @@ def test_ask_get_an_ai_answer_answer_and_mark_helpful(live, browser):
     helper = new_page(browser)
     sign_up(helper, base, "journey-helper@example.com", "Ben")
     signed_in(helper)
+    # Help shows a code name unless the member chooses to show their name.
+    helper.goto(base + "/account/profile")
+    helper.get_by_label("Show my name in Help instead of my code name").check()
+    helper.get_by_role("button", name="Save my profile").click()
+    helper.wait_for_load_state()
     helper.goto(base + "/help")
     helper.get_by_role("link", name="Questions not answered yet").click()
     helper.wait_for_load_state()
@@ -273,7 +280,8 @@ def test_learn_and_help_work_without_javascript(live, browser):
     page.get_by_label("Your answer").fill("Update: it works after restarting NVDA.")
     page.get_by_role("button", name="Post your answer").click()
     assert_heading(page, "Your answer is posted: Braille display drops the cursor")
-    expect(page.get_by_role("heading", level=3, name="Reply from Eve, who asked")).to_be_visible()
+    # Help shows the member's code name, since Eve did not choose to show her name there.
+    expect(page.get_by_role("heading", level=3, name=re.compile(r"^Reply from Member [0-9A-F]{4}, who asked$"))).to_be_visible()
     audit_without_javascript(page, browser, problems, "question after replying without JavaScript")
 
     page.get_by_role("button", name="Mark as answered").click()

@@ -60,8 +60,18 @@ class Source:
 
 @dataclass
 class ResearchResult:
+    """text: the answer. sources: the pages the answer cites (search results and fetched pages).
+    other_results: pages the searches returned that the answer does not cite (not "used")."""
     text: str
     sources: list[Source] = field(default_factory=list)
+    other_results: list[Source] = field(default_factory=list)
+
+
+def _field(obj: Any, name: str, default: Any = None) -> Any:
+    """An attribute of an SDK object, or a key of a plain dict (beta fields can arrive either way)."""
+    if isinstance(obj, dict):
+        return obj.get(name, default)
+    return getattr(obj, name, default)
 
 
 def cost_cents(model: str, input_tokens: int, output_tokens: int, web_searches: int, markup: float) -> int:
@@ -112,89 +122,181 @@ class AIClient:
 
     def research(self, *, system: str, prompt: str, purpose: str, effort: str = "medium",
                  max_searches: int = 8, fetch: bool = True, max_tokens: int = 16000) -> ResearchResult:
-        """Answer using live web search (and page fetch). Returns the text and the sources it used."""
+        """Answer using live web search (and page fetch). Returns the answer, the sources it cites, and the
+        other pages the searches returned."""
         tools: list[dict] = [dict(WEB_SEARCH_TOOL, max_uses=max_searches)]
         if fetch:
             tools.append(dict(WEB_FETCH_TOOL, max_uses=max_searches))
-        messages: list[dict] = [{"role": "user", "content": prompt}]
-        texts: list[str] = []
-        sources: dict[str, Source] = {}
+        blocks: list[Any] = []  # every content block so far, across paused and resumed turns
+        message = None
         for _ in range(6):  # resume paused server-tool turns a few times at most
+            messages: list[dict] = [{"role": "user", "content": prompt}]
+            if blocks:
+                # The whole turn so far, so a second pause does not drop what the first part found.
+                messages.append({"role": "assistant", "content": list(blocks)})
             message = self._call(purpose=purpose, system=system, messages=messages, max_tokens=max_tokens,
                                  output_config={"effort": effort}, tools=tools)
-            for block in message.content:
-                if block.type == "text":
-                    texts.append(block.text)
-                    for c in getattr(block, "citations", None) or []:
-                        url = getattr(c, "url", None)
-                        if url:
-                            src = sources.setdefault(url, Source(url=url, title=getattr(c, "title", "") or url))
-                            if not src.quote:
-                                src.quote = (getattr(c, "cited_text", "") or "")[:300]
-                elif block.type == "web_search_tool_result":
-                    content = getattr(block, "content", None)
-                    if isinstance(content, list):
-                        for r in content:
-                            url = getattr(r, "url", None)
-                            if url and url not in sources:
-                                sources[url] = Source(url=url, title=getattr(r, "title", "") or url)
+            blocks.extend(message.content)
             if message.stop_reason != "pause_turn":
                 break
-            messages = [{"role": "user", "content": prompt}, {"role": "assistant", "content": message.content}]
-        return ResearchResult(text="".join(texts).strip(), sources=list(sources.values()))
+        if message is not None and message.stop_reason == "pause_turn":
+            raise AIError("The research took too long to finish, so nothing was saved. Please try again, "
+                          "perhaps with a narrower question.")
+        return _research_result(blocks)
 
     # ----- internals ----------------------------------------------------------------------------
 
+    def _worst_case_cents(self, kwargs: dict) -> int:
+        """The most a call can cost: the longest answer allowed, the input (about 3 characters a token, which
+        overestimates), and every web search and page fetch allowed, each reading about 10,000 tokens."""
+        chars = len(str(kwargs.get("system", ""))) + len(json.dumps(kwargs.get("messages", []), default=str))
+        input_tokens = chars // 3 + 1000
+        searches = 0
+        for tool in kwargs.get("tools") or []:
+            uses = int(tool.get("max_uses", 0) or 0)
+            input_tokens += uses * 10_000
+            if tool.get("name") == "web_search":
+                searches += uses
+        return cost_cents(self.model, input_tokens, int(kwargs.get("max_tokens", 0)), searches, self.markup)
+
     def _call(self, *, purpose: str, **kwargs) -> Any:
-        if self.paid_by == "credits" and credits.balance(self.user_id) <= 0:
-            raise AINotAvailable("You have no credits left. Buy credits or connect your own Claude API key on your account page.")
+        hold_id = None
+        if self.paid_by == "credits":
+            # Hold the most this call can cost before making it, and settle the real cost after, so a member
+            # can never run past their balance (and calls running at the same time see each other's holds).
+            worst = self._worst_case_cents(kwargs)
+            hold_id = credits.hold(self.user_id, worst, f"AI, held until it finishes: {purpose}")
+            if hold_id is None:
+                have = credits.balance(self.user_id)
+                raise AINotAvailable(
+                    f"This step can cost up to {credits.format_cents(worst)} in credits, and you have "
+                    f"{credits.format_cents(max(have, 0))} free to use. Buy credits or connect your own Claude API key "
+                    "on your account page.")
+        charged = 0
         try:
-            with self._client.beta.messages.stream(
-                model=self.model,
-                betas=[FALLBACK_BETA],
-                fallbacks="default",
-                **kwargs,
-            ) as stream:
-                message = stream.get_final_message()
-        except anthropic.AuthenticationError as exc:
-            if self.paid_by == "own_key":
-                raise AIError("Your Claude API key was rejected. Check it on your account page.") from exc
-            raise AIError("The site's AI key is not working. Please try again later.") from exc
-        except anthropic.PermissionDeniedError as exc:
-            raise AIError("The Claude API key does not have permission for this model.") from exc
-        except anthropic.RateLimitError as exc:
-            raise AIError("The AI is busy right now (rate limit). Please try again in a minute.") from exc
-        except anthropic.APIStatusError as exc:
-            raise AIError(f"The AI service returned an error ({exc.status_code}). Please try again.") from exc
-        except anthropic.APIConnectionError as exc:
-            raise AIError("Could not reach the AI service. Please try again.") from exc
-        self._record_usage(purpose, message)
+            try:
+                with self._client.beta.messages.stream(
+                    model=self.model,
+                    betas=[FALLBACK_BETA],
+                    fallbacks="default",
+                    **kwargs,
+                ) as stream:
+                    message = stream.get_final_message()
+            except anthropic.AuthenticationError as exc:
+                if self.paid_by == "own_key":
+                    raise AIError("Your Claude API key was rejected. Check it on your account page.") from exc
+                raise AIError("The site's AI key is not working. Please try again later.") from exc
+            except anthropic.PermissionDeniedError as exc:
+                raise AIError("The Claude API key does not have permission for this model.") from exc
+            except anthropic.RateLimitError as exc:
+                raise AIError("The AI is busy right now (rate limit). Please try again in a minute.") from exc
+            except anthropic.APIStatusError as exc:
+                raise AIError(f"The AI service returned an error ({exc.status_code}). Please try again.") from exc
+            except anthropic.APIConnectionError as exc:
+                raise AIError("Could not reach the AI service. Please try again.") from exc
+            charged = self._record_usage(purpose, message)
+        finally:
+            if hold_id is not None:
+                credits.settle(hold_id, self.user_id, charged if self.paid_by == "credits" else 0, f"AI: {purpose}")
         if message.stop_reason == "refusal":
             raise AIRefused("The AI declined this request. Try rewording it, or ask in Help if you think this is a mistake.")
         if message.stop_reason == "max_tokens":
             raise AIError("The answer was too long and got cut off. Try asking for something smaller.")
         return message
 
-    def _record_usage(self, purpose: str, message: Any) -> None:
+    def _record_usage(self, purpose: str, message: Any) -> int:
+        """Record what the call cost. Returns the cost in cents (what credits pay, with the markup).
+
+        After a server-side fallback, the top-level usage covers only the attempt that answered; every
+        attempt is billed, so each one in usage.iterations is counted at its own model's price."""
         usage = getattr(message, "usage", None)
         if usage is None:
-            return
-        input_tokens = (getattr(usage, "input_tokens", 0) or 0) + (getattr(usage, "cache_creation_input_tokens", 0) or 0)
-        # Cache reads cost about a tenth of normal input.
-        input_tokens += int((getattr(usage, "cache_read_input_tokens", 0) or 0) * 0.1)
-        output_tokens = getattr(usage, "output_tokens", 0) or 0
-        server = getattr(usage, "server_tool_use", None)
-        searches = (getattr(server, "web_search_requests", 0) or 0) if server else 0
-        model = getattr(message, "model", self.model) or self.model
-        cents = cost_cents(model, input_tokens, output_tokens, searches, self.markup if self.paid_by == "credits" else 1.0)
+            return 0
+        markup = self.markup if self.paid_by == "credits" else 1.0
+        served_by = getattr(message, "model", self.model) or self.model
+        attempts = list(_field(usage, "iterations") or []) or [usage]
+        per_attempt_searches = any(_field(a, "server_tool_use") for a in attempts)
+        total_in = total_out = total_searches = 0
+        dollars_cents = 0.0
+        for attempt in attempts:
+            input_tokens = (_field(attempt, "input_tokens", 0) or 0) + (_field(attempt, "cache_creation_input_tokens", 0) or 0)
+            # Cache reads cost about a tenth of normal input.
+            input_tokens += int((_field(attempt, "cache_read_input_tokens", 0) or 0) * 0.1)
+            output_tokens = _field(attempt, "output_tokens", 0) or 0
+            server = _field(attempt if per_attempt_searches else usage, "server_tool_use")
+            searches = (_field(server, "web_search_requests", 0) or 0) if server else 0
+            if not per_attempt_searches and attempt is not attempts[-1]:
+                searches = 0  # the top-level count, added once
+            model = _field(attempt, "model") or served_by
+            in_price, out_price = PRICES.get(model, PRICES["claude-opus-5-5"])
+            dollars_cents += (input_tokens / 1e6 * in_price + output_tokens / 1e6 * out_price
+                              + searches * WEB_SEARCH_DOLLARS) * 100 * markup
+            total_in += input_tokens
+            total_out += output_tokens
+            total_searches += searches
+        cents = int(math.ceil(dollars_cents))
         with db.session() as conn:
             conn.execute(
                 "INSERT INTO ai_usage (user_id, purpose, model, input_tokens, output_tokens, web_searches, cost_cents, paid_by, created_at)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (self.user_id, purpose, model, input_tokens, output_tokens, searches, cents, self.paid_by, db.now()),
+                (self.user_id, purpose, served_by, total_in, total_out, total_searches, cents, self.paid_by, db.now()),
             )
-        if self.paid_by == "credits" and cents > 0:
-            credits.add(self.user_id, -cents, f"AI: {purpose}")
+        return cents
+
+
+_SERVER_TOOL_BLOCKS = {"server_tool_use", "web_search_tool_result", "web_fetch_tool_result"}
+
+
+def _research_result(blocks: list[Any]) -> ResearchResult:
+    """The answer, the sources it cites and the other search results, from a research turn's content blocks.
+
+    The answer is the text after the last tool call: text before it is the model saying what it will search
+    for next ("I'll search for the opening hours first."), not the answer."""
+    all_texts: list[str] = []
+    answer: list[str] = []
+    fetched: list[tuple[str, str]] = []  # (url, title) of each fetched page, in order: citations point at them
+    cited: dict[str, Source] = {}
+    returned: dict[str, Source] = {}
+
+    def cite(url: str | None, title: str | None, quote: str | None) -> None:
+        if not url:
+            return
+        src = cited.setdefault(url, Source(url=url, title=title or url))
+        if not src.quote:
+            src.quote = (quote or "")[:300]
+
+    for block in blocks:
+        kind = _field(block, "type")
+        if kind == "web_fetch_tool_result":
+            content = _field(block, "content")
+            if _field(content, "type") == "web_fetch_result" and _field(content, "url"):
+                document = _field(content, "content")
+                fetched.append((_field(content, "url"), _field(document, "title", "") or _field(content, "url")))
+        if kind in _SERVER_TOOL_BLOCKS:
+            answer = []
+        if kind == "web_search_tool_result":
+            content = _field(block, "content")
+            if isinstance(content, list):
+                for r in content:
+                    url = _field(r, "url")
+                    if url and url not in returned:
+                        returned[url] = Source(url=url, title=_field(r, "title", "") or url)
+        elif kind == "text":
+            text = _field(block, "text", "") or ""
+            all_texts.append(text)
+            answer.append(text)
+            for c in _field(block, "citations") or []:
+                quote = _field(c, "cited_text", "")
+                if _field(c, "url"):
+                    cite(_field(c, "url"), _field(c, "title", ""), quote)
+                    continue
+                index = _field(c, "document_index")
+                if isinstance(index, int) and 0 <= index < len(fetched):
+                    url, title = fetched[index]
+                    cite(url, _field(c, "document_title", "") or title, quote)
+    text = "".join(answer).strip() or "".join(all_texts).strip()
+    others = [src for url, src in returned.items() if url not in cited]
+    return ResearchResult(text=text, sources=list(cited.values()), other_results=others)
 
 
 def default_factory(settings) -> Callable[[dict], AIClient]:

@@ -21,7 +21,11 @@ Environment variables are listed in `studio/config.py`. `ANTHROPIC_API_KEY` is o
 - Set `STUDIO_SECRET_KEY` to a long random value and keep it. It signs sessions and encrypts members' saved API keys.
 - Set `STUDIO_BASE_URL` to the public address, for example `https://studio.example.org`. Preview links for peer checks are built from it.
 - Credits need both `ANTHROPIC_API_KEY` (the site's own Claude key) and payments. For Stripe, set `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`, and add a webhook to `<base URL>/payments/stripe/webhook` for the events `checkout.session.completed` and `checkout.session.async_payment_succeeded`. Without payments, members use their own Claude API keys.
-- `STUDIO_CREDIT_MARKUP` (default 1.25) is what credits cost compared with the AI price. `STUDIO_SIGNUP_CREDITS` gives new members free credits, in cents.
+- `STUDIO_CREDIT_MARKUP` (default 1.25) is what credits cost compared with the AI price. `STUDIO_SIGNUP_CREDITS` gives new members free credits, in cents. Anyone can make accounts and these credits spend the site's key, so they go to one account per internet address every 30 days and to at most `STUDIO_SIGNUP_CREDITS_PER_DAY` (default 20) accounts a day.
+- Credit-paid AI calls hold the most a call can cost before it starts and settle the real cost after, so no one runs past their balance.
+- Set `STUDIO_PREVIEW_BASE_URL` to a separate domain pointed at the same app (for example `https://previews-studio.example.org`). Build previews are then served only there, so a member's page never appears under the site's own address.
+- Sign-in, password recovery and new accounts are limited per internet address (`studio/limits.py`). Behind a proxy on the same machine uvicorn takes the address from `X-Forwarded-For`; for a proxy elsewhere pass `--forwarded-allow-ips`.
+- `STUDIO_JOB_WORKERS` (default 4) is how many AI jobs run at once. Each member can have 3 jobs waiting or running.
 - Admin tasks: `python -m studio.manage make-admin EMAIL` and `python -m studio.manage grant-credits EMAIL CENTS REASON`. Admins also get a page at `/account/admin`.
 
 ## How a section is built
@@ -44,7 +48,8 @@ Templates go in `studio/templates/<section>/`. Tests go in `tests/test_<section>
 |---|---|
 | `studio/web.py` | `render(request, template, title=..., **ctx)`, `checked_form(request)`, `require_user`, `current_user`, `flash`, `redirect`, `get_ai(request, user)`, the `markdown`, `nest_headings` and `shift_headings` template filters |
 | `studio/ai.py` | `AIClient.structured / text / research`, `AIError`, `AINotAvailable`, `AIRefused`, `ResearchResult`, `Source` |
-| `studio/jobs.py` | `submit(user_id, kind, title, fn, *args, back_url="", dedupe_key="")`, `job_url(job_id)`, `JobContext.progress(text)` |
+| `studio/jobs.py` | `submit(user_id, kind, title, fn, *args, back_url="", dedupe_key="", item_ref="")`, `job_url(job_id)`, `JobContext.progress(text)`, `forget_item(conn, user_id, item_ref)`, `still_wanted(conn, ctx)` |
+| `studio/sensitive.py` | `find_secret(text)`: a plain message if the text holds a password, PIN, one-time code, API key or card number |
 | `studio/db.py` | `with db.session() as conn:` and `db.now()` |
 | `studio/credits.py` | `balance`, `add`, `history`, `format_cents` |
 | `studio/a11y_check.py` | `check_html(html) -> Report` with `.errors`, `.warnings`, `.passed`, `.not_checked`, `.to_dict()` |
@@ -95,6 +100,8 @@ def _understand(ctx, ai, thing_id):          # runs in the background
 
 - `purpose` is a unique string per kind of call, `<section>.<step>`. Tests register fake answers by purpose.
 - Pass `back_url=` (the page to return to if the job fails) and, for anything that costs money, a specific `dedupe_key=` (for example `f"build.generate:{project_id}"`) so a double click does not run and charge twice.
+- Ids of deleted rows are reused. A job is given the item's id and something unique to it (its `created_at` or a random token) and checks both, with the owner (`ctx.user_id`), in the same transaction as its final write. A job that saves new private work also checks `jobs.still_wanted(conn, ctx)`.
+- Job titles quote the member's words. Pass `item_ref=` (for example `f"errands:{id}:{created_at}"`) and call `jobs.forget_item(conn, user_id, item_ref)` when the item is deleted.
 - Show member or AI Markdown with `|markdown|nest_headings(3)` (or the level under your section heading), so its headings never skip a level or pose as the page's own. Pictures in Markdown become labelled links; the site shows no images from member or AI text.
 - `structured()` schemas must be JSON Schema objects with `"additionalProperties": false` and every property listed in `"required"` (a requirement of structured outputs). Use strings, numbers, booleans, arrays and nested objects.
 - `research()` searches the live web and returns `ResearchResult(text, sources)`. Always show the sources with the `sources_list` macro.
@@ -106,7 +113,7 @@ def _understand(ctx, ai, thing_id):          # runs in the background
 - Label AI-written text as written by the AI. Label machine-checked facts as checked by the site. Never present AI claims as checked.
 - Every result that could be wrong says what was checked, how, and what was not checked.
 - Never silently change a person's words. Show before and after, and let them accept or reject.
-- Never ask for, store or send passwords, card numbers or one-time codes. Refuse input that looks like them.
+- Never ask for, store or send passwords, card numbers or one-time codes. Refuse input that looks like them, with `sensitive.find_secret` on every field that is stored or sent to the AI.
 
 ## Security
 

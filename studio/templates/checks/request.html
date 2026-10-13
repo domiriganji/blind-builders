@@ -17,6 +17,7 @@
 <h2>Where</h2>
 <p><a href="{{ req.url }}" rel="noopener noreferrer">Open {{ req.title }} (the member's own page)</a></p>
 <p class="meta">Address: {{ req.url }}</p>
+<p>This page was made by a member, not by this site. Never type your password for this site, or any other password or card number, into it.</p>
 <p class="meta">Asked on {{ req.created_at[:10] }}{% if req.closed_at %}. Closed on {{ req.closed_at[:10] }}{% endif %}.</p>
 
 {% if is_owner %}

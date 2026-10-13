@@ -264,7 +264,8 @@ def test_no_suggestions(user_client, fake_ai):
 def test_accept_applies_exactly_once(user_client, fake_ai):
     doc_id = create_doc(user_client)
     save(user_client, doc_id, "teh cat and teh dog")
-    batch_id = ask_suggestions(user_client, doc_id, fake_ai, [{"original": "teh", "proposed": "the", "reason": "Spelling."}])
+    batch_id = ask_suggestions(user_client, doc_id, fake_ai, [{"original": "teh cat", "proposed": "the cat",
+                                                               "reason": "Spelling."}])
     s = suggestion_rows(batch_id)[0]
     r = post(user_client, f"/write/{doc_id}/suggestions/{batch_id}/{s['id']}/accept")
     assert r.status_code == 200 and "Suggestion 1 accepted" in r.text
@@ -763,7 +764,8 @@ def test_outcome_is_not_shown_on_another_page_or_when_old(user_client, monkeypat
 def test_double_accept_applies_the_change_only_once(user_client, fake_ai, monkeypatch):
     doc_id = create_doc(user_client)
     save(user_client, doc_id, "teh cat and teh dog")
-    batch_id = ask_suggestions(user_client, doc_id, fake_ai, [{"original": "teh", "proposed": "the", "reason": "Spelling."}])
+    batch_id = ask_suggestions(user_client, doc_id, fake_ai, [{"original": "teh cat", "proposed": "the cat",
+                                                               "reason": "Spelling."}])
     s = suggestion_rows(batch_id)[0]
     post(user_client, f"/write/{doc_id}/suggestions/{batch_id}/{s['id']}/accept")
     # A second press that was already on its way, having read the suggestion while it was still pending

@@ -8,6 +8,7 @@
 <h2>The task</h2>
 <div class="panel">{{ literal(req.what_to_try) }}</div>
 <p><a href="{{ req.url }}" rel="noopener noreferrer">Open {{ req.title }} (the member's own page)</a></p>
+<p>This page was made by a member, not by this site. Never type your password for this site, or any other password or card number, into it.</p>
 <h2>Your check</h2>
 <form method="post" action="/checks/{{ req.id }}/report" novalidate>
   {{ csrf_input() }}

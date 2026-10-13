@@ -9,9 +9,9 @@
 {% if next_pending %}<a href="#suggestion-{{ next_pending.number }}">Go to suggestion {{ next_pending.number }}, the next one to decide</a>.{% endif %}</p>
 {% endif %}
 {% if batch.dropped_count %}
-<p>Checked by the site: {{ batch.dropped_count }} of the AI's {{ made }} suggestion{{ '' if made == 1 else 's' }} {{ 'was' if batch.dropped_count == 1 else 'were' }} left out. The site checks that each suggestion quotes your text word for word, so that a change can only go in the right place. {{ 'That one' if batch.dropped_count == 1 else 'Those' }} quoted words that are not in your text, repeated another suggestion, changed nothing, or came back incomplete.</p>
+<p>Checked by the site: {{ batch.dropped_count }} of the AI's {{ made }} suggestion{{ '' if made == 1 else 's' }} {{ 'was' if batch.dropped_count == 1 else 'were' }} left out. The site checks that each suggestion quotes your text word for word, and that the quoted words appear only once, so that a change can only go in the right place. {{ 'That one' if batch.dropped_count == 1 else 'Those' }} quoted words that are not in your text or appear in it more than once, repeated another suggestion, changed nothing, or came back incomplete.</p>
 {% elif n %}
-<p>Checked by the site: each suggestion quotes your text word for word, so a change can only go in the right place. The site does not check whether the AI's changes are good; that is for you to decide.</p>
+<p>Checked by the site: each suggestion quotes your text word for word, and the quoted words appear only once in it, so a change can only go in the right place. The site does not check whether the AI's changes are good; that is for you to decide.</p>
 {% endif %}
 
 <section aria-labelledby="note-title">

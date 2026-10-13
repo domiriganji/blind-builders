@@ -54,10 +54,12 @@ Any host that runs Python works (a small virtual server, Render, Railway, Fly.io
 | `ANTHROPIC_API_KEY` | Optional. The site's own Claude key, used for members who buy credits. Without it, members use their own keys. |
 | `STUDIO_MODEL` | Optional. Default `claude-opus-5-5`. |
 | `STUDIO_CREDIT_MARKUP` | Optional. Default `1.25`: credits cost the AI price plus 25 percent. |
-| `STUDIO_SIGNUP_CREDITS` | Optional. Free credits for new members, in cents. |
+| `STUDIO_SIGNUP_CREDITS` | Optional. Free credits for new members, in cents. Anyone can make accounts, so these are paid for with your Claude key: they go to one account per internet address every 30 days, and to at most `STUDIO_SIGNUP_CREDITS_PER_DAY` (default 20) new accounts a day. |
+| `STUDIO_PREVIEW_BASE_URL` | Recommended. A separate domain for members' build previews, for example `https://previews-studio.example.org`, pointed at the same app. Then a member's page can never pass for a page of your site. |
+| `STUDIO_JOB_WORKERS` | Optional. Default 4: how many AI jobs run at once. Each member can have 3 waiting or running. |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Optional. Turn on buying credits. Add a Stripe webhook to `<your address>/payments/stripe/webhook` for `checkout.session.completed` and `checkout.session.async_payment_succeeded`. |
 
-Start it with `uvicorn studio.app:get_app --factory --host 0.0.0.0 --port 8000`. Make yourself an admin with `python -m studio.manage make-admin you@example.com`.
+Start it with `uvicorn studio.app:get_app --factory --host 0.0.0.0 --port 8000`. Sign-in tries and new accounts are limited per internet address. Behind a proxy on the same machine (Caddy, nginx), uvicorn reads the visitor's address from `X-Forwarded-For`; for a proxy elsewhere, add `--forwarded-allow-ips` with its address, or every visitor shares the proxy's address and its limits. Make yourself an admin with `python -m studio.manage make-admin you@example.com`.
 
 ## Tests
 

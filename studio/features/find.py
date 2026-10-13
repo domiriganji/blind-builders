@@ -12,7 +12,7 @@ from urllib.parse import urlencode, urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from .. import db, jobs
+from .. import db, jobs, sensitive
 from ..ai import AINotAvailable
 from ..web import checked_form, current_user, flash, get_ai, redirect, render, require_user
 
@@ -137,7 +137,8 @@ def _looks_like_card(text: str) -> bool:
 def looks_secret(text: str) -> bool:
     """True if the text seems to contain a card number, password or one-time code."""
     text = text or ""
-    return bool(_looks_like_card(text) or _PASSWORD_RE.search(text) or _CODE_RE.search(text))
+    return bool(_looks_like_card(text) or _PASSWORD_RE.search(text) or _CODE_RE.search(text)
+                or sensitive.find_secret(text))
 
 
 def _split(url: str):
@@ -668,6 +669,9 @@ def _search_job(ctx, ai, user_id: int, need: str, profile: dict) -> str:
         if len(candidates) >= 12:
             break
     with db.session() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        if not jobs.still_wanted(conn, ctx):
+            return "/find"  # the member deleted their account while the AI searched: keep nothing
         cur = conn.execute(
             "INSERT INTO find_searches (user_id, need, result_md, candidates_json, sources_json, created_at)"
             " VALUES (?, ?, ?, ?, ?, ?)",

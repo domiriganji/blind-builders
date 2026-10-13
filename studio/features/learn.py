@@ -266,12 +266,17 @@ SECRET_MESSAGE = ("This looks like it contains a password, a code, a card number
 
 # ----- data helpers --------------------------------------------------------------------------------
 
+# Help pages are public (search engines too), so a member appears under their code name unless they chose
+# on their profile page to show their name.
+HELP_NAME = "CASE WHEN u.show_name_on_help = 1 THEN u.display_name ELSE u.pseudonym END"
+
+
 def _question(question_id: int) -> dict:
     if not 0 < question_id <= MAX_ID:
         raise HTTPException(status_code=404, detail="We could not find that question. It may have the wrong number.")
     with db.session() as conn:
         row = conn.execute(
-            "SELECT q.*, u.display_name AS asker_name FROM help_questions q JOIN users u ON u.id = q.user_id"
+            f"SELECT q.*, {HELP_NAME} AS asker_name FROM help_questions q JOIN users u ON u.id = q.user_id"
             " WHERE q.id = ?", (question_id,)).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="We could not find that question. It may have the wrong number.")
@@ -289,7 +294,7 @@ def _own_question(question_id: int, user: dict) -> dict:
 def _answers(question_id: int, asker_id: int, viewer_id: int | None) -> list[dict]:
     with db.session() as conn:
         rows = conn.execute(
-            "SELECT a.*, u.display_name AS author_name,"
+            f"SELECT a.*, {HELP_NAME} AS author_name,"
             " EXISTS(SELECT 1 FROM help_helpful h WHERE h.answer_id = a.id AND h.user_id = ?) AS marked_by_viewer"
             " FROM help_answers a JOIN users u ON u.id = a.user_id"
             " WHERE a.question_id = ? ORDER BY a.is_ai ASC, a.id ASC",
@@ -445,7 +450,7 @@ def help_index(request: Request, show: str = "newest", page: int = 1):
         pages = max(1, -(-total // PAGE_SIZE))
         page = max(1, min(page, pages))  # a page past the end shows the last page, never an empty list
         rows = conn.execute(
-            "SELECT q.id, q.title, q.status, q.screen_reader, q.device, q.created_at, u.display_name AS asker_name,"
+            f"SELECT q.id, q.title, q.status, q.screen_reader, q.device, q.created_at, {HELP_NAME} AS asker_name,"
             " (SELECT COUNT(*) FROM help_answers a WHERE a.question_id = q.id AND a.is_ai = 0"
             "  AND a.user_id != q.user_id) AS member_answers,"
             " (SELECT COUNT(*) FROM help_answers a WHERE a.question_id = q.id AND a.is_ai = 1) AS ai_answers"

@@ -61,7 +61,7 @@ def test_guessing_is_limited(client):
     for _ in range(recovery.MAX_TRIES_PER_HOUR):
         post(client, "/reset-password", {"email": "ola@example.com", "code": "AAAA-BBBB-CCCC-DDDD", "password": "x" * 12})
     r = post(client, "/reset-password", {"email": "ola@example.com", "code": code, "password": "y" * 12})
-    assert r.status_code == 400 and "Too many wrong tries" in r.text
+    assert r.status_code == 429 and "Too many wrong tries" in r.text
 
 
 def test_validation_messages(client):
@@ -77,7 +77,7 @@ def test_make_a_new_code_from_the_account_page(user_client):
     page = user_client.get("/account")
     assert "You have no recovery code yet" in page.text
     assert "You have no recovery code yet" in user_client.get("/account/recovery-code").text
-    r = post(user_client, "/account/recovery-code")
+    r = post(user_client, "/account/recovery-code", {"password": "correct horse battery"})
     assert "Your new recovery code: save it now" in r.text and CODE_RE.search(r.text)
     assert "You have a recovery code" in user_client.get("/account").text
 

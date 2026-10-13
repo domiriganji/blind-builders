@@ -461,7 +461,8 @@ def test_running_job_page(user_client, fake_ai):
 
 def test_errand_deleted_while_job_runs(user_client, fake_ai):
     eid = errands._create(user_id(), "find", "Bus times")
-    assert errands._understand(type("Ctx", (), {"progress": lambda self, t: None})(), fake_ai, -1, {}) == "/do"
+    ctx = type("Ctx", (), {"progress": lambda self, t: None, "user_id": user_id()})()
+    assert errands._understand(ctx, fake_ai, -1, "", {}) == "/do"
     assert _errand(eid)["status"] == "new"
 
 
@@ -684,8 +685,8 @@ def test_stuck_job_offers_to_try_again(user_client, fake_ai):
     eid = errands._create(user_id(), "find", "Bus times from Leeds to York")
     job_id = jobs.submit(user_id(), "errands.understand", "Reading back", lambda ctx: "/do")
     with db.session() as conn:
-        conn.execute("UPDATE jobs SET status = 'queued', created_at = '2026-01-01T00:00:00+00:00' WHERE id = ?",
-                     (job_id,))
+        conn.execute("UPDATE jobs SET status = 'running', created_at = '2026-01-01T00:00:00+00:00',"
+                     " started_at = '2026-01-01T00:00:00+00:00' WHERE id = ?", (job_id,))
     errands._update(eid, job_id=job_id)
     page = user_client.get(f"/do/{eid}")
     _a11y_ok(page.text)

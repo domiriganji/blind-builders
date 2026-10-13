@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import post_button %}
 {% block content %}
 <h1>{{ title }}</h1>
 {% if title != "Your account" %}<p>You are on your account page.</p>{% endif %}
@@ -23,6 +24,7 @@
   <li>Answer style: {{ verbosity.get(user.verbosity, user.verbosity) }}</li>
   <li>Sight: {{ sight.get(user.sight_onset, 'Prefer not to say') }}</li>
   <li>Peer checks show {{ 'your name' if user.show_name_on_checks else 'your code name, ' ~ user.pseudonym }}</li>
+  <li>Help shows {{ 'your name' if user.show_name_on_help else 'your code name, ' ~ user.pseudonym }}</li>
 </ul>
 {% if user.is_admin %}
 <h2>Running the site</h2>
@@ -30,6 +32,9 @@
 {% endif %}
 <h2>Getting back in</h2>
 <p>{% if user.recovery_hash %}You have a recovery code for a forgotten password.{% else %}You have no recovery code yet. Without one, a forgotten password locks you out.{% endif %} <a href="/account/recovery-code">{% if user.recovery_hash %}Make a new recovery code{% else %}Make your recovery code now{% endif %}</a>.</p>
+<h2>Signing out everywhere</h2>
+<p>If you signed in on a computer or phone you no longer have, or on a shared computer, sign out on every device. You then sign in again here.</p>
+{{ post_button('/logout-everywhere', 'Sign every device out') }}
 <h2>Leaving</h2>
 <p><a href="/account/delete">Delete your account</a>.</p>
 {% endblock %}

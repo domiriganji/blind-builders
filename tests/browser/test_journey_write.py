@@ -94,8 +94,9 @@ def test_create_validation_moves_focus_to_the_field(live, browser):
     assert h1(page) == "Été: a story: please fix the problems"
     assert_page_ok(page, "save errors")
     assert page.get_by_role("textbox", name="Your text").input_value() == "My card is 4111 1111 1111 1111."  # nothing lost
-    follow_error_link(page, "Your text seems to contain a payment card number. Remove it and save again. "
-                            "This site never stores card numbers.", page.get_by_role("textbox", name="Your text"))
+    follow_error_link(page, "This looks like it includes a card number. Please take it out. This site never needs "
+                            "your card details, and the AI must not see them. Then save again.",
+                      page.get_by_role("textbox", name="Your text"))
     follow_error_link(page, "Enter a title for your document.", page.get_by_label("Title", exact=True))
 
     # Asking for suggestions before any text is saved points to the text box

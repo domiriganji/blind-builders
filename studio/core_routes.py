@@ -8,13 +8,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from . import jobs
-from .web import redirect, render, require_user
+from .web import checked_form, flash, redirect, render, require_user
 
 router = APIRouter()
 HOME_TITLE = "Build your ideas with AI, without needing to see the screen"
-# A job still "queued" or "running" after this long has almost certainly stopped (for example the
-# server restarted while it ran). Saying so is better than "Working on it" for ever.
-STALLED_AFTER_SECONDS = 30 * 60
+# A job running far longer than any AI work takes has almost certainly hung. Saying so is better than
+# "Working on it" for ever. (A restart marks unfinished jobs as stopped; see jobs.configure.)
+STALLED_AFTER_SECONDS = jobs.STALLED_AFTER_SECONDS
 
 
 @router.get("/")
@@ -74,7 +74,7 @@ def _state(job: dict) -> str:
     """done, failed, stalled or working."""
     if job["status"] in ("done", "failed"):
         return job["status"]
-    if _seconds_since(job["created_at"]) > STALLED_AFTER_SECONDS:
+    if jobs.is_stalled(job):
         return "stalled"
     return "working"
 
@@ -97,6 +97,16 @@ def job_list(request: Request, user: dict = Depends(require_user)):
     summary = ", ".join(f"{n} {words}" for n, words in counts if n)
     return render(request, "jobs/list.html", title="Your recent work", groups=groups,
                   total=sum(n for n, _ in counts), summary=summary)
+
+
+@router.post("/jobs/clear")
+async def clear_jobs(request: Request, user: dict = Depends(require_user)):
+    """Remove finished work from the list. Titles quote the member's words, which a shared device shows."""
+    await checked_form(request)
+    removed = jobs.clear_finished(user["id"])
+    flash(request, f"Removed {removed} finished {'piece' if removed == 1 else 'pieces'} of work from this list. "
+                   "Your saved results are not changed.", "success")
+    return redirect("/jobs")
 
 
 @router.get("/jobs/{job_id}.json")

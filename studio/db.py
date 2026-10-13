@@ -20,8 +20,10 @@ CREATE TABLE IF NOT EXISTS users (
     sight_onset TEXT NOT NULL DEFAULT 'prefer_not',
     verbosity TEXT NOT NULL DEFAULT 'summary_first',
     show_name_on_checks INTEGER NOT NULL DEFAULT 0,
+    show_name_on_help INTEGER NOT NULL DEFAULT 0,
     own_api_key_enc TEXT,
     is_admin INTEGER NOT NULL DEFAULT 0,
+    session_epoch INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS credit_ledger (
@@ -59,6 +61,15 @@ CREATE TABLE IF NOT EXISTS ai_usage (
     paid_by TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS attempts (
+    id INTEGER PRIMARY KEY,
+    action TEXT NOT NULL,
+    key TEXT NOT NULL,
+    subject TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_attempts ON attempts(action, key, created_at);
+CREATE INDEX IF NOT EXISTS idx_attempts_subject ON attempts(subject);
 """
 
 _db_path: Path | None = None
@@ -111,6 +122,12 @@ def init(feature_schemas: list[str]) -> None:
         conn.executescript(CORE_SCHEMA)
         ensure_column(conn, "jobs", "back_url", "TEXT NOT NULL DEFAULT ''")
         ensure_column(conn, "jobs", "dedupe_key", "TEXT NOT NULL DEFAULT ''")
+        # The private item a job is about (see jobs.forget_item), so deleting the item removes its jobs.
+        ensure_column(conn, "jobs", "item_ref", "TEXT NOT NULL DEFAULT ''")
+        # Raised to sign a member out on every device (see web.end_all_sessions).
+        ensure_column(conn, "users", "session_epoch", "INTEGER NOT NULL DEFAULT 0")
+        # Help is public, so it shows the code name unless the member chooses their name.
+        ensure_column(conn, "users", "show_name_on_help", "INTEGER NOT NULL DEFAULT 0")
         for schema in feature_schemas:
             if schema:
                 conn.executescript(schema)

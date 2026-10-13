@@ -10,7 +10,7 @@
 <ul>
   <li>Rows of data, not counting the column names: {{ stats.rows }}</li>
   <li>Columns: {{ stats.columns }}</li>
-  <li>Column names: {{ names_text(stats.column_names) }}</li>
+  <li>Column names: {{ names_text(stats.column_names, stats.columns) }}</li>
   <li>Separator between cells: {{ stats.delimiter }}</li>
   <li>Empty cells: {{ stats.empty_cells }}</li>
   {% if stats.uneven_rows %}<li>Rows with a different number of cells than the first row: {{ stats.uneven_rows }}. Check these rows.</li>{% endif %}

@@ -31,8 +31,9 @@ def live(tmp_path_factory):
 
     port = _free_port()
     base = f"http://127.0.0.1:{port}"
+    # Every browser signs up from 127.0.0.1, so allow more new accounts per address than the default.
     settings = Settings(secret_key="browser-tests", db_path=tmp_path_factory.mktemp("live") / "live.db",
-                        jobs_inline=True, base_url=base)
+                        jobs_inline=True, base_url=base, registrations_per_ip_per_hour=1000)
     app = create_app(settings)
     fake = FakeAI()
     app.state.ai_factory = lambda user: fake

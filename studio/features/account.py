@@ -234,6 +234,7 @@ def _profile_values(user: dict) -> dict:
         "sight_onset": user["sight_onset"],
         "verbosity": user["verbosity"],
         "show_name_on_checks": bool(user["show_name_on_checks"]),
+        "show_name_on_help": bool(user["show_name_on_help"]),
     }
 
 
@@ -260,6 +261,7 @@ async def profile_save(request: Request, user: dict = Depends(require_user)):
         "sight_onset": _clean(form, "sight_onset", 20),
         "verbosity": _clean(form, "verbosity", 20),
         "show_name_on_checks": form.get("show_name_on_checks") == "yes",
+        "show_name_on_help": form.get("show_name_on_help") == "yes",
     }
     errors: dict[str, str] = {}
     if not values["display_name"]:
@@ -286,9 +288,10 @@ async def profile_save(request: Request, user: dict = Depends(require_user)):
     with db.session() as conn:
         conn.execute(
             "UPDATE users SET display_name = ?, screen_reader = ?, device = ?, language = ?, sight_onset = ?,"
-            " verbosity = ?, show_name_on_checks = ? WHERE id = ?",
+            " verbosity = ?, show_name_on_checks = ?, show_name_on_help = ? WHERE id = ?",
             (values["display_name"], values["screen_reader"], values["device"], values["language"],
-             values["sight_onset"], values["verbosity"], 1 if values["show_name_on_checks"] else 0, user["id"]),
+             values["sight_onset"], values["verbosity"], 1 if values["show_name_on_checks"] else 0,
+             1 if values["show_name_on_help"] else 0, user["id"]),
         )
     _announce(request, "Your profile is saved")
     return redirect("/account")
@@ -759,7 +762,7 @@ def anonymise_user(user_id: int) -> None:
         conn.execute(
             "UPDATE users SET email = ?, display_name = 'Former member', password_hash = ?, own_api_key_enc = NULL,"
             " screen_reader = '', device = '', language = 'en', sight_onset = 'prefer_not',"
-            " verbosity = 'summary_first', show_name_on_checks = 0, is_admin = 0 WHERE id = ?",
+            " verbosity = 'summary_first', show_name_on_checks = 0, show_name_on_help = 0, is_admin = 0 WHERE id = ?",
             (f"deleted-{user_id}@invalid", hash_password(secrets.token_urlsafe(32)), user_id),
         )
 
@@ -793,6 +796,13 @@ async def delete_account(request: Request, user: dict = Depends(require_user)):
             log.exception("forget_user hook %r failed for user %s", hook, user["id"])
             return _render_delete(request, {}, status_code=500, failed=True)
     anonymise_user(user["id"])
+    # Once more, now that the account is anonymised: a job that finished in between saved nothing new
+    # after this point, but may have saved just before it.
+    for hook in getattr(request.app.state, "forget_user_hooks", []):
+        try:
+            hook(user["id"])
+        except Exception:  # noqa: BLE001 - the account is already deleted; the first pass did the work
+            log.exception("forget_user hook %r failed again for user %s", hook, user["id"])
     request.session.clear()
     request.session["home_heading"] = "Your account is deleted"
     flash(request, "You are signed out. Your private work and your details are removed from this site.", "success")

@@ -15,7 +15,7 @@ from studio.features import build
 from .conftest import post, register
 
 PREVIEW_CSP = ("sandbox allow-scripts allow-forms allow-popups allow-modals; "
-               "default-src 'self' 'unsafe-inline' data:; frame-ancestors 'none'")
+               "default-src 'self' 'unsafe-inline' data:; form-action 'none'; frame-ancestors 'none'")
 
 SPEC = {
     "summary": "A menu website for Kemi's food stall. Customers see today's dishes and prices.",
@@ -514,6 +514,17 @@ def _set_row(project_id, **fields):
             conn.execute(f"UPDATE build_projects SET {k} = ? WHERE id = ?", (v, project_id))
 
 
+def _job_for(project_id, status="running", minutes_ago=0):
+    """A job row for this project, standing in for an AI job that is still working (or one that stopped)."""
+    import uuid
+    with db.session() as conn:
+        row = conn.execute("SELECT user_id, share_token FROM build_projects WHERE id = ?", (project_id,)).fetchone()
+        conn.execute("INSERT INTO jobs (id, user_id, kind, title, status, created_at, dedupe_key)"
+                     " VALUES (?, ?, 'build.change', 'Changing', ?, ?, ?)",
+                     (uuid.uuid4().hex, row["user_id"], status, _minutes_ago(minutes_ago),
+                      f"build:{row['share_token']}"))
+
+
 def _minutes_ago(n):
     from datetime import datetime, timedelta, timezone
     return (datetime.now(timezone.utc) - timedelta(minutes=n)).replace(microsecond=0).isoformat()
@@ -602,6 +613,7 @@ def test_preview_does_not_leak_its_address_or_get_sniffed(user_client, fake_ai):
 def test_second_change_while_the_ai_is_working_is_refused(user_client, fake_ai):
     project_id, _ = build_v1(user_client, fake_ai)
     _set_row(project_id, status="changing", updated_at=_minutes_ago(1))
+    _job_for(project_id)
     fake_ai.on("build.change", changed_files())
     r = post(user_client, f"/build/{project_id}/v/1/change", {"request": "Small chops now cost 1500."})
     assert "already working on this project" in r.text
@@ -610,8 +622,13 @@ def test_second_change_while_the_ai_is_working_is_refused(user_client, fake_ai):
     r = post(user_client, f"/build/{project_id}/v/1/fix")
     assert "already working on this project" in r.text
     assert calls_for(fake_ai, "build.change") == []
-    # A job that never finished stops blocking after a while, and the list does not claim it is working.
-    _set_row(project_id, status="changing", updated_at=_minutes_ago(build.BUSY_MINUTES + 1))
+    # A job that keeps working for a long time still blocks a second, paid request.
+    _set_row(project_id, status="changing", updated_at=_minutes_ago(60))
+    r = post(user_client, f"/build/{project_id}/v/1/change", {"request": "Small chops now cost 1500."})
+    assert "already working on this project" in r.text and calls_for(fake_ai, "build.change") == []
+    # A job that stopped (for example in a restart) no longer blocks, and the list does not claim it is working.
+    with db.session() as conn:
+        conn.execute("UPDATE jobs SET status = 'failed'")
     assert "The AI stopped before it finished" in user_client.get("/build").text
     r = post(user_client, f"/build/{project_id}/v/1/change", {"request": "Small chops now cost 1500."})
     assert str(r.url).endswith(f"/build/{project_id}/v/2")
@@ -619,7 +636,8 @@ def test_second_change_while_the_ai_is_working_is_refused(user_client, fake_ai):
 
 def test_second_build_while_building_is_refused(user_client, fake_ai):
     project_id, _ = start_project(user_client, fake_ai)
-    _set_row(project_id, status="building", updated_at=_minutes_ago(0))
+    _set_row(project_id, status="building", updated_at=_minutes_ago(30))
+    _job_for(project_id, minutes_ago=30)
     fake_ai.on("build.generate", GENERATED)
     r = post(user_client, f"/build/{project_id}/understand", {"action": "build"})
     assert "already working on this project" in r.text

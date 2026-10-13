@@ -135,13 +135,29 @@ def current_user(request: Request) -> dict | None:
         return cached
     with db.session() as conn:
         row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-    if row is None or row["email"].endswith("@invalid"):
-        # Missing or deleted account: treat as signed out on every device.
+    if row is None or row["email"].endswith("@invalid") or request.session.get("epoch", 0) != row["session_epoch"]:
+        # Missing or deleted account, or signed out everywhere since this session began (for example after
+        # a password reset): treat as signed out.
         request.session.pop("user_id", None)
+        request.session.pop("epoch", None)
         return None
     user = dict(row)
     request.state.user = user
     return user
+
+
+def sign_in(request: Request, user_id: int) -> None:
+    """Start a fresh session for this member. It stays valid until they are signed out everywhere."""
+    with db.session() as conn:
+        row = conn.execute("SELECT session_epoch FROM users WHERE id = ?", (user_id,)).fetchone()
+    request.session.clear()
+    request.session["user_id"] = user_id
+    request.session["epoch"] = row["session_epoch"] if row else 0
+
+
+def end_all_sessions(conn, user_id: int) -> None:
+    """Sign the member out on every device: every session cookie issued before now stops working."""
+    conn.execute("UPDATE users SET session_epoch = session_epoch + 1 WHERE id = ?", (user_id,))
 
 
 class LoginRequired(Exception):

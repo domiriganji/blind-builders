@@ -66,6 +66,7 @@ def grant(email: str, cents_text: str, reason: str) -> int:
 def set_password(email: str, password: str) -> int:
     """Give a member a new password (for a member who lost both their password and their recovery code)."""
     from .security import hash_password
+    from .web import end_all_sessions
     if len(password) < 10:
         print("Use at least 10 characters.", file=sys.stderr)
         return 1
@@ -75,7 +76,8 @@ def set_password(email: str, password: str) -> int:
         return 1
     with db.session() as conn:
         conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (hash_password(password), user["id"]))
-    print(f"Set a new password for {user['email']}. Tell them to make a new recovery code on their account page.")
+        end_all_sessions(conn, user["id"])  # whoever was signed in to the account is signed out
+    print(f"Set a new password for {user['email']}. They are signed out on every device. Tell them to make a new recovery code on their account page.")
     return 0
 
 

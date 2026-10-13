@@ -22,7 +22,7 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException, Request
 from markupsafe import Markup
 
-from .. import db, jobs
+from .. import db, jobs, sensitive
 from ..ai import AIError, AINotAvailable
 from ..web import checked_form, flash, get_ai, markdown, redirect, render, require_user
 
@@ -82,83 +82,10 @@ _RULE_TOPICS = re.compile(
     r"submit|submits|submitting|send|sends|sending|sign)\b", re.IGNORECASE)
 
 # ----- secrets -----------------------------------------------------------------------------------
+# One detector for every section that sends a member's words to the AI (studio/sensitive.py).
 
-_SECRET_WORD = r"(?:passwords?|passwd|passcodes?|passphrases?|pin(?:\s*(?:code|number))?)"
-# "password: x", "PIN = 1234"
-_SECRET_ASSIGN = re.compile(rf"\b{_SECRET_WORD}\s*[:=]\s*\S", re.IGNORECASE)
-# "my password is Tr0ub4dor", "passcode was 'seagull'" (but not "my password is wrong")
-_SECRET_IS = re.compile(rf"\b{_SECRET_WORD}\s+(?:is|was)\s+(?:[\"'\u2018\u201c](?P<quoted>[^\"'\u2019\u201d]+)|(?P<word>\S+))",
-                        re.IGNORECASE)
-_SECRET_VALUE_CHARS = re.compile(r"[\d!@#$%^&*()+=?<>{}\[\]|\\/~`_:;]")
-# "PIN 4821", "my pin number 123456"
-_PIN_DIGITS = re.compile(r"\bpin(?:\s*(?:code|number))?\s*(?:-\s*)?\d{4,8}\b", re.IGNORECASE)
-# "my password Sunflower77": a secret word straight before a word with both letters and digits
-_SECRET_BARE = re.compile(rf"\b{_SECRET_WORD}\s+(?=\S*[^\W\d_])(?=\S*\d)\S{{4,}}", re.IGNORECASE)
-# "the code they sent me is 482913", "they texted me a code: 4829"
-_SENT_CODE = re.compile(
-    r"\bcode\b[^.\n]{0,40}?\b(?:sent|texted|emailed|got|received)\b[^.\n]{0,30}?\b\d{4,8}\b"
-    r"|\b(?:sent|texted|emailed|got|received)\b[^.\n]{0,30}?\bcode\b[^.\n]{0,30}?\b\d{4,8}\b", re.IGNORECASE)
-# Codes that are not secrets: "discount code 1234", "zip code 90210", "tracking code ..."
-_HARMLESS_CODE = re.compile(
-    r"\b(?:discount|promo|promotion|voucher|coupon|gift|zip|post|area|dialling|dialing|country|tracking|"
-    r"reference|product|error|tax|course|booking|order|sort)\s+code\b", re.IGNORECASE)
-# "verification code 482913", "security code: 123", "text code is 12 34 56"
-_ONE_TIME = re.compile(
-    r"\b(?:one[- ]time|verification|security|authentication|authenticator|auth|login|log-in|sign-in|sms|text|access)"
-    r"\s*(?:code|pin|passcode|password)\s*(?:is|was|:|=|-)?\s*"
-    r"(?:\d{3}[\s-]\d{3}\b|(?=[A-Za-z0-9-]{3,})[A-Za-z0-9-]*\d[A-Za-z0-9-]*)", re.IGNORECASE)
-# "my OTP is 123456", "2FA: 4821"
-_OTP_WORD = re.compile(r"\b(?:otp|2fa|mfa)\b\D{0,20}\d{4,8}\b", re.IGNORECASE)
-_DIGIT_GROUPS = re.compile(r"\d+(?:[ \-]\d+)*")
-
-
-def _luhn_ok(digits: str) -> bool:
-    total = 0
-    for i, ch in enumerate(reversed(digits)):
-        n = int(ch)
-        if i % 2 == 1:
-            n *= 2
-            if n > 9:
-                n -= 9
-        total += n
-    return total % 10 == 0
-
-
-def _has_card_number(text: str) -> bool:
-    """True if the text has a 13 to 19 digit number (spaces or dashes allowed) that passes the Luhn check."""
-    for run in _DIGIT_GROUPS.finditer(text):
-        groups = re.split(r"[ \-]", run.group(0))
-        for start in range(len(groups)):
-            joined = ""
-            for group in groups[start:]:
-                joined += group
-                if len(joined) > 19:
-                    break
-                if len(joined) >= 13 and _luhn_ok(joined):
-                    return True
-    return False
-
-
-def find_secret(text: str) -> str | None:
-    """A plain message if the text looks like it holds a password, a one-time code or a card number."""
-    if not text:
-        return None
-    if _SECRET_ASSIGN.search(text) or _PIN_DIGITS.search(text) or _SECRET_BARE.search(text):
-        return ("This looks like it includes a password or PIN. Please take it out. "
-                "This site never needs your passwords, and the AI must not see them.")
-    for m in _SECRET_IS.finditer(text):
-        value = m.group("quoted") or (m.group("word") or "").rstrip(".,;!?")
-        if m.group("quoted") or _SECRET_VALUE_CHARS.search(value):
-            return ("This looks like it includes a password or PIN. Please take it out. "
-                    "This site never needs your passwords, and the AI must not see them.")
-    if (_ONE_TIME.search(text) or _OTP_WORD.search(text)
-            or (_SENT_CODE.search(text) and not _HARMLESS_CODE.search(text))):
-        return ("This looks like it includes a one-time code or security code. Please take it out. "
-                "This site never needs your codes, and the AI must not see them.")
-    if _has_card_number(text):
-        return ("This looks like it includes a card number. Please take it out. "
-                "This site never pays for anything and never needs your card details.")
-    return None
+find_secret = sensitive.find_secret
+_luhn_ok = sensitive.luhn_ok
 
 
 # ----- small helpers -----------------------------------------------------------------------------
@@ -328,6 +255,25 @@ def _update(errand_id: int, **fields: Any) -> None:
         conn.execute(f"UPDATE errands SET {cols} WHERE id = ?", (*fields.values(), errand_id))
 
 
+def _job_row(ctx, errand_id: int, created_at: str) -> dict | None:
+    """The errand a job was started for. Ids of deleted errands can be reused, so a job also checks the
+    owner and the creation time, and never touches a newer errand that took the id."""
+    with db.session() as conn:
+        row = conn.execute("SELECT * FROM errands WHERE id = ? AND user_id = ? AND created_at = ?",
+                           (errand_id, ctx.user_id, created_at)).fetchone()
+    return dict(row) if row else None
+
+
+def _job_update(ctx, errand_id: int, created_at: str, **fields: Any) -> bool:
+    """Like _update, for a job: only the errand it was started for. False if that errand is gone."""
+    fields["updated_at"] = db.now()
+    cols = ", ".join(f"{k} = ?" for k in fields)
+    with db.session() as conn:
+        cur = conn.execute(f"UPDATE errands SET {cols} WHERE id = ? AND user_id = ? AND created_at = ?",
+                           (*fields.values(), errand_id, ctx.user_id, created_at))
+        return cur.rowcount > 0
+
+
 def _create(user_id: int, kind: str, request_text: str, parent_id: int | None = None) -> int:
     now = db.now()
     with db.session() as conn:
@@ -361,18 +307,9 @@ def _list_for(user_id: int) -> list[dict]:
     return [_view(dict(r)) for r in rows]
 
 
-STALE_JOB_MINUTES = 30
-
-
 def _job_is_stale(job: dict) -> bool:
-    """True if a job still says queued or running long after any AI call could take."""
-    try:
-        started = datetime.fromisoformat(job["created_at"])
-    except (TypeError, ValueError, KeyError):
-        return False
-    if started.tzinfo is None:
-        started = started.replace(tzinfo=timezone.utc)
-    return datetime.now(timezone.utc) - started > timedelta(minutes=STALE_JOB_MINUTES)
+    """True if a job has been running (not waiting for a free worker) long after any AI call could take."""
+    return jobs.is_stalled(job)
 
 
 def _view(errand: dict) -> dict:
@@ -548,8 +485,8 @@ def _context(errand: dict, profile: dict, *, with_contract: bool) -> str:
 
 # ----- background jobs ---------------------------------------------------------------------------
 
-def _understand(ctx, ai, errand_id: int, profile: dict) -> str:
-    errand = _row(errand_id)
+def _understand(ctx, ai, errand_id: int, created_at: str, profile: dict) -> str:
+    errand = _job_row(ctx, errand_id, created_at)
     if errand is None:
         return "/do"
     ctx.progress("Reading your request")
@@ -558,14 +495,13 @@ def _understand(ctx, ai, errand_id: int, profile: dict) -> str:
     contract = normalize_contract(raw)
     if not contract["goal"]:
         contract["goal"] = _short(errand["request"], 120)
-    if _row(errand_id) is None:
+    if not _job_update(ctx, errand_id, created_at, contract_json=json.dumps(contract), status="understood"):
         return "/do"
-    _update(errand_id, contract_json=json.dumps(contract), status="understood")
     return f"/do/{errand_id}"
 
 
-def _run(ctx, ai, errand_id: int, profile: dict) -> str:
-    errand = _row(errand_id)
+def _run(ctx, ai, errand_id: int, created_at: str, profile: dict) -> str:
+    errand = _job_row(ctx, errand_id, created_at)
     if errand is None:
         return "/do"
     context = _context(errand, profile, with_contract=True)
@@ -576,10 +512,9 @@ def _run(ctx, ai, errand_id: int, profile: dict) -> str:
         if not text:
             # Never show an empty page that says "Found". The job page explains, and the errand offers Try again.
             raise AIError("The AI searched but did not write an answer. Press Try again, or reword your request.")
-        if _row(errand_id) is None:
+        if not _job_update(ctx, errand_id, created_at, result_md=text,
+                           sources_json=json.dumps(_clean_sources(result.sources)), status="done"):
             return "/do"
-        _update(errand_id, result_md=text, sources_json=json.dumps(_clean_sources(result.sources)),
-                status="done")
         return f"/do/{errand_id}"
     if errand["result_md"].strip():
         # An earlier try finished the web research but stopped while preparing: use it, do not pay for it twice.
@@ -590,9 +525,8 @@ def _run(ctx, ai, errand_id: int, profile: dict) -> str:
         research = ai.research(system=TASK_RESEARCH_SYSTEM, prompt=context, purpose="errands.task_research")
         research_text = (research.text or "").strip() if isinstance(research.text, str) else ""
         sources = _clean_sources(research.sources)
-        if _row(errand_id) is None:
+        if not _job_update(ctx, errand_id, created_at, result_md=research_text, sources_json=json.dumps(sources)):
             return "/do"
-        _update(errand_id, result_md=research_text, sources_json=json.dumps(sources))
     ctx.progress("Preparing the steps and your answers")
     source_lines = "\n".join(f"- {s['title']}: {s['url']}" for s in sources)
     prompt = (context + "\n\nResearch notes (written by the AI from web search):\n" + (research_text or "(none)")
@@ -600,9 +534,8 @@ def _run(ctx, ai, errand_id: int, profile: dict) -> str:
     raw = ai.structured(system=TASK_PREPARE_SYSTEM, prompt=prompt, schema=PREPARE_SCHEMA,
                         purpose="errands.task_prepare")
     prepared = normalize_prepared(raw)
-    if _row(errand_id) is None:
+    if not _job_update(ctx, errand_id, created_at, prepared_json=json.dumps(prepared), status="done"):
         return "/do"
-    _update(errand_id, prepared_json=json.dumps(prepared), status="done")
     return f"/do/{errand_id}"
 
 
@@ -622,12 +555,22 @@ def _start(request: Request, user: dict, errand_id: int, step: str):
     # The title names the errand, so the list in "Your recent work" says which errand each line is about.
     if step == "understand":
         title = f"Reading back your request: {_short(errand['request'], 60)}"
-        job_id = jobs.submit(user["id"], "errands.understand", title, _understand, ai, errand_id, _profile(user))
+        job_id = jobs.submit(user["id"], "errands.understand", title, _understand, ai, errand_id,
+                             errand["created_at"], _profile(user),
+                             dedupe_key=f"errands.understand:{errand_id}:{errand['created_at']}",
+                             item_ref=_item_ref(errand))
     else:
         title = ("Finding the information: " if errand["kind"] == "find" else "Preparing your task: ") + errand["label"]
-        job_id = jobs.submit(user["id"], "errands.run", title, _run, ai, errand_id, _profile(user))
+        job_id = jobs.submit(user["id"], "errands.run", title, _run, ai, errand_id, errand["created_at"],
+                             _profile(user), dedupe_key=f"errands.run:{errand_id}:{errand['created_at']}",
+                             item_ref=_item_ref(errand))
     _update(errand_id, job_id=job_id)
     return redirect(jobs.job_url(job_id))
+
+
+def _item_ref(errand: dict) -> str:
+    """What the errand's jobs are about, so deleting the errand removes them (see jobs.forget_item)."""
+    return f"errands:{errand['id']}:{errand['created_at']}"
 
 
 def _add_note(errand: dict, text: str) -> None:
@@ -833,6 +776,7 @@ async def delete(request: Request, errand_id: int, user: dict = Depends(require_
     errand = _owned(errand_id, user)
     with db.session() as conn:
         conn.execute("DELETE FROM errands WHERE id = ? AND user_id = ?", (errand["id"], user["id"]))
+        jobs.forget_item(conn, user["id"], _item_ref(errand))
     request.session["errands_deleted"] = _view(errand)["label"]
     return redirect("/do")
 

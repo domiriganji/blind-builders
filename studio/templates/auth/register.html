@@ -7,7 +7,7 @@
   {{ csrf_input() }}
   <input type="hidden" name="next" value="{{ next }}">
   {{ field('email', 'Email address', values.email, type='email', required=true, autocomplete='email', error=errors.email) }}
-  {{ field('display_name', 'Your name', values.display_name, required=true, autocomplete='name', hint='Other members see this name in Help. Peer checks use a code name unless you choose otherwise.', error=errors.display_name) }}
+  {{ field('display_name', 'Your name', values.display_name, required=true, autocomplete='name', hint='Help and peer checks show a code name instead, unless you choose otherwise on your profile page.', error=errors.display_name) }}
   {{ field('password', 'Password', '', type='password', required=true, autocomplete='new-password', hint='At least 10 characters. A few words in a row are easy to remember and hard to guess. This site cannot reset a forgotten password yet, so keep it somewhere safe.', error=errors.password) }}
   {{ field('screen_reader', 'Screen reader you use most', values.screen_reader, hint='For example NVDA, JAWS, VoiceOver, TalkBack or none. This helps the AI and other members give advice that fits you.', error=errors.screen_reader) }}
   {{ field('device', 'Device you use most', values.device, hint='For example an Android phone, an iPhone or a Windows laptop.', error=errors.device) }}

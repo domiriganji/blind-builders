@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import post_button %}
 {% block content %}
 <h1>{{ title }}</h1>
 {% if total %}
@@ -26,6 +27,11 @@
   <li>{% if j.result_url %}<a href="{{ j.result_url }}">{{ j.title }}</a>: done.{% else %}{{ j.title }}: done.{% endif %} <span class="meta">Started {{ j.when }}.</span></li>
 {% endfor %}
 </ul>
+{% endif %}
+{% if groups.done or groups.failed %}
+<h2>Clear this list</h2>
+<p>The names of your work can include your own words. Clearing removes finished work from this list, for example on a shared computer. Your saved results stay where they are.</p>
+{{ post_button('/jobs/clear', 'Clear finished work from this list') }}
 {% endif %}
 {% else %}
 <p>Nothing yet. When you ask the AI to do something, it appears here.</p>

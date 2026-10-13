@@ -2,17 +2,18 @@
 {% from "_macros.html" import csrf_input, error_summary, field, select, radios, checkbox %}
 {% block content %}
 <h1>{{ title }}</h1>
-<p>Your code name is <strong>{{ pseudonym }}</strong>. Peer checks show this code name instead of your name, unless you choose otherwise in this form.</p>
+<p>Your code name is <strong>{{ pseudonym }}</strong>. Peer checks and Help show this code name instead of your name, unless you choose otherwise in this form.</p>
 {{ error_summary(errors) }}
 <form method="post" action="/account/profile" novalidate>
   {{ csrf_input() }}
-  {{ field('display_name', 'Your name', values.display_name, required=true, autocomplete='name', hint='Other members see this name in Help.', error=errors.display_name) }}
+  {{ field('display_name', 'Your name', values.display_name, required=true, autocomplete='name', hint='Shown on peer checks or in Help only if you tick the boxes below. Otherwise your code name is shown.', error=errors.display_name) }}
   {{ field('screen_reader', 'Screen reader you use most', values.screen_reader, hint='For example NVDA, JAWS, VoiceOver, TalkBack or none. This helps the AI and other members give advice that fits you.', error=errors.screen_reader) }}
   {{ field('device', 'Device you use most', values.device, hint='For example an Android phone, an iPhone or a Windows laptop.', error=errors.device) }}
   {{ select('language', 'Your main language', languages, values.language, hint='The pages of this site are in English for now.', error=errors.language, required=true) }}
   {{ select('sight_onset', 'When your sight changed', sight_options, values.sight_onset, hint='This is optional. It only helps match you with reports from people with a similar experience. Choose Prefer not to say if you like.', error=errors.sight_onset) }}
   {{ radios('verbosity', 'How you like answers', verbosity_options, values.verbosity, error=errors.verbosity) }}
   {{ checkbox('show_name_on_checks', 'Show my name on peer checks instead of my code name', values.show_name_on_checks) }}
+  {{ checkbox('show_name_on_help', 'Show my name in Help instead of my code name', values.show_name_on_help, hint='Anyone can read Help, including people who are not signed in and search engines.') }}
   <button type="submit" class="button button-primary">Save my profile</button>
 </form>
 <p><a href="/account">Back to your account</a></p>

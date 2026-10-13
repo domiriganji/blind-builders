@@ -10,7 +10,7 @@ from studio.a11y_check import check_html
 from studio.ai import AIError
 from studio.features import learn
 
-from .conftest import post, register, user_id
+from .conftest import post, register as _register, user_id
 
 GUIDE_SLUGS = ["start-here", "first-website", "ai-coding-in-the-terminal", "apps-on-your-phone",
                "publishing-papers", "safe-web-tasks", "charts-and-data"]
@@ -31,6 +31,13 @@ def ask(client, title="NVDA does not read my preview", body="When I open the pre
     r = post(client, "/help/ask", data, follow_redirects=False)
     assert r.status_code == 303, r.text
     return int(urlparse(r.headers["location"]).path.rsplit("/", 1)[1])
+
+
+def register(client, email="amina@example.com", name="Amina"):
+    """Register, and choose to show the name in Help (the default is the code name)."""
+    _register(client, email, name)
+    with db.session() as conn:
+        conn.execute("UPDATE users SET show_name_on_help = 1 WHERE email = ?", (email,))
 
 
 def switch_user(client, email, name):
@@ -457,6 +464,8 @@ def test_posting_needs_the_form_token(user_client):
 
 
 def test_the_askers_own_replies_are_not_counted_as_answers(user_client):
+    with db.session() as conn:
+        conn.execute("UPDATE users SET show_name_on_help = 1")
     qid = ask(user_client)
     r = post(user_client, f"/help/q/{qid}/answer", {"body": "It also happens in Edge."})
     assert "Reply from Amina, who asked" in r.text

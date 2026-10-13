@@ -13,19 +13,21 @@ sandbox Content-Security-Policy so a built page cannot read the site's cookies.
 """
 from __future__ import annotations
 
+import bisect
 import difflib
 import io
 import json
 import re
 import secrets
 import zipfile
-from datetime import datetime, timedelta, timezone
+from collections import Counter
+from datetime import datetime, timezone
 from urllib.parse import quote, urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 
-from .. import db, jobs
+from .. import db, jobs, sensitive
 from ..a11y_check import check_html
 from ..ai import AIError, AINotAvailable
 from ..web import checked_form, current_user, flash, get_ai, redirect, render, require_user
@@ -88,9 +90,8 @@ MAX_IDEA = 20_000
 MAX_REQUEST = 10_000
 MAX_CORRECTIONS_TOTAL = 50_000  # all corrections on one project together, so the AI prompt stays a sane size
 MAX_AI_TEXT = 20_000  # any single piece of text the AI writes about a build (summary, how to use, ...)
-# While the AI works on a project, a second request for the same project is refused. A job that never
-# finished (for example after a server restart) stops blocking the project after this many minutes.
-BUSY_MINUTES = 10
+# While the AI works on a project, a second request for the same project is refused. "Working" is read from
+# the job itself (queued or running), however long it takes; a restart marks unfinished jobs as stopped.
 BUSY_STATUSES = {"understanding", "building", "changing"}
 BUSY_MESSAGE = ("The AI is already working on this project. Wait for it to finish, then try again. "
                 "You can follow it in Your recent work.")
@@ -114,8 +115,10 @@ MAX_FILES = 12
 MAX_FILE_BYTES = 300_000
 MAX_TOTAL_BYTES = 1_000_000
 PATH_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]*(/[A-Za-z0-9_][A-Za-z0-9._-]*)*$")
+# form-action 'none': a build has no server, so its forms send nothing anywhere (a fake sign-in form cannot
+# post a password to another site).
 PREVIEW_CSP = ("sandbox allow-scripts allow-forms allow-popups allow-modals; "
-               "default-src 'self' 'unsafe-inline' data:; frame-ancestors 'none'")
+               "default-src 'self' 'unsafe-inline' data:; form-action 'none'; frame-ancestors 'none'")
 
 # Things the site itself does not check about a build (added to the checker's own list).
 SITE_NOT_CHECKED = [
@@ -394,38 +397,122 @@ def run_checks(files: dict[str, str]) -> dict:
     }
 
 
-def _line_ops(old: str, new: str) -> list[tuple[str, int, int, int, int]]:
-    a, b = old.splitlines(), new.splitlines()
-    return [op for op in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes() if op[0] != "equal"]
+# difflib with autojunk off takes time that grows much faster than the file size when lines repeat
+# (blank lines, "</div>"), and members decide what the AI writes. So the site trims the lines that are
+# the same at the start and end, splits long files at lines that appear once on each side, and compares
+# each stretch line by line only when that stays cheap. Otherwise the whole stretch counts as removed and
+# added, and the page says so.
+DIFF_MAX_LINES = 1500        # lines on either side of one file's changed stretch
+DIFF_MAX_PAIRS = 10_000      # pairs of equal lines across the two sides of that stretch
+DIFF_MAX_TOTAL_LINES = 3000  # line-by-line comparison across all the files of one version
+
+
+class _DiffBudget:
+    def __init__(self):
+        self.lines_left = DIFF_MAX_TOTAL_LINES
+
+
+def _unique_anchors(a: list[str], b: list[str]) -> list[tuple[int, int]]:
+    """Lines that appear exactly once on each side, kept in the same order on both (as in patience diff)."""
+    count_a, count_b = Counter(a), Counter(b)
+    where_b = {line: j for j, line in enumerate(b) if count_b[line] == 1}
+    pairs = [(i, where_b[line]) for i, line in enumerate(a) if count_a[line] == 1 and line in where_b]
+    tails: list[int] = []      # smallest j that ends a chain of each length
+    tail_at: list[int] = []    # index in pairs of that chain's last pair
+    before: list[int | None] = []
+    for k, (_, j) in enumerate(pairs):
+        n = bisect.bisect_left(tails, j)
+        if n == len(tails):
+            tails.append(j)
+            tail_at.append(k)
+        else:
+            tails[n] = j
+            tail_at[n] = k
+        before.append(tail_at[n - 1] if n else None)
+    chain = []
+    k = tail_at[-1] if tail_at else None
+    while k is not None:
+        chain.append(pairs[k])
+        k = before[k]
+    return chain[::-1]
+
+
+def _diff_range(a: list[str], b: list[str], alo: int, ahi: int, blo: int, bhi: int, budget: _DiffBudget,
+                use_anchors: bool) -> tuple[list[tuple[str, int, int, int, int]], bool]:
+    while alo < ahi and blo < bhi and a[alo] == b[blo]:
+        alo += 1
+        blo += 1
+    while ahi > alo and bhi > blo and a[ahi - 1] == b[bhi - 1]:
+        ahi -= 1
+        bhi -= 1
+    if alo == ahi and blo == bhi:
+        return [], True
+    if alo == ahi or blo == bhi:
+        return [("insert" if bhi > blo else "delete", alo, ahi, blo, bhi)], True
+    mid_a, mid_b = a[alo:ahi], b[blo:bhi]
+    counts_b = Counter(mid_b)
+    pairs = sum(counts_b.get(line, 0) for line in mid_a)
+    if pairs == 0:  # no line in common: replacing the whole stretch is the exact answer
+        return [("replace", alo, ahi, blo, bhi)], True
+    size = len(mid_a) + len(mid_b)
+    if max(len(mid_a), len(mid_b)) <= DIFF_MAX_LINES and pairs <= DIFF_MAX_PAIRS and size <= budget.lines_left:
+        budget.lines_left -= size
+        ops = difflib.SequenceMatcher(None, mid_a, mid_b, autojunk=False).get_opcodes()
+        return [(tag, i1 + alo, i2 + alo, j1 + blo, j2 + blo) for tag, i1, i2, j1, j2 in ops if tag != "equal"], True
+    if use_anchors:
+        anchors = _unique_anchors(mid_a, mid_b)
+        if anchors:
+            ops: list[tuple[str, int, int, int, int]] = []
+            exact = True
+            next_a, next_b = alo, blo
+            for i, j in anchors + [(len(mid_a), len(mid_b))]:
+                part, part_exact = _diff_range(a, b, next_a, alo + i, next_b, blo + j, budget, False)
+                ops += part
+                exact = exact and part_exact
+                next_a, next_b = alo + i + 1, blo + j + 1
+            return ops, exact
+    return [("replace", alo, ahi, blo, bhi)], False
+
+
+def _line_ops(a: list[str], b: list[str], budget: _DiffBudget) -> tuple[list[tuple[str, int, int, int, int]], bool]:
+    """The changed stretches between two lists of lines, and whether they were compared line by line."""
+    return _diff_range(a, b, 0, len(a), 0, len(b), budget, True)
+
+
+def _file_diffs(old: dict[str, str], new: dict[str, str]) -> list[tuple[dict, list]]:
+    """For each file that differs: its summary entry and the changed stretches."""
+    out = []
+    budget = _DiffBudget()
+    for path in sorted(set(old) | set(new)):
+        if path not in old:
+            n = len(new[path].splitlines())
+            out.append(({"path": path, "status": "added", "added": n, "removed": 0}, [("insert", 0, 0, 0, n)]))
+        elif path not in new:
+            n = len(old[path].splitlines())
+            out.append(({"path": path, "status": "removed", "added": 0, "removed": n}, [("delete", 0, n, 0, 0)]))
+        elif old[path] != new[path]:
+            ops, exact = _line_ops(old[path].splitlines(), new[path].splitlines(), budget)
+            entry = {"path": path, "status": "changed", "added": sum(j2 - j1 for _, _, _, j1, j2 in ops),
+                     "removed": sum(i2 - i1 for _, i1, i2, _, _ in ops)}
+            if not exact:
+                entry["exact"] = False
+            out.append((entry, ops))
+    return out
 
 
 def compute_diff(old: dict[str, str], new: dict[str, str]) -> list[dict]:
     """Which files were added, removed or changed, with counts of lines added and removed (difflib)."""
-    entries = []
-    for path in sorted(set(old) | set(new)):
-        if path not in old:
-            entries.append({"path": path, "status": "added", "added": len(new[path].splitlines()), "removed": 0})
-        elif path not in new:
-            entries.append({"path": path, "status": "removed", "added": 0, "removed": len(old[path].splitlines())})
-        elif old[path] != new[path]:
-            added = removed = 0
-            for tag, i1, i2, j1, j2 in _line_ops(old[path], new[path]):
-                removed += i2 - i1
-                added += j2 - j1
-            entries.append({"path": path, "status": "changed", "added": added, "removed": removed})
-    return entries
+    return [entry for entry, _ in _file_diffs(old, new)]
 
 
 def changed_lines(old: dict[str, str], new: dict[str, str]) -> list[dict]:
     """For each file that differs: groups of changed lines, each line marked "Added" or "Removed"."""
     out = []
-    for entry in compute_diff(old, new):
+    for entry, ops in _file_diffs(old, new):
         a = old.get(entry["path"], "").splitlines()
         b = new.get(entry["path"], "").splitlines()
         groups = []
-        for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
-            if tag == "equal":
-                continue
+        for tag, i1, i2, j1, j2 in ops:
             lines = [("Removed", line) for line in a[i1:i2]] + [("Added", line) for line in b[j1:j2]]
             if j2 > j1:
                 where = f"line {j1 + 1}" if j2 - j1 == 1 else f"lines {j1 + 1} to {j2}"
@@ -445,8 +532,12 @@ def describe_diff_entry(entry: dict) -> str:
         return f"Removed {entry['path']}: {_plural(entry['removed'], 'line')} gone."
     if entry["added"] == 0 and entry["removed"] == 0:
         return f"Changed {entry['path']}: only line endings changed, no lines added or removed."
-    return (f"Changed {entry['path']}: {_plural(entry['added'], 'line')} added, "
-            f"{_plural(entry['removed'], 'line')} removed.")
+    sentence = (f"Changed {entry['path']}: {_plural(entry['added'], 'line')} added, "
+                f"{_plural(entry['removed'], 'line')} removed.")
+    if entry.get("exact") is False:
+        sentence += (" Too much changed to compare line by line, so every line from the first change to the "
+                     "last counts as removed and added.")
+    return sentence
 
 
 _CARD_RE = re.compile(r"(?:\d[ -]?){12,18}\d")
@@ -470,7 +561,9 @@ def _luhn(digits: str) -> bool:
 
 
 def looks_like_secret(text: str) -> bool:
-    """True if the text seems to contain a password, an API key or a card number."""
+    """True if the text seems to contain a password, a PIN, a one-time code, an API key or a card number."""
+    if sensitive.find_secret(text):
+        return True
     for match in _CARD_RE.finditer(text):
         digits = re.sub(r"\D", "", match.group())
         if 13 <= len(digits) <= 19 and _luhn(digits):
@@ -522,15 +615,20 @@ def _get_version(project_id: int, number: int) -> dict:
     return dict(row)
 
 
+def job_key(project: dict) -> str:
+    """The dedupe key of every AI job for this project. It holds the share token, which is unique to the
+    project, so a job for a deleted project never blocks a new project that reused its id."""
+    return f"build:{project['share_token']}"
+
+
 def _is_busy(project: dict) -> bool:
-    """True while an AI job for this project is probably still running."""
+    """True while an AI job for this project is queued or running."""
     if project["status"] not in BUSY_STATUSES:
         return False
-    try:
-        since = datetime.fromisoformat(project["updated_at"])
-    except (TypeError, ValueError):
-        return False
-    return datetime.now(timezone.utc) - since < timedelta(minutes=BUSY_MINUTES)
+    with db.session() as conn:
+        row = conn.execute("SELECT 1 FROM jobs WHERE user_id = ? AND dedupe_key = ? AND status IN ('queued', 'running')",
+                           (project["user_id"], job_key(project))).fetchone()
+    return row is not None
 
 
 def _versions(project_id: int) -> list[dict]:
@@ -586,8 +684,10 @@ def _check_sentence(checks: dict) -> str:
             f"The site's machine checks found {found} on {_plural(pages, 'page')}.")
 
 
-def _preview_url(project: dict, number: int, path: str = "index.html") -> str:
-    return f"/build/p/{project['share_token']}/v/{number}/{quote(path)}"
+def _preview_url(project: dict, number: int, path: str = "index.html", request: Request | None = None) -> str:
+    """The preview's address: on the preview domain if the site has one (STUDIO_PREVIEW_BASE_URL)."""
+    base = request.app.state.settings.preview_base_url if request is not None else ""
+    return f"{base}/build/p/{project['share_token']}/v/{number}/{quote(path)}"
 
 
 # ----- preview (shareable, sandboxed) ------------------------------------------------------------
@@ -723,7 +823,8 @@ async def new_project(request: Request, user: dict = Depends(require_user)):
         return redirect(f"/build/{project_id}")
     _set_status(project_id, "understanding", token)
     title = values["title"] or "your new idea"
-    job_id = jobs.submit(user["id"], "build.understand", f"Reading {title}", _understand, ai, project_id, token)
+    job_id = jobs.submit(user["id"], "build.understand", f"Reading {title}", _understand, ai, project_id, token,
+                         dedupe_key=job_key({"share_token": token}), item_ref=job_key({"share_token": token}))
     return redirect(jobs.job_url(job_id))
 
 
@@ -891,7 +992,7 @@ def _project_page(request: Request, user: dict, project: dict, *, values: dict |
         latest = versions[0]
         checks = json.loads(latest["checks_json"])
         ctx.update(latest=latest, latest_check=_check_sentence(checks),
-                   preview_url=_preview_url(project, latest["number"]))
+                   preview_url=_preview_url(project, latest["number"], request=request))
         template = "build/project.html"
         about = ("the AI is making a change" if busy and project["status"] == "changing"
                  else "your project and its versions")
@@ -965,11 +1066,11 @@ async def understand(request: Request, project_id: int, user: dict = Depends(req
         chosen = [a for i, a in enumerate(stored["spec"]["additions_not_asked"]) if form.get(f"add_{i}") == "yes"]
         _set_status(project_id, "building", token)
         job_id = jobs.submit(user["id"], "build.generate", f"Building {_display_title(project)}", _generate, ai,
-                             project_id, token, chosen)
+                             project_id, token, chosen, dedupe_key=job_key(project), item_ref=job_key(project))
         return redirect(jobs.job_url(job_id))
     _set_status(project_id, "understanding", token)
     job_id = jobs.submit(user["id"], "build.understand", f"Reading {_display_title(project)}", _understand, ai,
-                         project_id, token)
+                         project_id, token, dedupe_key=job_key(project), item_ref=job_key(project))
     return redirect(jobs.job_url(job_id))
 
 
@@ -1014,9 +1115,10 @@ def _version_page(request: Request, project: dict, version: dict, *, values: dic
                   errors: dict | None = None, status_code: int = 200, note: str = ""):
     ctx = _version_context(project, version)
     settings = request.app.state.settings
-    preview = _preview_url(project, version["number"])
+    preview = _preview_url(project, version["number"], request=request)
     title_text = _display_title(project)
-    checks_link = "/checks/new?" + urlencode({"url": settings.base_url + preview,
+    absolute = preview if settings.preview_base_url else settings.base_url + preview
+    checks_link = "/checks/new?" + urlencode({"url": absolute,
                                               "title": f"{title_text}, version {version['number']}"})
     title = f"{title_text}: version {version['number']} {note or 'is ready'}"
     if errors:
@@ -1100,7 +1202,8 @@ async def _submit_change(request: Request, user: dict, project: dict, version: d
                              note=f"is unchanged: {AI_NOT_AVAILABLE_TITLE}")
     _set_status(project["id"], "changing", project["share_token"])
     job_id = jobs.submit(user["id"], "build.change", f"Changing {_display_title(project)}", _change, ai,
-                         project["id"], project["share_token"], version["number"], request_text)
+                         project["id"], project["share_token"], version["number"], request_text,
+                         dedupe_key=job_key(project), item_ref=job_key(project))
     return redirect(jobs.job_url(job_id))
 
 
@@ -1167,6 +1270,7 @@ async def delete_project(request: Request, project_id: int, user: dict = Depends
     with db.session() as conn:
         conn.execute("DELETE FROM build_versions WHERE project_id = ?", (project_id,))
         conn.execute("DELETE FROM build_projects WHERE id = ? AND user_id = ?", (project_id, user["id"]))
+        jobs.forget_item(conn, user["id"], job_key(project))
     # The next page's heading says what happened (read once, like a flash message).
     request.session["build_deleted"] = _display_title(project)
     return redirect("/build")

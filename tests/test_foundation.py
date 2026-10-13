@@ -299,8 +299,9 @@ def test_job_list_is_split_under_headings(user_client):
 def test_stalled_job_says_it_seems_to_have_stopped(user_client):
     uid = user_id()
     with db.session() as conn:
-        conn.execute("INSERT INTO jobs (id, user_id, kind, title, status, created_at) VALUES"
-                     " ('old1', ?, 'test', 'Old job', 'running', '2020-01-01T00:00:00+00:00')", (uid,))
+        conn.execute("INSERT INTO jobs (id, user_id, kind, title, status, created_at, started_at) VALUES"
+                     " ('old1', ?, 'test', 'Old job', 'running', '2020-01-01T00:00:00+00:00',"
+                     " '2020-01-01T00:00:00+00:00')", (uid,))
     r = user_client.get("/jobs/old1")
     assert _h1(r.text) == "This seems to have stopped: Old job"
     assert 'data-job-status="failed"' in r.text  # the page does not keep checking by itself
