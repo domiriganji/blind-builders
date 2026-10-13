@@ -10,17 +10,18 @@
   <ul>{% for p in chain_problems %}<li>{{ p }}</li>{% endfor %}</ul>
 </div>
 {% elif reports %}
-<p class="status-pass">This record has not been changed since it was written.</p>
-<p class="meta">Checked by the site just now, by recomputing the fingerprint of every entry.</p>
+<p class="status-pass">Every fingerprint matches: no entry has been changed or removed from the middle since it was written.</p>
+<p class="meta">Checked by the site just now, by recomputing the fingerprint of every entry. This cannot show whether the newest entry was removed; see About the fingerprints below.</p>
 {% endif %}
 
 <h2>What was asked</h2>
-<p>Checkers were asked to open <a href="{{ req.url }}" rel="noopener noreferrer">{{ req.title }}</a> and try this:</p>
+<p>Checkers were asked to open <a href="{{ req.url }}" rel="noopener noreferrer">{{ req.title }} (the member's own page)</a> and try this. The task is in the words of the member who asked:</p>
 <div class="panel">{{ literal(req.what_to_try) }}</div>
 <p class="meta">Address: {{ req.url }}. Asked on {{ req.created_at[:10] }}. {{ req.done }} of {{ req.max_checks }} checks done; the request is {{ 'open' if req.status == 'open' else 'closed' }}.</p>
 
 {% if reports %}
 <h2>The checks</h2>
+<p>Each check below is in the checker's own words, as they typed it. The site did not change or rewrite them.</p>
 {% for r in reports %}
 <section aria-labelledby="check-{{ loop.index }}">
 <h3 id="check-{{ loop.index }}">Check {{ loop.index }}: {{ r.who }}, {{ result_words[r.task_result]|lower }}</h3>
@@ -56,6 +57,6 @@
 </ul>
 
 <h2>About the fingerprints</h2>
-<p>Each check has a fingerprint, a SHA-256 hash of everything in the check, the request's name, address and task, and the fingerprint of the check before it. Changing any entry, or removing one in the middle, breaks the chain, and this page says so. On its own the chain cannot show whether the newest check was removed; if you saved the last fingerprint, compare it with the one above.</p>
+<p>Each check has a fingerprint, a SHA-256 hash of everything in the check, the request's name, address and task, and the fingerprint of the check before it. Changing any entry, or removing one in the middle, breaks the chain, and this page says so. On its own the chain cannot show whether the newest check was removed, and someone able to rewrite the whole database could recompute every fingerprint. If you saved the last fingerprint, compare it with the one above: if it is still there, nothing before it has changed.</p>
 <p><a href="/checks">Back to Peer checks</a></p>
 {% endblock %}

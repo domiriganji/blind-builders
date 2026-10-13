@@ -25,12 +25,15 @@
 
 <h2>Your requests</h2>
 {% if mine %}
+{% for heading, group in [('Open requests', mine_open), ('Closed requests', mine_closed)] if group %}
+<h3>{{ heading }} ({{ group|length }})</h3>
 <ul class="item-list">
-{% for r in mine %}
+{% for r in group %}
   <li><a href="/checks/{{ r.id }}">{{ r.title }}</a>: {{ r.done }} of {{ r.max_checks }} checks done, {{ 'open' if r.status == 'open' else 'closed' }}.
     <a href="/checks/{{ r.id }}/record">Check record for {{ r.title }}</a></li>
 {% endfor %}
 </ul>
+{% endfor %}
 {% else %}
 <p>You have not asked for a check yet.</p>
 {% endif %}
