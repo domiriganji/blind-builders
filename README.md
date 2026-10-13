@@ -25,6 +25,7 @@ There is no phone line and no support staff. The AI does the work, and members h
 - **Honest labels.** What the AI wrote, what the site checked, and what nobody checked are always shown separately.
 - **Your words stay yours.** The AI never silently changes your writing.
 - **No secrets.** The site never asks for passwords, card numbers or codes, and refuses text that looks like them.
+- **Getting back in without email.** When you sign up you get a recovery code, shown once. With your email address and that code you can set a new password yourself. The site sends no emails and has no staff, so save the code. "Sign every device out" on your account page ends sessions on other devices.
 
 ## Run it on your computer
 
@@ -69,6 +70,15 @@ python -m pytest -q
 ```
 
 The tests include real-browser checks: Playwright drives Chromium, runs axe-core (WCAG 2.2 A and AA) on every page, repeats pages with JavaScript off and at 320 pixels wide, and walks each section the way a screen reader user would.
+
+## Known limits
+
+- **The AI was tested with a stand-in.** Every AI feature is tested against a fake Claude that returns fixed answers, and the request format follows Anthropic's documentation, but this code has not yet been run against the real Claude API. Try each section once with a real key before inviting members.
+- **Not yet tested by blind people.** The site passes automated checks (axe-core, keyboard order, no JavaScript, 400 percent zoom) and browser tests that find every control by its spoken name. That is not the same as people using NVDA, JAWS, VoiceOver and TalkBack. Testing with blind members is the most important next step; Peer checks and Ask the community are there for that feedback.
+- **Build makes web pages and web apps.** It writes HTML, CSS and JavaScript, which phones can install from the browser. It does not make native app-store apps, servers, databases, sign-ins or payments inside what members build. The guide "apps-on-your-phone" explains the route to app stores.
+- **Do this for me never logs in or submits.** It finds, explains and prepares; the member does the last step on the real website.
+- **Payments are Stripe only.** A refund made in Stripe does not take credits back automatically; an admin can adjust credits.
+- **One server process and SQLite.** Fine for hundreds to a few thousand members. A much larger site would need a database server and a job queue.
 
 ## How this was decided
 
