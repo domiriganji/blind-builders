@@ -107,8 +107,9 @@ def test_member_reports_fixes_mistakes_updates_and_deletes(live, browser):
     publish(page)
     assert heading_1(page) == f"Please check 4 answers: How {TOOL} works with screen readers"
     checked(page, "form with mistakes")
-    summary = page.get_by_role("alert")
-    expect(summary.get_by_role("heading", name="Please check 4 answers")).to_be_visible()
+    summary = page.locator(".error-summary")
+    expect(summary.get_by_role("heading", name="What to check", exact=True)).to_be_visible()
+    expect(summary.get_by_role("link")).to_have_count(4)
     # Following an error link moves focus to the field that needs fixing, for a text field...
     summary.get_by_role("link", name="Enter the version of the tool you used", exact=False).click()
     expect(page.get_by_label(VERSION_LABEL, exact=True)).to_be_focused()
@@ -123,7 +124,7 @@ def test_member_reports_fixes_mistakes_updates_and_deletes(live, browser):
     publish(page)
     checked(page, "secret refused")
     assert heading_1(page) == f"Please check 1 answer: How {TOOL} works with screen readers"
-    page.get_by_role("alert").get_by_role("link", name="The Anything else box: This looks like it includes",
+    page.locator(".error-summary").get_by_role("link", name="The Anything else box: This looks like it includes",
                                           exact=False).click()
     expect(page.get_by_role("textbox", name="Anything else (optional)")).to_be_focused()
     expect(page.get_by_label(VERSION_LABEL, exact=True)).to_have_value("2.1.296")
@@ -254,7 +255,8 @@ def test_key_pages_work_without_javascript(live, browser):
     page.wait_for_load_state()
     assert heading_1(page) == "Please check 4 answers: How Gemini CLI works with screen readers"
     checked_without_js(page, viewer, "form with mistakes")
-    expect(page.get_by_role("heading", name="Please check 4 answers", exact=True, level=2)).to_be_visible()
+    expect(page.get_by_role("heading", name="What to check", exact=True, level=2)).to_be_visible()
+    expect(page.locator(".error-summary").get_by_role("link")).to_have_count(4)
     page.get_by_role("link", name="Enter the version of the tool you used", exact=False).click()
     expect(page.get_by_label("Version of Gemini CLI", exact=True)).to_be_focused()
     page.get_by_label("Version of Gemini CLI", exact=True).fill("0.63.0")

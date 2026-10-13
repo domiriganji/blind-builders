@@ -38,8 +38,8 @@ def signed_in(page) -> None:
 
 def follow_error_link(page, message: str, field_label: str) -> None:
     """The error summary is announced first; its link must move focus to the field with the problem."""
-    summary = page.get_by_role("alert")
-    expect(summary.get_by_role("heading", level=2)).to_be_visible()
+    summary = page.locator(".error-summary")
+    expect(summary.get_by_role("heading", name="What to check", exact=True, level=2)).to_be_visible()
     summary.get_by_role("link", name=message).click()
     expect(page.get_by_label(field_label)).to_be_focused()
 
@@ -117,7 +117,8 @@ def test_ask_get_an_ai_answer_answer_and_mark_helpful(live, browser):
     asker.get_by_role("button", name="Post your question").click()
     asker.wait_for_load_state()
     assert_heading(asker, "Please check 2 answers: Ask a question")
-    expect(asker.get_by_role("alert").get_by_role("heading", name="Please check 2 answers")).to_be_visible()
+    expect(asker.locator(".error-summary").get_by_role("heading", name="What to check", exact=True)).to_be_visible()
+    expect(asker.locator(".error-summary").get_by_role("link")).to_have_count(2)
     audit(asker, problems, "/help/ask with errors")
     follow_error_link(asker, "Enter a short title that says what you need help with.", "Title")
     follow_error_link(asker, "Enter your question. Say what you tried and what happened.", "Your question")

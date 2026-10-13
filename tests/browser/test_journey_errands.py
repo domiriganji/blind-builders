@@ -102,8 +102,9 @@ def _expect_h1(page, text: str) -> None:
 
 def _follow_error_link(page, message: str, field_label: str) -> None:
     """The error summary is there, says how to fix the problem, and its link moves focus to the field."""
-    summary = page.get_by_role("alert").filter(has=page.get_by_role("heading", name="Please check 1 answer"))
+    summary = page.locator(".error-summary").filter(has=page.get_by_role("heading", name="What to check", exact=True))
     expect(summary).to_be_visible()
+    expect(summary.get_by_role("link")).to_have_count(1)
     link = summary.get_by_role("link", name=message)
     expect(link).to_be_visible()
     link.click()

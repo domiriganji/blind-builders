@@ -764,8 +764,12 @@ def test_directory_search_is_a_named_search_with_numbered_pages(client):
     assert re.search(r'<label for="field-q">What are you looking for\?</label>', r.text)  # not "(optional)"
     assert ">Search the directory</button>" in r.text and ">Search</button>" not in r.text
     assert r.text.count('aria-label="Pages of tools') == 2  # before and after the list
-    assert '<a class="button button-secondary" href="/find" aria-current="page">Page 1</a>' in r.text
-    assert f'href="/find?page={pages}">Page {pages}</a>' in r.text
+    assert '<li><a class="button button-secondary" href="/find" aria-current="page">Page 1</a></li>' in r.text
+    assert f'href="/find?page={pages}">Page {pages}</a></li>' in r.text
+    # The page links are a real list inside each nav, so screen readers say how many there are.
+    for nav in re.findall(r'<nav aria-label="Pages of tools[^"]*">(.*?)</nav>', r.text, re.S):
+        assert nav.strip().startswith('<ul class="pager">') and nav.strip().endswith("</ul>")
+        assert nav.count("<li>") == pages + 1  # every page, then Next page
     assert "It usually takes one to three minutes." in r.text
     r = client.get("/find", params={"q": "talking scale"})
     assert '<a href="/find/ask?need=talking%20scale">Not in the directory? Ask the AI to search the web</a>' in r.text

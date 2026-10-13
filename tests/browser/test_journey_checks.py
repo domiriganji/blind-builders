@@ -62,9 +62,14 @@ def is_focused(locator) -> bool:
     return locator.evaluate("el => el === document.activeElement")
 
 
+def error_summary(page):
+    """The list of answers to check. The h1 gives the count, so its heading is just "What to check"."""
+    return page.locator(".error-summary").filter(has=page.get_by_role("heading", name="What to check", exact=True))
+
+
 def follow_error(page, message: str, field) -> None:
     """Follow a link in the error summary and confirm focus lands on the field it names."""
-    summary = page.get_by_role("alert")
+    summary = error_summary(page)
     expect(summary).to_be_visible()
     summary.get_by_role("link", name=message).click()
     expect(field).to_be_focused()
@@ -119,7 +124,7 @@ def test_request_check_close_and_public_record(live, browser):
 
     go(asker, asker.get_by_role("button", name="Ask for the check"))
     assert h1_text(asker) == "Please check 3 answers: Ask for a check"
-    expect(asker.get_by_role("heading", name="Please check 3 answers", exact=True)).to_be_visible()
+    expect(error_summary(asker).get_by_role("link")).to_have_count(3)
     audit(asker, "new request form with errors")
     follow_error(asker, "Enter a short name for what you want checked.", asker.get_by_label("Name of what you want checked"))
     follow_error(asker, "Enter the full web address, starting with https:// or http://.", asker.get_by_label("Web address"))
@@ -422,7 +427,7 @@ def test_sighted_friend_checks_how_it_looks(live, browser):
     # Sending without choosing how they checked: one problem, and its link goes to the first choice.
     go(friend, friend.get_by_role("button", name="Send my check"))
     assert h1_text(friend) == f"Please check 1 answer: Check this: {name}"
-    expect(friend.get_by_role("heading", name="Please check 1 answer", exact=True)).to_be_visible()
+    expect(error_summary(friend).get_by_role("link")).to_have_count(1)
     audit(friend, "report form, how you checked not chosen")
     follow_error(friend, re.compile("^Choose how you checked it"),
                  friend.get_by_role("radio", name="With a screen reader, braille display or magnifier"))
@@ -430,7 +435,8 @@ def test_sighted_friend_checks_how_it_looks(live, browser):
     # Sighted, but the questions not answered: only the sighted questions are asked for.
     friend.get_by_role("radio", name="I am sighted and looked at how it appears").check()
     go(friend, friend.get_by_role("button", name="Send my check"))
-    expect(friend.get_by_role("heading", name="Please check 3 answers", exact=True)).to_be_visible()
+    assert h1_text(friend) == f"Please check 3 answers: Check this: {name}"
+    expect(error_summary(friend).get_by_role("link")).to_have_count(3)
     audit(friend, "report form, sighted questions not answered")
     follow_error(friend, "Choose whether it looks finished and professional: yes, no or not sure.",
                  friend.get_by_role("group", name=LOOK_QUESTIONS[0]).get_by_role("radio", name="Yes", exact=True))

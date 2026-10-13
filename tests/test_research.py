@@ -862,8 +862,33 @@ def test_missing_values_like_na_do_not_turn_numbers_into_text(user_client):
     assert "<strong>time_seconds</strong>: 3 values, 1 missing (NA). In seconds: mean 240.97" in r.text
     # The first rows are shown as a table with column headers and a caption.
     table = r.text.split("<table>")[1].split("</table>")[0]
-    assert "<caption>The first 4 rows of pilot.csv</caption>" in table
+    assert "<caption>The first 4 rows of pilot.csv, all 3 columns</caption>" in table
     assert '<th scope="col">time_seconds</th>' in table and "<td>NA</td>" in table
+
+
+def test_first_rows_table_shows_every_column_in_its_own_scroll_region(user_client):
+    """A wide file shows all its columns; the table scrolls sideways in a named, focusable region, not the page."""
+    names = [f"c{i}" for i in range(1, 10)]
+    text = ",".join(names) + "\n" + ",".join(str(i) for i in range(1, 10)) + "\n1,2\n"
+    pid = new_project(user_client)
+    r = upload(user_client, pid, text.encode(), filename="wide.csv")
+    assert_accessible(r)
+    assert ('<h3 id="first-rows-title">First rows of the file</h3>'
+            '<div class="table-scroll" role="region" aria-labelledby="first-rows-title" tabindex="0">') \
+        in re.sub(r">\s+<", "><", r.text)
+    table = r.text.split("<table>")[1].split("</table>")[0]
+    assert "<caption>The first 2 rows of wide.csv, all 9 columns</caption>" in table
+    assert table.count('<th scope="col">') == 9 and '<th scope="col">c9</th>' in table and "<td>9</td>" in table
+    # A short row is filled out with empty cells, so every row has a cell under each column name.
+    assert table.count("<td>") == 18 and table.count("<td></td>") == 7
+    # More columns than the site keeps: the caption says which ones are shown.
+    many = research.MAX_STAT_COLUMNS + 5
+    text = ",".join(f"k{i}" for i in range(many)) + "\n" + ",".join("1" for _ in range(many)) + "\n"
+    r = upload(user_client, pid, text.encode(), filename="huge.csv")
+    table = r.text.split("<table>")[1].split("</table>")[0]
+    assert (f"<caption>The first row of huge.csv, the first {research.MAX_STAT_COLUMNS} of {many} columns"
+            "</caption>") in table
+    assert table.count('<th scope="col">') == research.MAX_STAT_COLUMNS
 
 
 def test_plan_and_draft_say_when_there_are_no_sources_to_cite(user_client, fake_ai):

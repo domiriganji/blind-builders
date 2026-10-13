@@ -171,7 +171,9 @@ def test_build_journey_from_idea_to_delete(live, browser):
     expect(page.get_by_text("You have no projects yet.")).to_be_visible()
     button(page, "Send my idea to the AI").click()
     check("Please check 2 answers: Build a website, app, tool or game")
-    expect(page.get_by_role("heading", name="Please check 2 answers", exact=True)).to_be_visible()
+    summary = page.locator(".error-summary").filter(has=page.get_by_role("heading", name="What to check", exact=True))
+    expect(summary).to_be_focused()
+    expect(summary.get_by_role("link")).to_have_count(2)
     link(page, "Describe your idea in your own words.").click()
     expect(page.get_by_label("Your idea")).to_be_focused()
 

@@ -224,8 +224,9 @@ Do not console. "You are not alone in this" is comfort nobody asked for. State w
 **No blame words pointing at the member:** wrong tries, invalid, rejected, declined, malformed, "fix the problems", "fix it" (when nothing is broken), "too much".
 
 **Form errors.**
-- Summary heading: "Please check 1 answer" / "Please check 2 answers" (not "There is a problem").
-- Page title: "Please check 1 answer: Sign in" (the count comes first, with no blame), not "Sign in: please fix the problems".
+- Page title and h1: "Please check 1 answer: Sign in" / "Please check 2 answers: Sign in" (the count comes first, with no blame), not "Sign in: please fix the problems".
+- Summary heading: "What to check" (not "There is a problem"). The h1 just above it already gives the count, so the summary does not say it again. Its list has one link for each answer to check.
+- With JavaScript, focus moves to the summary and the page stops marking it as an alert just before, so a screen reader reads it once. Without JavaScript it stays an alert.
 - Hidden field prefix: "Please check: " (not "Error: "). Screen readers already announce "invalid" for marked fields.
 - Each field message names the field and the fix, with an example.
 

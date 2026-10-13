@@ -1,11 +1,13 @@
 {% extends "base.html" %}
 {% from "_macros.html" import csrf_input, field, select, textarea %}
 {% macro pager(label) %}
-{#- Numbered pages with big, well-spaced targets (the button classes give 44 pixels, .actions the gaps). -#}
-<nav aria-label="{{ label }}" class="actions">
-  {% if prev_url %}<a class="button button-secondary" href="{{ prev_url }}">Previous page ({{ page - 1 }} of {{ pages }})</a>{% endif %}
-  {% for url in page_urls %}<a class="button button-secondary" href="{{ url }}"{% if loop.index == page %} aria-current="page"{% endif %}>Page {{ loop.index }}</a>{% endfor %}
-  {% if next_url %}<a class="button button-secondary" href="{{ next_url }}">Next page ({{ page + 1 }} of {{ pages }})</a>{% endif %}
+{#- Numbered pages in a list, with big, well-spaced targets (the button classes give 44 pixels, .pager the gaps). -#}
+<nav aria-label="{{ label }}">
+  <ul class="pager">
+  {% if prev_url %}<li><a class="button button-secondary" href="{{ prev_url }}">Previous page ({{ page - 1 }} of {{ pages }})</a></li>{% endif %}
+  {% for url in page_urls %}<li><a class="button button-secondary" href="{{ url }}"{% if loop.index == page %} aria-current="page"{% endif %}>Page {{ loop.index }}</a></li>{% endfor %}
+  {% if next_url %}<li><a class="button button-secondary" href="{{ next_url }}">Next page ({{ page + 1 }} of {{ pages }})</a></li>{% endif %}
+  </ul>
 </nav>
 {% endmacro %}
 {% block content %}
