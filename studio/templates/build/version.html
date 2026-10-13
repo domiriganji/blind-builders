@@ -1,12 +1,13 @@
 {% extends "base.html" %}
 {% from "_macros.html" import csrf_input, error_summary, textarea, post_button %}
+{% macro place(f, path) %}{% if f.line_url %} <span class="meta">Where: {{ f.where_what }} on <a href="{{ f.line_url }}">line {{ f.line }} of {{ path }}</a></span>{% elif f.where %} <span class="meta">Where: {{ f.where }}</span>{% endif %}{% endmacro %}
 {% block content %}
 <h1>{{ title }}</h1>
 {{ error_summary(errors) }}
-<p class="lead">{{ check_sentence }}{% if version.number > 1 %} Compared with version {{ diff_base }}, {{ diff_count }} {{ 'file' if diff_count == 1 else 'files' }} changed.{% endif %}</p>
+<p class="lead">{{ check_sentence }}{% if version.number > 1 %} Compared with version {{ diff_base }}, {% if diff_count %}{{ diff_count }} {{ 'file' if diff_count == 1 else 'files' }} changed{% else %}no files changed{% endif %}.{% endif %}{% if fix_count %} The AI can try to fix {{ 'the problem' if fix_count == 1 else 'the ' ~ fix_count ~ ' problems' }} in a new version: <a href="#fix">go to the fix</a>.{% endif %}</p>
 {% if version.number != latest_number %}<p>This is not the latest version. The latest is <a href="/build/{{ project.id }}/v/{{ latest_number }}">version {{ latest_number }}</a>.</p>{% endif %}
 
-<h2>How it looks to sighted visitors</h2>
+<h2>How it looks on screen</h2>
 <p>{{ look.sentence }}</p>
 {% if look.problems %}
 <ul class="item-list">
@@ -25,7 +26,8 @@
 <h3>An AI looked at pictures of the pages</h3>
 <p class="meta">This is the AI's opinion, not a check by the site.</p>
 <div class="panel">
-{% if look.review.summary %}<p>{{ look.review.summary }}</p>{% endif %}
+{% if look.review.summary_withheld %}<p>{{ look.review.summary_before_link }}<a href="{{ look.review.profile_url }}">Your profile</a>{{ look.review.summary_after_link }}</p>
+{% elif look.review.summary %}<p>{{ look.review.summary }}</p>{% endif %}
 {% if look.review.verdict %}<p>{{ look.review.verdict }}</p>{% endif %}
 {% if look.review.problems %}
 <p>What the AI thinks could still be better:</p>
@@ -41,22 +43,28 @@
 {% endif %}
 
 <h2>Checked by the site</h2>
-<p>{{ file_summary }} The site ran its own machine checks on every HTML page.</p>
+<p>The site ran its own machine checks on every HTML page.</p>
 {% for page in pages %}
 <h3>{{ page.path }}</h3>
 <p>{{ page.size }}. Passed {{ page.passed }}.
 {% if page.errors or page.warnings %}Found {{ page.found }}.{% else %}<span class="status-pass">No problems found.</span>{% endif %}</p>
 {% if page.errors or page.warnings %}
 <ul class="item-list">
-{% for f in page.errors %}<li><span class="status-fail">Problem:</span> {{ f.message }}{% if f.where %} <span class="meta">Where: {{ f.where }}</span>{% endif %}</li>
+{% for f in page.errors %}<li><span class="status-fail">Problem:</span> {{ f.message }}{{ place(f, page.path) }}</li>
 {% endfor %}
-{% for f in page.warnings %}<li>Warning: {{ f.message }}{% if f.where %} <span class="meta">Where: {{ f.where }}</span>{% endif %}</li>
+{% for f in page.warnings %}<li>Warning: {{ f.message }}{{ place(f, page.path) }}</li>
 {% endfor %}
 </ul>
 {% endif %}
 {% else %}
 <p>There are no HTML pages to check.</p>
 {% endfor %}
+
+{% if fix_count %}
+<h2 id="fix" tabindex="-1">Fix the problems the checks found ({{ fix_count }})</h2>
+<p>The checks found {{ fix_count }} {{ 'problem' if fix_count == 1 else 'problems' }}{% if error_count and look.problems %}, some in the accessibility checks and some in how the pages look{% elif look.problems %} in how the pages look{% endif %}. The AI can try to fix {{ 'it' if fix_count == 1 else 'them' }} in a new version. This version stays as it is.{% if version.number != latest_number %} This is an older version, so the fix starts from version {{ version.number }} and will not include what changed in later versions.{% endif %}</p>
+{{ post_button('/build/' ~ project.id ~ '/v/' ~ version.number ~ '/fix', 'Fix the problems the checks found', 'primary') }}
+{% endif %}
 
 <h2>What the AI says it built</h2>
 <p class="meta">Written by the AI. The site has not checked these claims.</p>
@@ -71,7 +79,7 @@
 <ul>
 {% for item in not_checked %}<li>{{ item }}</li>
 {% endfor %}
-<li>How it looks to a sighted person.{% if look.state == 'checked' %} The site measured the pages in a browser{% if look.review %} and an AI looked at pictures of them{% endif %}, but no person has looked.{% endif %} <a href="{{ sighted_link }}">Ask a sighted person to check how it looks</a></li>
+<li>How it looks to a sighted person.{% if look.state == 'checked' %} The site measured the pages in a browser{% if look.review %} and an AI looked at pictures of them{% endif %}, but no person has looked.{% endif %} You can ask for that in <a href="#peer-checks">Peer checks of this version</a>.</li>
 {% if unchecked_files %}<li>These files, which are not HTML pages: {{ unchecked_files|join(', ') }}.</li>{% endif %}
 </ul>
 {% if not_done %}
@@ -79,39 +87,50 @@
 <ul>{% for n in not_done %}<li>{{ n }}</li>{% endfor %}</ul>
 {% endif %}
 
+<h2 id="peer-checks" tabindex="-1">Peer checks of this version</h2>
+{% if peer_checks %}
+<ul class="item-list">
+{% for c in peer_checks %}<li><a href="/checks/{{ c.id }}">{{ c.title }}</a> <span class="meta">For {{ c.wanted_words }}. {{ c.done }} of {{ c.max_checks }} {{ 'check' if c.max_checks == 1 else 'checks' }} done. {{ 'Open' if c.status == 'open' else 'Closed' }}.</span></li>
+{% endfor %}
+</ul>
+{% else %}
+<p>You have not asked for a peer check of this version yet. Other members try it with their own tools and say what worked.</p>
+{% endif %}
+<ul class="item-list">
+  <li><a href="{{ checks_link }}">Ask members who use screen readers to check it</a></li>
+  <li><a href="{{ sighted_link }}">Ask a sighted person to check how it looks</a></li>
+</ul>
+
 {% if version.number > 1 %}
 <h2>What changed (computed by the site, not the AI)</h2>
 <p>Compared with version {{ diff_base }}.</p>
 {% if diff_lines %}
 <ul>{% for line in diff_lines %}<li>{{ line }}</li>{% endfor %}</ul>
 {% if diff_count == 1 %}<p>Nothing else changed.</p>{% endif %}
+<p><a href="/build/{{ project.id }}/v/{{ version.number }}/changes">See the changed lines</a></p>
 {% else %}
 <p>No files changed.</p>
 {% endif %}
 <h3>What was asked for</h3>
 <div class="panel">{% for para in version.request_text.split('\n') if para.strip() %}<p>{{ para }}</p>
 {% endfor %}</div>
+{% elif chosen_additions is not none %}
+<h2>What was asked for</h2>
+<p>Your idea and the read-back you approved, which are on <a href="/build/{{ project.id }}">the project page</a>. Extras you chose: {% if chosen_additions %}{{ chosen_additions|join('; ') }}.{% else %}none.{% endif %}</p>
 {% endif %}
 
 <h2>What you can do next</h2>
 <ul class="item-list">
   <li><a href="{{ preview_url }}">Open the preview of version {{ version.number }}</a> <span class="meta">Anyone with this link can open the previews of every version of this project, but nothing else of yours. Deleting the project stops the link working.</span></li>
-  <li><a href="/build/{{ project.id }}/v/{{ version.number }}/download.zip">Download all files as a zip</a></li>
+  <li><a href="/build/{{ project.id }}/v/{{ version.number }}/download.zip">Download all files in one zip file (a packed folder)</a></li>
   <li><a href="/build/{{ project.id }}/v/{{ version.number }}/files">Read the files</a></li>
-  {% if version.number > 1 %}<li><a href="/build/{{ project.id }}/v/{{ version.number }}/changes">See the changed lines</a></li>{% endif %}
-  <li><a href="{{ checks_link }}">Ask blind members to check it</a></li>
   <li><a href="/build/{{ project.id }}">All versions of this project</a></li>
 </ul>
-{% if version.number != latest_number %}
-<p><strong>This is an older version.</strong> A fix or a change asked for here starts from version {{ version.number }}, so it will not include what changed in later versions. To build on everything so far, go to <a href="/build/{{ project.id }}/v/{{ latest_number }}">version {{ latest_number }}, the latest</a>.</p>
-{% endif %}
-{% if fix_count %}
-<p>The checks found {{ fix_count }} {{ 'problem' if fix_count == 1 else 'problems' }}{% if error_count and look.problems %}, some in the accessibility checks and some in how the pages look{% elif look.problems %} in how the pages look{% endif %}. The AI can try to fix {{ 'it' if fix_count == 1 else 'them' }} in a new version. This version stays as it is.</p>
-{{ post_button('/build/' ~ project.id ~ '/v/' ~ version.number ~ '/fix', 'Fix the problems the checks found', 'primary') }}
-{% endif %}
 
 <h2>Ask for a change</h2>
-<p>The AI makes a new version from this one. This version stays as it is, and the site shows you exactly what changed.{% if version.number != latest_number %} This is an older version, so the new version will not include what changed in versions after {{ version.number }}.{% endif %}</p>
+<p>The AI makes a new version from this one. This version stays as it is, and the site shows you exactly what changed.</p>
+{% if version.number != latest_number %}<p><strong>This is an older version.</strong> The new version will not include what changed in versions after {{ version.number }}. To build on everything so far, go to <a href="/build/{{ project.id }}/v/{{ latest_number }}">version {{ latest_number }}, the latest</a>.</p>{% endif %}
+{% if busy %}<p>The AI is working on this project now. You can write your change, and send it when that work is done.</p>{% endif %}
 <form method="post" action="/build/{{ project.id }}/v/{{ version.number }}/change" novalidate>
   {{ csrf_input() }}
   {{ textarea('request', 'The change you want', values.request, hint='For example: change the price of small chops from 1200 to 1500.', error=errors.request, rows=6, required=true) }}

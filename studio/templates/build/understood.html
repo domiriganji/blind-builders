@@ -3,12 +3,17 @@
 {% block content %}
 <h1>{{ title }}</h1>
 {{ error_summary(errors) }}
-{% if busy and project.status == 'building' %}
-<p class="lead">The AI is building it now. When it is done, the first version appears on this project's page. You can follow it in <a href="/jobs">Your recent work</a>. If nothing has happened after ten minutes, you can ask again below.</p>
-{% elif busy and project.status == 'understanding' %}
-<p class="lead">The AI is reading your newest corrections now. Below is what it understood before them. You can follow it in <a href="/jobs">Your recent work</a>. If nothing has happened after ten minutes, you can ask again below.</p>
+{% if busy %}
+{# While the AI works, there is nothing to send: the form would only lose what the member typed. #}
+<p class="lead">{% if project.status == 'building' %}The AI is building it now. When it is done, the first version appears on this project's page.{% else %}The AI is reading your newest corrections now. Below is what it understood before them. When it is done, this page shows its new read-back.{% endif %} You can follow it on <a href="{{ job_url }}">the page for this work</a>, or come back to this page later.</p>
+{% if values.corrections %}
+<h2>Your words, not sent</h2>
+<p>The AI was already working, so these words were not sent. They are not saved: copy them now, and send them when it is done.</p>
+<div class="panel">{% for para in values.corrections.split('\n') if para.strip() %}<p>{{ para }}</p>
+{% endfor %}</div>
+{% endif %}
 {% elif unread_corrections > 0 %}
-<p class="lead">The AI has not read your newest {{ 'correction' if unread_corrections == 1 else 'corrections' }} yet, because the last try did not finish. Below is what it understood before. To try again, choose Update what you understood.</p>
+<p class="lead">The AI has not read your newest {{ 'correction' if unread_corrections == 1 else 'corrections' }} yet, because the last try did not finish. Below is what it understood before. To try again, choose Send my corrections and read it back again.</p>
 {% endif %}
 <p class="meta">Written by the AI. Nothing is built yet. Check it, then correct it or tell it to build.</p>
 <h2>Summary</h2>
@@ -33,26 +38,33 @@
 <h2>Questions I need you to answer</h2>
 {% if spec.questions %}
 <ol>{% for q in spec.questions %}<li>{{ q }}</li>{% endfor %}</ol>
-<p>Answer them in the Corrections and answers box below.</p>
+{% if not busy %}<p>Answer them in the Corrections and answers box below.</p>{% endif %}
 {% else %}<p>The AI has no questions.</p>{% endif %}
-<form method="post" action="/build/{{ project.id }}/understand" novalidate>
-  {{ csrf_input() }}
+{% if not busy %}<form method="post" action="/build/{{ project.id }}/understand" novalidate>
+  {{ csrf_input() }}{% endif %}
 <h2>Things I would add that you did not ask for</h2>
 {% if spec.additions_not_asked %}
+{% if busy %}
+<ul>{% for a in spec.additions_not_asked %}<li>{{ a }}{% if a in ticked %} (you ticked this){% endif %}</li>{% endfor %}</ul>
+{% else %}
 <p>Only the ones you tick are built. None are ticked to start with.</p>
 {% for a in spec.additions_not_asked %}
-  {{ checkbox('add_' ~ loop.index0, a) }}
+  {{ checkbox('add_' ~ loop.index0, a, checked=(a in ticked)) }}
 {% endfor %}
+{% endif %}
 {% else %}<p>None.</p>{% endif %}
 <h2>What I will not do</h2>
 {% if spec.not_doing %}<ul>{% for n in spec.not_doing %}<li>{{ n }}</li>{% endfor %}</ul>{% else %}<p>Nothing listed.</p>{% endif %}
+{% if not busy %}
 <h2>Correct me or tell me to build</h2>
-  {{ textarea('corrections', 'Corrections and answers', values.corrections, hint='Say what I got wrong and answer my questions. Leave it empty if everything is right.', error=errors.corrections, rows=6) }}
+  {{ textarea('corrections', 'Corrections and answers', values.corrections, hint='Say what I got wrong and answer my questions. Leave it empty if everything is right. If you write something and choose This is right: build it, the AI builds with your words straight away. To check its new read-back first, choose Send my corrections and read it back again.', error=errors.corrections, rows=6) }}
+  {% if spec.additions_not_asked %}<p>Your ticks are kept either way.</p>{% endif %}
   <div class="actions">
-    <button type="submit" name="action" value="update" class="button button-secondary">Update what you understood</button>
+    <button type="submit" name="action" value="update" class="button button-secondary">Send my corrections and read it back again</button>
     <button type="submit" name="action" value="build" class="button button-primary">This is right: build it</button>
   </div>
 </form>
+{% endif %}
 {% include "build/_idea.html" %}
 <h2>Other things you can do</h2>
 <ul>

@@ -133,6 +133,11 @@ def changed_files():
 
 def assert_page_ok(r):
     assert r.status_code == 200, r.text
+    assert_page_ok_status(r)
+
+
+def assert_page_ok_status(r):
+    """A sound page, whatever its status code (a form shown again after a refusal)."""
     assert len(re.findall(r"<h1[ >]", r.text)) == 1
     report = check_html(r.text)
     assert report.errors == [], report.findings
@@ -211,10 +216,12 @@ def test_full_journey(user_client, fake_ai):
     assert "Should prices be shown in naira?" in r.text
     assert "Things I would add that you did not ask for" in r.text and "What I will not do" in r.text
     assert 'name="add_0" value="yes">' in r.text and "checked" not in re.search(r'<input type="checkbox"[^>]*>', r.text).group()
-    assert "Update what you understood" in r.text and "This is right: build it" in r.text
+    assert "Send my corrections and read it back again" in r.text and "This is right: build it" in r.text
     understand_call = calls_for(fake_ai, "build.understand")[0]
     assert "A menu for my food stall." in understand_call["prompt"]
-    assert "blind" in understand_call["system"]
+    # Who the person is and how to speak to them come from the shared member note, which is not repeated here.
+    assert "uses a screen reader" not in understand_call["system"]
+    assert build.LOOKS_RULE in understand_call["system"]
 
     # Corrections re-run the understanding with the previous spec and the corrections.
     fake_ai.on("build.understand", SPEC_2)
@@ -247,7 +254,7 @@ def test_full_journey(user_client, fake_ai):
     assert "Add a lang attribute" in text  # about.html has no lang: a machine-found problem
     assert "Written by the AI" in text
     assert "<strong>menu</strong>" in text
-    assert "How a real screen reader speaks the page" in text
+    assert "How a real screen reader reads the page, in speech and in braille" in text
     assert "I guessed the opening hours." in text
     assert "style.css" in text  # listed as not checked
     assert "What changed" not in text
@@ -256,11 +263,13 @@ def test_full_journey(user_client, fake_ai):
     assert f'href="/build/p/{token}/v/1/index.html"' in text
     assert "/checks/new?url=http%3A%2F%2Ftestserver%2Fbuild%2Fp%2F" in text
     assert f"/build/{project_id}/v/1/download.zip" in text
+    assert "Extras you chose: A printable menu page." in text
 
     # The project page now shows the latest version and the list of versions.
     r = user_client.get(f"/build/{project_id}")
     assert_page_ok(r)
     assert "Version 1" in r.text and "Kemi Kitchen: your project and its versions" == h1(r)
+    assert "Extras you chose for version 1: A printable menu page." in r.text
 
     # Preview: right content, right type, sandbox CSP; anyone with the link can open it.
     anon = TestClient(user_client.app)
@@ -289,7 +298,8 @@ def test_full_journey(user_client, fake_ai):
     assert f'/build/{project_id}/v/1/files/style.css' in r.text
     r = user_client.get(f"/build/{project_id}/v/1/files/index.html")
     assert_page_ok(r)
-    assert "<pre>" in r.text and "Small chops: 1200 naira" in r.text
+    # One numbered item per line, each with an address of its own, so "line 7" can be found.
+    assert '<li id="L7"><code>&lt;p&gt;Small chops: 1200 naira&lt;/p&gt;</code></li>' in r.text
     assert user_client.get(f"/build/{project_id}/v/1/files/nope.html").status_code == 404
 
     # Ask for a change: version 2, with a diff computed by the site.
@@ -313,6 +323,9 @@ def test_full_journey(user_client, fake_ai):
     assert "Removed: &lt;p&gt;Small chops: 1200 naira&lt;/p&gt;" in r.text
     assert "Added: &lt;p&gt;Small chops: 1500 naira&lt;/p&gt;" in r.text
     assert "Nothing else changed." in r.text
+    # The words that changed come first, so nobody has to compare two long lines from memory.
+    assert 'In line 7, "1200" became "1500".' in plain(r.text)
+    assert plain(r.text).index('"1200" became "1500"') < plain(r.text).index("Removed: <p>Small chops")
 
     # Both versions keep their own preview.
     assert "1200 naira" in anon.get(f"/build/p/{token}/v/1/index.html").text
@@ -403,7 +416,8 @@ def test_bad_files_from_the_ai_save_nothing(user_client, fake_ai):
                                                         {"path": "../x", "content": "evil"}]))
     r = post(user_client, f"/build/{project_id}/understand", {"action": "build"})
     assert "This did not finish" in r.text
-    assert "cannot accept" in r.text and "../x" in r.text
+    assert "The AI made a mistake in the files, so nothing was saved." in r.text
+    assert "Technical detail:" in r.text and "../x" in r.text
     with db.session() as conn:
         assert conn.execute("SELECT COUNT(*) FROM build_versions").fetchone()[0] == 0
         assert conn.execute("SELECT status FROM build_projects WHERE id = ?", (project_id,)).fetchone()[0] == "understood"
@@ -446,7 +460,7 @@ def test_compute_diff_counts_lines():
 def test_new_project_validation(user_client, fake_ai):
     r = post(user_client, "/build/new", {"title": "", "idea": ""})
     assert r.status_code == 400
-    assert h1(r) == "Build a website, app, tool or game: please fix the problems"
+    assert h1(r) == "Please check 2 answers: Build a website, app, tool or game"
     assert 'href="#field-idea"' in r.text and 'href="#field-kind"' in r.text
     assert 'aria-invalid="true"' in r.text
     assert fake_ai.calls == []
@@ -461,7 +475,8 @@ def test_new_project_validation(user_client, fake_ai):
                                   "my password is hunter2"])
 def test_secrets_are_refused(user_client, fake_ai, idea):
     r = post(user_client, "/build/new", {"kind": "website", "idea": idea})
-    assert r.status_code == 400 and "never needs them" in r.text
+    assert r.status_code == 400 and "this site never needs them" in r.text
+    assert "If it is not one, change the wording a little" in r.text
     with db.session() as conn:
         assert conn.execute("SELECT COUNT(*) FROM build_projects").fetchone()[0] == 0
 
@@ -475,7 +490,8 @@ def test_update_needs_corrections(user_client, fake_ai):
     project_id, _ = start_project(user_client, fake_ai)
     r = post(user_client, f"/build/{project_id}/understand", {"action": "update", "corrections": ""})
     assert r.status_code == 400
-    assert h1(r).endswith(": please fix the problems") and 'href="#field-corrections"' in r.text
+    assert h1(r) == "Please check 1 answer: Kemi Kitchen: here is what I understood"
+    assert 'href="#field-corrections"' in r.text
     assert len(calls_for(fake_ai, "build.understand")) == 1
 
 
@@ -483,7 +499,7 @@ def test_change_needs_a_request(user_client, fake_ai):
     project_id, _ = build_v1(user_client, fake_ai)
     r = post(user_client, f"/build/{project_id}/v/1/change", {"request": "  "})
     assert r.status_code == 400
-    assert h1(r) == "Kemi Kitchen: version 1 is ready: please fix the problems"
+    assert h1(r) == "Please check 1 answer: your change to Kemi Kitchen, version 1"
     assert "Describe the change you want." in r.text
     assert calls_for(fake_ai, "build.change") == []
 
@@ -651,7 +667,7 @@ def test_ai_files_answer_that_is_not_an_object(user_client, fake_ai):
     project_id, _ = start_project(user_client, fake_ai)
     fake_ai.on("build.generate", "just some text")
     r = post(user_client, f"/build/{project_id}/understand", {"action": "build"})
-    assert "This did not finish" in r.text and "not in the expected form" in r.text
+    assert "This did not finish" in r.text and "came back incomplete, so nothing was saved" in r.text
     with db.session() as conn:
         assert conn.execute("SELECT status FROM build_projects").fetchone()[0] == "understood"
 
@@ -690,17 +706,22 @@ def test_second_change_while_the_ai_is_working_is_refused(user_client, fake_ai):
     _set_row(project_id, status="changing", updated_at=_minutes_ago(1))
     _job_for(project_id)
     fake_ai.on("build.change", changed_files())
+    # The member's words are never lost: the form comes back with them and says why nothing was sent.
     r = post(user_client, f"/build/{project_id}/v/1/change", {"request": "Small chops now cost 1500."})
+    assert r.status_code == 409
+    assert_page_ok_status(r)
+    assert build.BUSY_CHANGE_ERROR in r.text and 'href="#field-request"' in r.text
+    assert ">Small chops now cost 1500.</textarea>" in r.text
+    assert h1(r) == "Please check 1 answer: your change to Kemi Kitchen, version 1"
+    r = post(user_client, f"/build/{project_id}/v/1/fix")
     assert "already working on this project" in r.text
     assert h1(r) == "Kemi Kitchen: the AI is making a change"
     assert_page_ok(r)
-    r = post(user_client, f"/build/{project_id}/v/1/fix")
-    assert "already working on this project" in r.text
     assert calls_for(fake_ai, "build.change") == []
     # A job that keeps working for a long time still blocks a second, paid request.
     _set_row(project_id, status="changing", updated_at=_minutes_ago(60))
     r = post(user_client, f"/build/{project_id}/v/1/change", {"request": "Small chops now cost 1500."})
-    assert "already working on this project" in r.text and calls_for(fake_ai, "build.change") == []
+    assert build.BUSY_CHANGE_ERROR in r.text and calls_for(fake_ai, "build.change") == []
     # A job that stopped (for example in a restart) no longer blocks, and the list does not claim it is working.
     with db.session() as conn:
         conn.execute("UPDATE jobs SET status = 'failed'")
@@ -795,7 +816,7 @@ def test_corrections_have_a_total_size_limit(user_client, fake_ai, monkeypatch):
     project_id, _ = start_project(user_client, fake_ai)
     post(user_client, f"/build/{project_id}/understand", {"action": "update", "corrections": "a" * 20})
     r = post(user_client, f"/build/{project_id}/understand", {"action": "update", "corrections": "b" * 20})
-    assert r.status_code == 400 and "Start a new project" in r.text
+    assert r.status_code == 400 and "start a new project" in r.text
     assert len(calls_for(fake_ai, "build.understand")) == 2
 
 
@@ -805,7 +826,7 @@ def test_waiting_page_errors_say_please_fix(no_ai_app):
     post(client, "/build/new", {"title": "Rivers quiz", "kind": "game", "idea": "A quiz about rivers."})
     r = post(client, "/build/1/understand", {"action": "update", "corrections": "x" * (build.MAX_REQUEST + 1)})
     assert r.status_code == 400
-    assert h1(r) == "Rivers quiz: the AI has not read your idea yet: please fix the problems"
+    assert h1(r) == "Please check 1 answer: Rivers quiz: the AI has not read your idea yet"
     assert 'href="#field-corrections"' in r.text
 
 
@@ -876,8 +897,8 @@ def test_secret_in_title_is_refused_even_when_the_idea_is_empty(user_client, fak
 # ----- how it looks to sighted visitors ------------------------------------------------------------
 
 def look_section(text: str) -> str:
-    """The version page's "How it looks to sighted visitors" section, as HTML."""
-    return re.search(r"<h2>How it looks to sighted visitors</h2>(.*?)<h2>Checked by the site</h2>", text, re.S).group(1)
+    """The version page's "How it looks on screen" section, as HTML."""
+    return re.search(r"<h2>How it looks on screen</h2>(.*?)<h2>Checked by the site</h2>", text, re.S).group(1)
 
 
 def plain(page: str) -> str:
@@ -903,7 +924,7 @@ def test_when_every_visual_check_passes_there_is_no_repair(user_client, fake_ai,
     assert_page_ok(r)
     text = r.text
     # Right after the summary line, before the accessibility details.
-    assert text.index('class="lead"') < text.index("How it looks to sighted visitors") < text.index(
+    assert text.index('class="lead"') < text.index("How it looks on screen") < text.index(
         "<h2>Checked by the site</h2>")
     section = plain(look_section(text))
     assert "Checked by the site on a phone and a computer: passed all 7 visual checks." in section
@@ -920,6 +941,9 @@ def test_when_every_visual_check_passes_there_is_no_repair(user_client, fake_ai,
     assert "but no person has looked" in text
     assert "Ask a sighted person to check how it looks" in text
     assert "kind=sighted" in text and "/checks/new?url=http%3A%2F%2Ftestserver%2Fbuild%2Fp%2F" in text
+    # The look was measured, so contrast is not listed as not checked next to "Passed: Text stands out clearly".
+    not_checked = plain(re.search(r"<h2>Not checked</h2>(.*?)</ul>", text, re.S).group(1))
+    assert "contrast" not in not_checked.lower() and "looks right to sighted" not in not_checked
     assert "The site opens each page in a browser to check how it looks" in text
     assert "The site reads the files but does not run them." not in text
     stored = saved_version(project_id)
@@ -1058,7 +1082,9 @@ def test_the_review_prompt_holds_pictures_and_the_purpose(user_client, fake_ai, 
     assert labels[1].startswith("Picture 2: index.html on a computer")
     assert SPEC["audience"] in labels[-1] and "Kemi Kitchen" in labels[-1]
     assert "The site's own measurements found no problems." in labels[-1]
-    assert "never name colours" in call["system"].lower() and "blind" in call["system"]
+    system = " ".join(call["system"].split())
+    assert build.LOOKS_RULE in system and "may not see these pictures" in system
+    assert "cannot see" not in system and "rely on you" not in system
     assert call["schema"]["properties"]["verdict"]["enum"] == ["looks_finished", "needs_work"]
 
 
@@ -1084,6 +1110,9 @@ def test_without_a_browser_the_look_is_not_checked_and_the_page_says_so(user_cli
     assert "Ask a sighted person to check how it looks" in r.text
     assert "The site reads the files but does not run them." in r.text
     assert json.loads(saved_version(project_id)["visual_json"]) == {"available": False}
+    # Nothing measured the look, so the page says so once, in plain words.
+    not_checked = plain(re.search(r"<h2>Not checked</h2>(.*?)</ul>", r.text, re.S).group(1))
+    assert not_checked.count(build.LOOK_NOT_MEASURED) == 1
 
 
 def test_versions_made_before_the_look_was_checked_say_so(user_client, fake_ai):
@@ -1232,25 +1261,67 @@ def test_a_repair_that_fixed_nothing_is_never_headed_fixed(user_client, fake_ai,
     assert build.repair_heading({"kept": True, "before": 1, "fixed": 1}) == "Fixed before you saw it"
 
 
-def test_the_ais_review_never_shows_colour_names(user_client, fake_ai, fake_visual):
-    colourful = {"verdict": "needs_work",
-                 "summary_for_builder": "The dark blue header looks good but some text is pale grey.",
-                 "problems": [{"page": "index.html", "builder_text": "The light grey text is hard to read.",
-                               "fix_text": "Set .note to #333333."},
-                              {"page": "index.html", "builder_text": "The menu feels crowded on a phone.",
-                               "fix_text": "Give .menu li 12px of padding."}]}
-    review = build.normalize_review(colourful)
-    assert review["summary"] == build.REVIEW_SUMMARY_WITHHELD and review["withheld"] == 2
-    assert [p["builder_text"] for p in review["problems"]] == [build.REVIEW_PROBLEM_WITHHELD,
+# The withheld summary as plain() reads it: its last words, "Your profile", are a link.
+WITHHELD_SHOWN = build.REVIEW_SUMMARY_WITHHELD.removesuffix(" Your profile.")
+COLOURFUL = {"verdict": "needs_work",
+             "summary_for_builder": "The dark blue header looks good but some text is pale grey.",
+             "problems": [{"page": "index.html", "builder_text": "The light grey text is hard to read.",
+                           "fix_text": "Set .note to #333333."},
+                          {"page": "index.html", "builder_text": "The menu feels crowded on a phone.",
+                           "fix_text": "Give .menu li 12px of padding."}]}
+
+
+def test_the_ais_review_is_kept_as_written(user_client, fake_ai, fake_visual):
+    review = build.normalize_review(COLOURFUL)
+    assert review["summary"] == COLOURFUL["summary_for_builder"]
+    assert [p["builder_text"] for p in review["problems"]] == ["The light grey text is hard to read.",
                                                                 "The menu feels crowded on a phone."]
-    assert review["problems"][0]["fix_text"] == "Set .note to #333333."  # the repair still gets the details
-    fake_ai.on("build.design_review", colourful)
+    assert review["problems"][0]["fix_text"] == "Set .note to #333333."  # the repair gets the details
+
+
+def test_a_member_who_chose_the_effect_only_is_not_shown_colour_words(user_client, fake_ai, fake_visual):
+    # The default profile choice: looks are described by their effect.
+    fake_ai.on("build.design_review", COLOURFUL)
     fake_ai.on("build.visual_repair", repaired_files())
     _, r = build_v1(user_client, fake_ai)
     section = plain(look_section(r.text))
+    assert WITHHELD_SHOWN in section
     assert build.REVIEW_PROBLEM_WITHHELD in section and "The menu feels crowded on a phone." in section
     assert not visual_check.names_a_colour(section), section
+    # Sight is never given as the reason, and the member is told where to change the choice.
+    assert "does not show" not in section and "cannot see" not in section
+    assert f'<a href="{build.PROFILE_LOOKS_URL}">Your profile</a>.' in look_section(r.text)
     assert "Set .note to #333333." in calls_for(fake_ai, "build.visual_repair")[0]["prompt"]
+
+
+def test_a_member_who_chose_colours_reads_the_ais_words_as_written(user_client, fake_ai, fake_visual):
+    from .conftest import user_id
+    with db.session() as conn:
+        conn.execute("UPDATE users SET describe_colours = 1 WHERE id = ?", (user_id(),))
+    fake_ai.on("build.design_review", COLOURFUL)
+    fake_ai.on("build.visual_repair", repaired_files())
+    project_id, r = build_v1(user_client, fake_ai)
+    section = plain(look_section(r.text))
+    assert COLOURFUL["summary_for_builder"] in section and "The light grey text is hard to read." in section
+    assert WITHHELD_SHOWN not in section and build.REVIEW_PROBLEM_WITHHELD not in section
+    # The choice is read when the page is shown: changing it back hides the colour words again.
+    with db.session() as conn:
+        conn.execute("UPDATE users SET describe_colours = 0 WHERE id = ?", (user_id(),))
+    section = plain(look_section(user_client.get(f"/build/{project_id}/v/1").text))
+    assert WITHHELD_SHOWN in section and "light grey" not in section
+
+
+def test_older_withheld_words_read_as_the_new_ones(user_client, fake_ai, fake_visual):
+    project_id, _ = build_v1(user_client, fake_ai)
+    old = {"state": "done", "verdict": "needs_work", "withheld": 2,
+           "summary": "The AI described the look by its colours, which this page does not show. Its opinion is below.",
+           "problems": [{"page": "index.html", "fix_text": "x", "builder_text":
+                         "The AI found something on this page that may be hard for visitors to see or read."}]}
+    with db.session() as conn:
+        conn.execute("UPDATE build_versions SET design_review_json = ?", (json.dumps(old),))
+    section = plain(look_section(user_client.get(f"/build/{project_id}/v/1").text))
+    assert "does not show" not in section and "see or read" not in section
+    assert WITHHELD_SHOWN in section and build.REVIEW_PROBLEM_WITHHELD in section
 
 
 def test_pictures_go_to_the_ai_in_their_own_format_and_only_as_many_as_it_reads(user_client, fake_ai, fake_visual):
@@ -1278,7 +1349,7 @@ def test_the_feel_is_asked_for_on_the_form(user_client):
 def test_the_feel_is_validated(user_client, fake_ai):
     r = post(user_client, "/build/new", {"kind": "website", "idea": "A menu.", "feel": "x" * 201})
     assert r.status_code == 400
-    assert h1(r) == "Build a website, app, tool or game: please fix the problems"
+    assert h1(r) == "Please check 1 answer: Build a website, app, tool or game"
     assert 'href="#field-feel"' in r.text and "201 characters" in r.text
     r = post(user_client, "/build/new", {"kind": "website", "idea": "A menu.", "feel": "my password is hunter2"})
     assert r.status_code == 400 and 'href="#field-feel"' in r.text and "never needs them" in r.text
@@ -1323,13 +1394,17 @@ def test_look_and_feel_missing_from_the_ai_is_plain(user_client, fake_ai):
 
 
 def test_the_prompts_hold_the_design_rules(user_client, fake_ai):
-    assert "look_and_feel" in build.UNDERSTAND_SYSTEM and "Never name colours" in build.UNDERSTAND_SYSTEM
+    assert "look_and_feel" in build.UNDERSTAND_SYSTEM and build.LOOKS_RULE in build.UNDERSTAND_SYSTEM
+    for system in (build.UNDERSTAND_SYSTEM, build.GENERATE_SYSTEM, build.CHANGE_SYSTEM, build.DESIGN_REVIEW_SYSTEM):
+        # The shared member note says who the person is; no prompt says they cannot see.
+        assert "cannot see" not in system and "uses a screen reader" not in system
     assert build.UNDERSTAND_SCHEMA["properties"]["look_and_feel"] == {"type": "string"}
     assert "look_and_feel" in build.UNDERSTAND_SCHEMA["required"]
     for system in (build.GENERATE_SYSTEM, build.CHANGE_SYSTEM):
         for rule in ("polished, modern visual look", "WCAG AA contrast", "base font size 16 to 18px",
                      "System font", "320px phones", "visual hierarchy", "at least 44px tall", "focus outlines",
-                     "separate style.css", "never name colours"):
+                     "separate style.css", "Follow the member note on describing looks", build.OUTWARD_DISCLOSURE,
+                     "Never use sound alone", "screen reader in speech or braille, a keyboard, or zoom"):
             assert rule in system, rule
         # Every accessibility rule is still there.
         assert "exactly one <h1>" in system and 'role="status"' in system and "No external scripts" in system
@@ -1360,3 +1435,217 @@ def test_seed_adds_the_new_columns_to_an_older_database(tmp_path):
         versions = {r["name"] for r in conn.execute("PRAGMA table_info(build_versions)")}
     assert "feel" in projects
     assert {"visual_json", "design_review_json", "repaired_json"} <= versions
+
+
+# ----- ease of use for screen reader, braille, magnifier and keyboard users ------------------------------
+
+def checkbox_tag(text, name):
+    return re.search(rf'<input type="checkbox"[^>]*name="{name}"[^>]*>', text).group()
+
+
+def test_ticked_extras_are_kept_after_an_error_a_new_read_back_and_a_failed_build(user_client, fake_ai):
+    project_id, _ = start_project(user_client, fake_ai)
+    # An error: the box comes back with the tick still there.
+    r = post(user_client, f"/build/{project_id}/understand", {"action": "update", "corrections": "", "add_1": "yes"})
+    assert r.status_code == 400
+    assert "checked" in checkbox_tag(r.text, "add_1") and "checked" not in checkbox_tag(r.text, "add_0")
+    assert "Your ticks are kept either way." in r.text
+    # A new read-back keeps the tick.
+    r = post(user_client, f"/build/{project_id}/understand",
+             {"action": "update", "corrections": "Prices in naira.", "add_1": "yes"})
+    assert_page_ok(r)
+    assert "checked" in checkbox_tag(r.text, "add_1") and "checked" not in checkbox_tag(r.text, "add_0")
+    # A build that fails: going back finds the tick still there.
+    fake_ai.on("build.generate", AIError("The AI is busy right now. Please try again in a minute."))
+    r = post(user_client, f"/build/{project_id}/understand", {"action": "build", "add_1": "yes"})
+    assert "This did not finish" in r.text and f'href="/build/{project_id}"' in r.text  # Go back and try again
+    r = user_client.get(f"/build/{project_id}")
+    assert "checked" in checkbox_tag(r.text, "add_1")
+
+
+def test_while_the_ai_works_the_read_back_shows_a_status_not_a_form(user_client, fake_ai):
+    project_id, _ = start_project(user_client, fake_ai)
+    _set_row(project_id, status="understanding")
+    _job_for(project_id)
+    r = user_client.get(f"/build/{project_id}")
+    assert_page_ok(r)
+    assert h1(r) == "Kemi Kitchen: the AI is reading your corrections"
+    assert 'name="corrections"' not in r.text and "This is right: build it" not in r.text
+    assert re.search(r'href="/jobs/[0-9a-f]+">the page for this work</a>', r.text)
+    # A form sent from an older copy of the page keeps the member's words on the page.
+    r = post(user_client, f"/build/{project_id}/understand", {"action": "update", "corrections": "Ten dishes."})
+    assert r.status_code == 409
+    assert_page_ok_status(r)
+    assert h1(r) == "Kemi Kitchen: the AI is already working on it, so your words were not sent"
+    assert "Your words, not sent" in r.text and "<p>Ten dishes.</p>" in r.text
+    assert len(calls_for(fake_ai, "build.understand")) == 1
+
+
+def test_while_the_ai_reads_the_idea_the_waiting_page_shows_a_status(no_ai_app):
+    client = TestClient(no_ai_app)
+    register(client)
+    post(client, "/build/new", {"title": "Rivers quiz", "kind": "game", "idea": "A quiz about rivers."})
+    _set_row(1, status="understanding")
+    _job_for(1)
+    r = client.get("/build/1")
+    assert_page_ok(r)
+    assert h1(r) == "Rivers quiz: the AI is reading your idea"
+    assert 'name="corrections"' not in r.text and "the page for this work" in r.text
+
+
+def test_peer_check_links_name_who_should_check(user_client, fake_ai):
+    project_id, r = build_v1(user_client, fake_ai)
+    by_name = {name: href for href, name in re.findall(r'<a href="(/checks/new\?[^"]+)">([^<]+)</a>', r.text)}
+    screen_reader = by_name["Ask members who use screen readers to check it"]
+    sighted = by_name["Ask a sighted person to check how it looks"]
+    assert "kind=screen_reader" in screen_reader and "Kemi+Kitchen%2C+version+1%3A+screen+reader+check" in screen_reader
+    assert "kind=sighted" in sighted and "Kemi+Kitchen%2C+version+1%3A+how+it+looks" in sighted
+    form = user_client.get(screen_reader.replace("&amp;", "&"))
+    assert "Kemi Kitchen, version 1: screen reader check" in form.text
+
+
+def ask_for_a_check(client, project_id, number=1, reward="0", wanted="screen_reader", title="Kemi check"):
+    url = f"http://testserver/build/p/{share_token(project_id)}/v/{number}/index.html"
+    r = post(client, "/checks/new", {"title": title, "url": url, "what_to_try": "Find the price of small chops.",
+                                     "max_checks": "2", "reward_cents": reward, "wanted": wanted})
+    assert r.status_code == 200, r.text
+    return int(re.search(r"/checks/(\d+)$", str(r.url)).group(1))
+
+
+def test_the_version_page_lists_its_peer_checks(user_client, fake_ai):
+    project_id, r = build_v1(user_client, fake_ai)
+    assert "<h2" in r.text and "Peer checks of this version</h2>" in r.text
+    assert "You have not asked for a peer check of this version yet." in r.text
+    check_id = ask_for_a_check(user_client, project_id)
+    r = user_client.get(f"/build/{project_id}/v/1")
+    assert_page_ok(r)
+    assert f'<a href="/checks/{check_id}">Kemi check</a>' in r.text
+    assert "For people who use screen readers. 0 of 2 checks done. Open." in plain(r.text)
+    # A check of another version is not listed here.
+    fake_ai.on("build.change", changed_files())
+    post(user_client, f"/build/{project_id}/v/1/change", {"request": "Small chops now cost 1500."})
+    assert f'href="/checks/{check_id}"' not in user_client.get(f"/build/{project_id}/v/2").text
+
+
+def test_deleting_a_project_closes_its_peer_checks_and_returns_held_credits(user_client, fake_ai):
+    from studio import credits
+
+    from .conftest import user_id
+    project_id, _ = build_v1(user_client, fake_ai)
+    credits.add(user_id(), 500, "Test credits")
+    check_id = ask_for_a_check(user_client, project_id, reward="100")
+    assert credits.balance(user_id()) == 300
+    r = user_client.get(f"/build/{project_id}/delete")
+    assert_page_ok(r)
+    assert "1 peer check request is still open for its previews. Deleting closes it, and the $2.00 held for " \
+           "checks not done comes back to your credits." in plain(r.text)
+    assert f'href="/checks/{check_id}"' in r.text
+    assert f'href="/build/{project_id}/v/1/download.zip">Download version 1 (the latest) as a zip file</a>' in r.text
+    r = post(user_client, f"/build/{project_id}/delete")
+    assert_page_ok(r)
+    assert h1(r) == "Deleted Kemi Kitchen and all its versions, and closed 1 peer check request"
+    assert "$2.00 held for checks not done came back to your credits." in r.text
+    assert credits.balance(user_id()) == 500
+    with db.session() as conn:
+        assert conn.execute("SELECT status FROM check_requests WHERE id = ?", (check_id,)).fetchone()[0] == "closed"
+
+
+def test_deleting_a_project_with_nothing_built_says_so(user_client, fake_ai):
+    project_id, _ = start_project(user_client, fake_ai)
+    r = user_client.get(f"/build/{project_id}/delete")
+    assert_page_ok(r)
+    assert "This deletes Kemi Kitchen and your idea. Nothing has been built yet. This cannot be undone." in r.text
+    assert "0 versions" not in r.text and "download.zip" not in r.text
+
+
+def test_form_addresses_reached_by_reload_lead_back_to_the_form(user_client, fake_ai):
+    r = user_client.get("/build/new", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/build#field-idea"
+    project_id, _ = build_v1(user_client, fake_ai)
+    for path, target in [(f"/build/{project_id}/understand", f"/build/{project_id}"),
+                         (f"/build/{project_id}/v/1/change", f"/build/{project_id}/v/1#field-request"),
+                         (f"/build/{project_id}/v/1/fix", f"/build/{project_id}/v/1#fix")]:
+        r = user_client.get(path, follow_redirects=False)
+        assert r.status_code == 303 and r.headers["location"] == target, path
+
+
+def test_the_fix_has_its_own_heading_after_the_checks(user_client, fake_ai):
+    project_id, r = build_v1(user_client, fake_ai)
+    text = r.text
+    heading = '<h2 id="fix" tabindex="-1">Fix the problems the checks found (1)</h2>'
+    assert heading in text
+    assert text.index("<h2>Checked by the site</h2>") < text.index(heading) < text.index("<h2>What the AI says it built")
+    assert 'in a new version: <a href="#fix">go to the fix</a>.' in text  # named in the opening summary
+
+
+def test_check_places_link_to_that_line_of_the_file(user_client, fake_ai):
+    project_id, _ = start_project(user_client, fake_ai)
+    files = json.loads(json.dumps(FILES_V1))
+    files[0]["content"] = INDEX_V1.replace("<p>Jollof rice: 1500 naira</p>",
+                                           '<p>Jollof rice: 1500 naira</p>\n<img src="rice.svg">')
+    fake_ai.on("build.generate", dict(GENERATED, files=files))
+    r = post(user_client, f"/build/{project_id}/understand", {"action": "build"})
+    assert ('Where: &lt;img src=&#34;rice.svg&#34;&gt; on <a href="/build/1/v/1/files/index.html#L9">line 9 of '
+            'index.html</a>') in r.text
+    r = user_client.get(f"/build/{project_id}/v/1/files/index.html")
+    assert_page_ok(r)
+    assert '<li id="L9"><code>&lt;img src=&#34;rice.svg&#34;&gt;</code></li>' in r.text
+    r = user_client.get(f"/build/{project_id}/v/1/files/about.html")
+    # Moving between the files without going back to the list.
+    assert f'<a href="/build/{project_id}/v/1/files/index.html">Next file: index.html</a>' in r.text
+    assert "Previous file" not in r.text
+    r = user_client.get(f"/build/{project_id}/v/1/files/index.html")
+    assert f'<a href="/build/{project_id}/v/1/files/about.html">Previous file: about.html</a>' in r.text
+    assert f'<a href="/build/{project_id}/v/1/files/style.css">Next file: style.css</a>' in r.text
+
+
+def test_indentation_survives_in_the_numbered_lines():
+    assert build._numbered_lines("a\n  b\n\tc") == ["a", "  b", " " * 4 + "c"]
+
+
+@pytest.mark.parametrize("old, new, expected", [
+    ("<p>Small chops: 1,200 naira</p>", "<p>Small chops: 1,500 naira</p>", ("1,200", "1,500")),
+    ("<p>We are open every day of the week</p>", "<p>We are open every day of the year</p>", ("week</p>", "year</p>")),
+    ("<p>Open daily</p>", "<p>Open daily from nine</p>", None),  # too little of the line stayed the same
+    ("<li>Jollof rice</li>", "<li>Fried rice and plantain</li>", None),  # most of the line changed
+    ("same", "same", None),
+])
+def test_word_change(old, new, expected):
+    assert build.word_change(old, new) == expected
+
+
+def test_what_changed_links_to_the_changed_lines(user_client, fake_ai):
+    project_id, _ = build_v1(user_client, fake_ai)
+    fake_ai.on("build.change", changed_files())
+    r = post(user_client, f"/build/{project_id}/v/1/change", {"request": "Small chops now cost 1500."})
+    section = re.search(r"<h2>What changed.*?<h2>", r.text, re.S).group()
+    assert f'<a href="/build/{project_id}/v/2/changes">See the changed lines</a>' in section
+
+
+def test_an_older_version_says_so_in_its_title(user_client, fake_ai):
+    project_id, _ = build_v1(user_client, fake_ai)
+    fake_ai.on("build.change", changed_files())
+    post(user_client, f"/build/{project_id}/v/1/change", {"request": "Small chops now cost 1500."})
+    r = user_client.get(f"/build/{project_id}/v/1")
+    assert h1(r) == "Kemi Kitchen: version 1 (older; the latest is version 2)"
+    assert f"<title>{h1(r)} – " in r.text
+
+
+def test_returning_members_find_their_projects_first(user_client, fake_ai):
+    r = user_client.get("/build")
+    assert r.text.index("Start something new") < r.text.index("Your projects")
+    build_v1(user_client, fake_ai)
+    r = user_client.get("/build")
+    assert r.text.index("Your projects (1)") < r.text.index("Start something new")
+
+
+def test_job_titles_make_sense_in_the_list_of_work(user_client, fake_ai):
+    start_project(user_client, fake_ai)
+    with db.session() as conn:
+        titles = [row[0] for row in conn.execute("SELECT title FROM jobs")]
+    assert titles == ["Reading back your idea: Kemi Kitchen"]
+
+
+def test_the_corrections_hint_says_build_goes_straight_ahead(user_client, fake_ai):
+    _, r = start_project(user_client, fake_ai)
+    assert "the AI builds with your words straight away" in r.text

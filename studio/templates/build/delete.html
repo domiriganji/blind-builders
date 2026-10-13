@@ -2,8 +2,14 @@
 {% from "_macros.html" import post_button %}
 {% block content %}
 <h1>{{ title }}</h1>
-<p class="lead">This deletes {{ project.title or 'this project' }}, your idea and all {{ version_count }} {{ 'version' if version_count == 1 else 'versions' }}. Preview links stop working, including any you shared. This cannot be undone.</p>
-<p>If you might want the files later, download them from a version page first.</p>
+<p class="lead">{% if version_count %}This deletes {{ project.title or 'this project' }}, your idea and all {{ version_count }} {{ 'version' if version_count == 1 else 'versions' }}. Preview links stop working, including any you shared.{% else %}This deletes {{ project.title or 'this project' }} and your idea. Nothing has been built yet.{% endif %} This cannot be undone.</p>
+{% if open_checks %}
+<p>{{ open_checks|length }} peer check {{ 'request is' if open_checks|length == 1 else 'requests are' }} still open for its previews. Deleting closes {{ 'it' if open_checks|length == 1 else 'them' }}{% if held_cents %}, and the {{ held }} held for checks not done comes back to your credits{% endif %}.</p>
+<ul>{% for c in open_checks %}<li><a href="/checks/{{ c.id }}">{{ c.title }}</a> <span class="meta">{{ c.done }} of {{ c.max_checks }} {{ 'check' if c.max_checks == 1 else 'checks' }} done.</span></li>{% endfor %}</ul>
+{% endif %}
+{% if latest_number %}
+<p>If you might want the files later, download them first: <a href="/build/{{ project.id }}/v/{{ latest_number }}/download.zip">Download version {{ latest_number }} (the latest) as a zip file</a>.</p>
+{% endif %}
 <div class="actions">
 {{ post_button('/build/' ~ project.id ~ '/delete', 'Delete this project', 'primary') }}
 <a href="/build/{{ project.id }}">Keep it and go back</a>

@@ -2,20 +2,12 @@
 {% from "_macros.html" import csrf_input, error_summary, field, radios, textarea %}
 {% block content %}
 <h1>{{ title }}</h1>
-<p class="lead">Describe a website, a web app for phones, a small tool or a game in your own words. Before building anything, the AI tells you what it understood, and you correct it or say go ahead. Then it builds the files with a finished, professional look that suits the people who will use it. The site checks every page with its own accessibility checks. Where the server has a browser, it also opens each page on a phone and a computer to check it is easy to read and nothing is broken, and an AI looks at pictures of the pages. You get a plain report of what was checked, what was not, and, for every change, exactly which lines changed.</p>
-<p>What can be built here: pages made of HTML, CSS and JavaScript that work in any browser. They can save information only on the visitor's own device. They cannot have sign-in, payments or a shared database, and they cannot send email.</p>
-{% if user %}
-<h2>Start something new</h2>
 {{ error_summary(errors) }}
-<form method="post" action="/build/new" novalidate>
-  {{ csrf_input() }}
-  {{ field('title', 'Title', values.title, hint='If you leave this empty, the AI suggests one.', error=errors.title) }}
-  {{ radios('kind', 'What do you want to make?', kinds, values.kind, error=errors.kind) }}
-  {{ textarea('idea', 'Your idea', values.idea, hint=idea_hint, error=errors.idea, rows=10, required=true) }}
-  {{ field('feel', feel_label, values.feel, hint=feel_hint, error=errors.feel) }}
-  <button type="submit" class="button button-primary">Send my idea to the AI</button>
-</form>
-<h2>Your projects</h2>
+{% if note %}<p>{{ note }}</p>{% endif %}
+<p class="lead">Describe your idea in your own words. The AI tells you what it understood, and you correct it or tell it to go ahead. Then it builds the files and designs a look for the people who will use it. The site checks every page and gives you a plain report: what was checked, what was not, and exactly which lines changed.</p>
+{% macro what_can_be_built() %}<p>What can be built here: websites and small web apps that work in any browser (made of HTML, CSS and JavaScript). They can remember things only on each visitor's own device. They cannot have sign-in, take payments, share information between visitors or send email.</p>{% endmacro %}
+{% macro your_projects() %}
+<h2 id="your-projects">Your projects{% if projects %} ({{ projects|length }}){% endif %}</h2>
 {% if projects %}
 <ul class="item-list">
 {% for p in projects %}
@@ -26,7 +18,23 @@
 {% else %}
 <p>You have no projects yet. Your projects appear here after you send your first idea.</p>
 {% endif %}
+{% endmacro %}
+{% if user %}
+{# A member coming back finds their projects first; a new member finds the form first. #}
+{% if projects %}{{ your_projects() }}{% endif %}
+<h2>Start something new</h2>
+{{ what_can_be_built() }}
+<form method="post" action="/build/new" novalidate>
+  {{ csrf_input() }}
+  {{ field('title', 'Title', values.title, hint='If you leave this empty, the AI suggests one.', error=errors.title) }}
+  {{ radios('kind', 'What do you want to make?', kinds, values.kind, error=errors.kind) }}
+  {{ textarea('idea', 'Your idea', values.idea, hint=idea_hint, error=errors.idea, rows=10, required=true) }}
+  {{ field('feel', feel_label, values.feel, hint=feel_hint, error=errors.feel) }}
+  <button type="submit" class="button button-primary">Send my idea to the AI</button>
+</form>
+{% if not projects %}{{ your_projects() }}{% endif %}
 {% else %}
+{{ what_can_be_built() }}
 <h2>Start building</h2>
 <p>You need an account to build, so your projects stay private to you. <a href="/login?next=/build">Sign in to build</a> or <a href="/register?next=/build">create a free account</a>.</p>
 {% endif %}

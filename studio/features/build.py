@@ -10,8 +10,9 @@ The flow:
 5. After every build or change, if the server has a browser (studio/visual_check.py), the site opens each
    page on a phone and a computer and measures what sighted visitors meet. An AI then looks at pictures of
    the pages (build.design_review). If either finds problems, the AI repairs them once (build.visual_repair)
-   and the site checks again. The member is told about the look in outcomes (easy to read, works on phones,
-   looks finished), never in colours.
+   and the site checks again. The member is told about the look by its effect (easy to read, works on phones,
+   looks finished). Colours are named only for members who chose that in Your profile (users.describe_colours,
+   docs/VOICE.md 4.4); the shared member note tells the AI which, and the page applies the same choice.
 
 Everything the AI builds is static HTML, CSS and plain JavaScript. Previews are served under a
 sandbox Content-Security-Policy so a built page cannot read the site's cookies.
@@ -33,10 +34,11 @@ from urllib.parse import quote, urlencode
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 
-from .. import db, jobs, sensitive, visual_check
+from .. import credits, db, jobs, sensitive, visual_check
 from ..a11y_check import check_html
 from ..ai import AIError, AINotAvailable
-from ..web import checked_form, current_user, flash, form_text, get_ai, redirect, render, require_user
+from ..web import (checked_form, current_user, error_title, flash, form_text, get_ai, redirect, render,
+                   require_user)
 
 router = APIRouter(prefix="/build")
 NAV = {"label": 'Build', "url": '/build', "description": 'Describe a website, app or tool in your own words. The AI reads back what it understood, builds it, checks it and tells you exactly what changed.'}
@@ -107,8 +109,7 @@ STATUS_LABELS = {
 
 IDEA_HINT = "Say it the way you would tell a friend: who it is for, what it should do, and what it should say."
 FEEL_LABEL = "How should it feel to the people who use it?"
-FEEL_HINT = ("For example friendly, calm, professional or playful. You do not need to choose colours: "
-             "the AI designs the look for you.")
+FEEL_HINT = "For example friendly, calm, professional or playful. The AI designs the look to suit it."
 MAX_FEEL = 200
 MAX_TITLE = 120
 MAX_IDEA = 20_000
@@ -118,8 +119,8 @@ MAX_AI_TEXT = 20_000  # any single piece of text the AI writes about a build (su
 # While the AI works on a project, a second request for the same project is refused. "Working" is read from
 # the job itself (queued or running), however long it takes; a restart marks unfinished jobs as stopped.
 BUSY_STATUSES = {"understanding", "building", "changing"}
-BUSY_MESSAGE = ("The AI is already working on this project. Wait for it to finish, then try again. "
-                "You can follow it in Your recent work.")
+BUSY_MESSAGE = ("The AI is already working on this project, so nothing new was started. You can follow it in "
+                "Your recent work, and try again when it is done.")
 # Same idea sent twice within this many seconds (for example a double press of the button): keep one.
 DUPLICATE_SECONDS = 120
 MAX_SQLITE_INT = 2 ** 63 - 1
@@ -152,17 +153,19 @@ JS_NOT_CHECKED_WITH_LOOK = ("Whether the buttons, forms and scripts work. The si
 SITE_NOT_CHECKED = [
     JS_NOT_CHECKED,
     "CSS, JavaScript and other files that are not HTML pages. Only HTML pages get the machine checks.",
-    "Saving data and installing as an app inside the preview. The preview runs in a locked-down sandbox "
-    "for your safety, so these may not work there. They need the files on your own web host.",
+    "Saving data and installing as an app inside the preview. The preview runs in a protected space, so these "
+    "may not work there. They work when you put the files on your own website.",
 ]
 
 # ----- AI prompts and schemas -------------------------------------------------------------------
 
-READER_RULES = (
-    "The person you are helping is blind or has low vision and uses a screen reader. "
-    "Put the summary first. Use plain language, short sentences and short headings. "
-    "No tables unless asked. No emoji. Never claim something was checked or tested unless it was."
-)
+# Who the person is, how to speak to them and how to describe looks come from the shared member note
+# (studio/ai.member_voice, docs/VOICE.md 4.18), which AIClient puts before every system prompt. These prompts
+# add only what the task needs.
+LOOKS_RULE = "Follow the member note on describing looks."
+# What the AI writes for other readers (the built pages) never discloses the person's sight (docs/VOICE.md 4.7).
+OUTWARD_DISCLOSURE = ("Never mention the person's blindness or low vision, or how they read, in the files or anything "
+                      "meant for other readers, unless they ask.")
 
 WHAT_CAN_BE_BUILT = (
     "What can be built here: static HTML, CSS and plain JavaScript files only, at most 12 files. "
@@ -173,7 +176,6 @@ WHAT_CAN_BE_BUILT = (
 )
 
 UNDERSTAND_SYSTEM = f"""You help a person plan a small website, web app, tool or game that will then be built for them.
-{READER_RULES}
 
 Read their idea and say back what you understood, so they can correct you before anything is built.
 - summary: two or three sentences saying what it is, who it is for and what it does.
@@ -185,10 +187,9 @@ Read their idea and say back what you understood, so they can correct you before
 - additions_not_asked: things you would add that the person did not ask for. Never put these in pages or features.
 - not_doing: what you will not do, including anything that cannot be built here.
 - suggested_title: a short title, at most six words.
-- look_and_feel: one or two sentences on how the finished thing will feel to sighted visitors, in words about
-  mood and purpose, for example "Warm and welcoming, like a family bakery; clear and easy to read on a phone."
-  Follow how the person said it should feel, if they did. Never name colours, colour codes or fonts, and never
-  describe what things look like: the person cannot see them. Say what effect the look has and what it suits.
+- look_and_feel: one or two sentences on how the finished thing will look and feel to visitors. Lead with the
+  effect and what it suits, for example "Warm and welcoming, like a family bakery; clear and easy to read on a
+  phone." Follow how the person said it should feel, if they did. {LOOKS_RULE}
 Only put in pages and features what the person asked for, or what is needed for it to work.
 
 {WHAT_CAN_BE_BUILT}
@@ -253,6 +254,8 @@ BUILD_RULES = """Rules for the files. Follow every one.
 - Headings go in order (h1, then h2, then h3). Put the most important content first.
 - Works without JavaScript wherever possible. JavaScript only adds to pages that already make sense.
 - When something changes on the page after an action, announce it in an element with role="status".
+- Every sound must also give the same news as text, for example in the role="status" message, so people who
+  cannot hear it get it too. Never use sound alone.
 - Never stop people zooming (no user-scalable=no, no maximum-scale).
 - Each HTML page is under 60 KB. At most 12 files.
 - File paths are relative, like index.html or css/style.css: no leading slash, no "..", no backslashes.
@@ -262,7 +265,7 @@ BUILD_RULES = """Rules for the files. Follow every one.
   storage is blocked, and say in how_to_use that the data stays only in that browser on that device.
 - Never ask for or store passwords, card numbers or one-time codes.
 
-Design: sighted people will use it too, so it must look polished and finished. Follow every rule.
+Design: many visitors will see it, so it must look polished and finished. Follow every rule.
 - Design a polished, modern visual look that suits the purpose and the audience, and how the person wants it
   to feel. It should look as if a professional designer made it.
 - A coherent colour palette of a few colours that meets WCAG AA contrast: at least 4.5:1 for normal text, 3:1
@@ -285,11 +288,11 @@ Design: sighted people will use it too, so it must look polished and finished. F
 What to return:
 - files: every file, each with its complete content.
 - summary: what you built, summary first, in plain words. Do not say you checked or tested anything.
-- how_to_use: how to open it and use it with a screen reader and keyboard.
+- how_to_use: how to open it and use it with a screen reader in speech or braille, a keyboard, or zoom.
 - not_done: anything the person asked for that you did not do, and any guesses you made. Empty if none.
-- In summary and how_to_use, never name colours, colour codes or fonts, and never describe what things look
-  like: the person cannot see them. Describe the look by how it will feel to visitors and what it suits, for
-  example "a calm, professional look that suits a law office"."""
+- In summary and how_to_use, describe the look first by how it feels to visitors and what it suits, for example
+  "a calm, professional look that suits a law office". Follow the member note on describing looks.
+- """ + OUTWARD_DISCLOSURE
 
 PHONE_APP_RULES = """This is a web app people can install on their phone. Also include:
 - manifest.webmanifest with name, short_name, start_url "./index.html", scope "./", display "standalone",
@@ -299,12 +302,10 @@ PHONE_APP_RULES = """This is a web app people can install on their phone. Also i
 - In index.html, link the manifest and register "sw.js" only if "serviceWorker" in navigator, inside try and catch."""
 
 GENERATE_SYSTEM = f"""You build small websites, web apps, tools and games for a person who described what they want.
-{READER_RULES}
 
 {BUILD_RULES}"""
 
 CHANGE_SYSTEM = f"""You change a small website, web app, tool or game that you built earlier, as the person asks.
-{READER_RULES}
 
 Change only what the person asked for. Leave every other file and every other line exactly as it is.
 Return the complete new set of files, including the ones you did not change. Any file you leave out is deleted.
@@ -313,9 +314,8 @@ In summary, say what you changed, in plain words.
 {BUILD_RULES}"""
 
 DESIGN_REVIEW_SYSTEM = f"""You are an experienced visual designer. You look at pictures of a small website, web app, tool or
-game that an AI built for a person. The person is blind or has low vision: they cannot see these pictures and
-rely on you to tell them honestly how sighted visitors will experience what they made.
-{READER_RULES}
+game that an AI built for a person. The person who made this is blind or has low vision and may not see these
+pictures. They have asked you for an honest, specific report on how sighted visitors will experience it.
 
 Each picture shows one page as it first opens, on a phone (390 pixels wide) or a computer (1280 pixels wide).
 Judge: does it look finished and professional; is all text easy to read; is there a clear order of importance;
@@ -327,10 +327,11 @@ oddly empty.
   anything noticeable should be fixed first.
 - summary_for_builder: one or two plain sentences for the person about how sighted visitors will experience it:
   whether it looks finished and professional, easy to read, works on phones and computers, and suits the people
-  it is for. Never name colours, colour codes or fonts, and never describe what things look like. Say what
-  effect the look has, for example "It looks finished and welcoming, and is easy to read on a phone."
+  it is for. Say the effect first, for example "It looks finished and welcoming, and is easy to read on a
+  phone." {LOOKS_RULE}
 - problems: only problems worth fixing, most important first. Empty if none. page: the file name, like
-  index.html. builder_text: one plain sentence about the effect on visitors, with no colour names.
+  index.html. builder_text: one plain, specific sentence about the problem and its effect on visitors, for
+  example "Some text on the menu is faint, so prices are hard to read on a phone." {LOOKS_RULE}
   fix_text: a precise technical instruction for the AI that will fix it. Here you may name colours, CSS
   properties and values.
 You only see these pictures. Do not claim you tested or checked anything else."""
@@ -358,10 +359,22 @@ DESIGN_REVIEW_SCHEMA = {
     },
 }
 REVIEW_VERDICTS = {"looks_finished", "needs_work"}
-# Said instead of the AI's words when they name colours (the member is never told colours).
-REVIEW_SUMMARY_WITHHELD = ("The AI described the look by its colours, which this page does not show. Its opinion "
-                           "is below.")
-REVIEW_PROBLEM_WITHHELD = "The AI found something on this page that may be hard for visitors to see or read."
+# Said instead of the AI's words when they name colours and the member chose looks described by their effect only
+# (users.describe_colours = 0). Members who chose colours read the AI's words as written. The last words,
+# "Your profile", become a link to that choice.
+REVIEW_SUMMARY_WITHHELD = ("The AI's description of the look named colours, so it is not shown here. Your profile is "
+                           "set to describe looks by their effect. To read descriptions with colours, change this in "
+                           "Your profile.")
+REVIEW_PROBLEM_WITHHELD = "The AI found something on this page that may be hard for visitors to read."
+# What older versions stored when the site withheld the AI's words at the time it answered.
+OLD_WITHHELD = {
+    "The AI described the look by its colours, which this page does not show. Its opinion is below.":
+        REVIEW_SUMMARY_WITHHELD,
+    "The AI found something on this page that may be hard for visitors to see or read.": REVIEW_PROBLEM_WITHHELD,
+}
+OLD_SUMMARY_NOT_KEPT = ("The AI's description of the look named colours. This version was made before the site "
+                        "could show colours, so those words were not kept.")
+PROFILE_LOOKS_URL = "/account/profile#field-describe_looks"
 MAX_REVIEW_SHOTS = 6
 MAX_REVIEW_PROBLEMS = 10
 
@@ -494,28 +507,41 @@ def normalize_spec(raw: object) -> dict | None:
 
 
 def normalize_review(raw: object) -> dict:
-    """The AI's look at the pictures, in exactly the shape the pages expect."""
+    """The AI's look at the pictures, in exactly the shape the pages expect. The AI's words are kept as written:
+    whether a member reads colour words is their own choice, applied when the page is shown (review_for_member)."""
     if not isinstance(raw, dict):
-        return {"state": "error", "message": "The AI's answer about the pictures was not in the expected form."}
+        return {"state": "error", "message": "The AI's answer about the pictures came back incomplete."}
     verdict = raw.get("verdict") if raw.get("verdict") in REVIEW_VERDICTS else ""
     problems = []
-    withheld = 0
     items = raw.get("problems")
     for item in items if isinstance(items, list) else []:
         if not isinstance(item, dict):
             continue
         builder_text, fix_text = _text(item.get("builder_text"), 1000), _text(item.get("fix_text"), 3000)
-        if builder_text and visual_check.names_a_colour(builder_text):
-            builder_text = REVIEW_PROBLEM_WITHHELD  # fix_text, for the AI, keeps the details
-            withheld += 1
         if builder_text or fix_text:
             problems.append({"page": _text(item.get("page"), 200), "builder_text": builder_text, "fix_text": fix_text})
-    summary = fix_summary = _text(raw.get("summary_for_builder"), 3000)
-    if summary and visual_check.names_a_colour(summary):
-        summary = REVIEW_SUMMARY_WITHHELD
-        withheld += 1
-    return {"state": "done", "verdict": verdict, "summary": summary, "fix_summary": fix_summary,
-            "problems": problems[:MAX_REVIEW_PROBLEMS], "withheld": withheld}
+    summary = _text(raw.get("summary_for_builder"), 3000)
+    return {"state": "done", "verdict": verdict, "summary": summary, "fix_summary": summary,
+            "problems": problems[:MAX_REVIEW_PROBLEMS]}
+
+
+def review_for_member(review: dict, describe_colours: bool) -> dict:
+    """The AI's opinion as this member reads it. Members who chose looks described by their effect only
+    (the default) are not shown AI sentences that name colours; they are told so, and where to change it.
+    summary_withheld: the summary was replaced, so the page links to Your profile."""
+    def own(text: str) -> str:
+        return OLD_WITHHELD.get(text, text)
+
+    summary = review.get("summary", "")
+    if describe_colours and summary in OLD_WITHHELD:
+        summary = OLD_SUMMARY_NOT_KEPT
+    summary = own(summary)
+    problems = [own(p.get("builder_text", "")) for p in review.get("problems", []) if p.get("builder_text")]
+    if not describe_colours:
+        if summary and visual_check.names_a_colour(summary):
+            summary = REVIEW_SUMMARY_WITHHELD
+        problems = [REVIEW_PROBLEM_WITHHELD if visual_check.names_a_colour(t) else t for t in problems]
+    return {"summary": summary, "summary_withheld": summary == REVIEW_SUMMARY_WITHHELD, "problems": problems}
 
 
 def run_checks(files: dict[str, str]) -> dict:
@@ -689,8 +715,44 @@ def compute_diff(old: dict[str, str], new: dict[str, str]) -> list[dict]:
     return [entry for entry, _ in _file_diffs(old, new)]
 
 
+WORD_CHANGE_MAX = 120  # longest changed part, in characters, that is worth saying in one sentence
+_TOKEN_RE = re.compile(r"\S+|\s+")
+
+
+def word_change(old_line: str, new_line: str) -> tuple[str, str] | None:
+    """When a line was changed only a little: the words that changed (old, new), so a member does not have to
+    compare two long lines from memory. None when most of the line changed, or nothing did."""
+    if old_line == new_line:
+        return None
+    a, b = _TOKEN_RE.findall(old_line), _TOKEN_RE.findall(new_line)
+    start = 0
+    while start < len(a) and start < len(b) and a[start] == b[start]:
+        start += 1
+    end = 0
+    while end < len(a) - start and end < len(b) - start and a[-1 - end] == b[-1 - end]:
+        end += 1
+    old_part = "".join(a[start:len(a) - end]).strip()
+    new_part = "".join(b[start:len(b) - end]).strip()
+    kept = len("".join(a[:start])) + len("".join(a[len(a) - end:]))
+    if not (old_part or new_part) or kept < max(len(old_line), len(new_line)) / 2:
+        return None
+    if len(old_part) > WORD_CHANGE_MAX or len(new_part) > WORD_CHANGE_MAX:
+        return None
+    return old_part, new_part
+
+
+def _word_change_sentence(line_number: int, change: tuple[str, str]) -> str:
+    old_part, new_part = change
+    if not old_part:
+        return f'In line {line_number}, "{new_part}" was added.'
+    if not new_part:
+        return f'In line {line_number}, "{old_part}" was removed.'
+    return f'In line {line_number}, "{old_part}" became "{new_part}".'
+
+
 def changed_lines(old: dict[str, str], new: dict[str, str]) -> list[dict]:
-    """For each file that differs: groups of changed lines, each line marked "Added" or "Removed"."""
+    """For each file that differs: groups of changed lines, each line marked "Added" or "Removed". Where a
+    removed line and an added line are mostly the same, "notes" says which words changed (computed here)."""
     out = []
     for entry, ops in _file_diffs(old, new):
         a = old.get(entry["path"], "").splitlines()
@@ -704,7 +766,13 @@ def changed_lines(old: dict[str, str], new: dict[str, str]) -> list[dict]:
             else:
                 where = f"line {i1 + 1}" if i2 - i1 == 1 else f"lines {i1 + 1} to {i2}"
                 where = f"Old version, {where}"
-            groups.append({"where": where, "lines": lines})
+            notes = []
+            if tag == "replace" and i2 - i1 == j2 - j1:
+                for k in range(i2 - i1):
+                    change = word_change(a[i1 + k], b[j1 + k])
+                    if change:
+                        notes.append(_word_change_sentence(j1 + k + 1, change))
+            groups.append({"where": where, "lines": lines, "notes": notes})
         out.append({**entry, "groups": groups})
     return out
 
@@ -755,12 +823,20 @@ def looks_like_secret(text: str) -> bool:
     return any(r.search(text) for r in _SECRET_RES)
 
 
-SECRET_MESSAGE = ("This looks like it contains a password, a key or a card number. Please take it out. "
-                  "This site never needs them and does not store them.")
+# The shared wording from docs/VOICE.md 4.9. It allows for the detector being wrong, because ideas for
+# websites mention PINs and passwords all the time.
+SECRET_MESSAGE = ("This looks like it includes a password, PIN, code, card number or API key, so it was not saved "
+                  "or sent to the AI. Please take it out: this site never needs them. If it is not one, change the "
+                  "wording a little, for example \"the PIN box is not announced\", and send it again.")
 
 
 def _display_title(project: dict) -> str:
     return project["title"] or "Your new project"
+
+
+def _reading_title(title: str) -> str:
+    """The job's title, which must make sense in the list of Your recent work."""
+    return f"Reading back your idea: {title}" if title else "Reading back your new idea"
 
 
 def _load_spec(project: dict) -> dict:
@@ -805,14 +881,73 @@ def job_key(project: dict) -> str:
     return f"build:{project['share_token']}"
 
 
+def _busy_job(project: dict) -> str | None:
+    """The id of the AI job working on this project (queued or running), or None."""
+    if project["status"] not in BUSY_STATUSES:
+        return None
+    with db.session() as conn:
+        row = conn.execute("SELECT id FROM jobs WHERE user_id = ? AND dedupe_key = ? AND status IN ('queued', 'running')"
+                           " ORDER BY created_at DESC LIMIT 1", (project["user_id"], job_key(project))).fetchone()
+    return row["id"] if row else None
+
+
 def _is_busy(project: dict) -> bool:
     """True while an AI job for this project is queued or running."""
-    if project["status"] not in BUSY_STATUSES:
-        return False
+    return _busy_job(project) is not None
+
+
+# ----- peer checks of a project's previews ----------------------------------------------------------
+# A member can ask other members to check a preview (/checks/new?url=...). The requests live in the Peer checks
+# section's table; Build reads the member's own requests whose address is one of this project's previews, so the
+# version page can list them and deleting the project can close them.
+
+WANTED_WORDS = {"screen_reader": "people who use screen readers", "sighted": "sighted people, to check how it looks",
+                "both": "people who use screen readers, and sighted people to check how it looks"}
+
+
+def _preview_path(project: dict, number: int | None = None) -> str:
+    """The part of a preview address that is the same on any domain: one version, or every version."""
+    return f"/build/p/{project['share_token']}/v/" + (f"{number}/" if number is not None else "")
+
+
+def peer_checks(project: dict, number: int | None = None, *, open_only: bool = False) -> list[dict]:
+    """The member's own peer check requests for this project's previews (one version, or all of them)."""
     with db.session() as conn:
-        row = conn.execute("SELECT 1 FROM jobs WHERE user_id = ? AND dedupe_key = ? AND status IN ('queued', 'running')",
-                           (project["user_id"], job_key(project))).fetchone()
-    return row is not None
+        rows = conn.execute(
+            "SELECT r.id, r.title, r.status, r.max_checks, r.reward_cents, r.wanted,"
+            " (SELECT COUNT(*) FROM check_reports c WHERE c.request_id = r.id) AS done"
+            " FROM check_requests r WHERE r.requester_id = ? AND instr(r.url, ?) > 0"
+            + (" AND r.status = 'open'" if open_only else "") + " ORDER BY r.id",
+            (project["user_id"], _preview_path(project, number))).fetchall()
+    out = []
+    for row in rows:
+        item = dict(row)
+        item["wanted_words"] = WANTED_WORDS.get(item["wanted"], WANTED_WORDS["both"])
+        item["unpaid_cents"] = item["reward_cents"] * max(item["max_checks"] - item["done"], 0)
+        out.append(item)
+    return out
+
+
+def _close_peer_checks(conn, project: dict) -> tuple[int, int]:
+    """Close the member's open requests for this project's previews, which stop working when it is deleted, and
+    return the credits held for checks not done, as the Peer checks section does when a request is closed.
+    Runs inside the caller's transaction. Returns (requests closed, cents returned)."""
+    rows = conn.execute(
+        "SELECT r.id, r.title, r.max_checks, r.reward_cents,"
+        " (SELECT COUNT(*) FROM check_reports c WHERE c.request_id = r.id) AS done"
+        " FROM check_requests r WHERE r.requester_id = ? AND r.status = 'open' AND instr(r.url, ?) > 0",
+        (project["user_id"], _preview_path(project))).fetchall()
+    returned = 0
+    for row in rows:
+        conn.execute("UPDATE check_requests SET status = 'closed', closed_at = ? WHERE id = ?", (db.now(), row["id"]))
+        refund = row["reward_cents"] * max(row["max_checks"] - row["done"], 0)
+        if refund > 0:
+            conn.execute("INSERT INTO credit_ledger (user_id, delta_cents, reason, ref, created_at)"
+                         " VALUES (?, ?, ?, ?, ?)",
+                         (project["user_id"], refund, f"Returned from peer checks: {row['title']}",
+                          f"check:{row['id']}", db.now()))
+            returned += refund
+    return len(rows), returned
 
 
 def _versions(project_id: int) -> list[dict]:
@@ -865,7 +1000,7 @@ def _check_sentence(checks: dict) -> str:
     pages = len(checks.get("pages", []))
     found = _found_text(errors, warnings)
     return (f"{_plural(checks.get('file_count', 0), 'file')}, {_size(checks.get('total_bytes', 0))} in total. "
-            f"The site's machine checks found {found} on {_plural(pages, 'page')}.")
+            f"The site's machine checks looked at {_plural(pages, 'page')} and found {found}.")
 
 
 def _preview_url(project: dict, number: int, path: str = "index.html", request: Request | None = None) -> str:
@@ -922,7 +1057,7 @@ def _form_text(form: dict, name: str) -> str:
 
 
 def _index(request: Request, *, title: str = INDEX_TITLE, values: dict | None = None,
-           errors: dict | None = None, status_code: int = 200):
+           errors: dict | None = None, status_code: int = 200, note: str = ""):
     user = current_user(request)
     projects = []
     if user:
@@ -938,7 +1073,7 @@ def _index(request: Request, *, title: str = INDEX_TITLE, values: dict | None = 
             projects.append(p)
     return render(request, "build/index.html", title=title, projects=projects, kinds=KINDS, idea_hint=IDEA_HINT,
                   feel_label=FEEL_LABEL, feel_hint=FEEL_HINT, values=values or {}, errors=errors or {},
-                  status_code=status_code)
+                  note=note, status_code=status_code)
 
 
 def _status_label(project: dict) -> str:
@@ -952,8 +1087,22 @@ def _status_label(project: dict) -> str:
 def index(request: Request):
     deleted = request.session.pop("build_deleted", None)
     if deleted and current_user(request):
-        return _index(request, title=f"Deleted {deleted} and all its versions")
+        if isinstance(deleted, str):  # a session from before peer checks were closed on delete
+            deleted = {"title": deleted}
+        title = f"Deleted {deleted.get('title', 'your project')} and all its versions"
+        closed, returned = int(deleted.get("closed") or 0), int(deleted.get("returned") or 0)
+        if closed:
+            title += f", and closed {_plural(closed, 'peer check request')}"
+        note = (f"{credits.format_cents(returned)} held for checks not done came back to your credits."
+                if returned else "")
+        return _index(request, title=title, note=note)
     return _index(request)
+
+
+@router.get("/new")
+def new_project_get():
+    """The form's own address, reached by a reload or a restored tab after a form error: go to the form."""
+    return redirect("/build#field-idea")
 
 
 def _seconds_since(stamp: str) -> float:
@@ -970,8 +1119,8 @@ async def new_project(request: Request, user: dict = Depends(require_user)):
     values["feel"] = form_text(form, "feel", 10_000).strip()
     errors: dict[str, str] = {}
     if len(values["title"]) > MAX_TITLE:
-        errors["title"] = (f"Your title is {len(values['title'])} characters. "
-                           f"Use a title of at most {MAX_TITLE} characters.")
+        errors["title"] = (f"Use {MAX_TITLE} characters or fewer for the title. "
+                           f"It is now {len(values['title'])} characters.")
     elif looks_like_secret(values["title"]):
         errors["title"] = SECRET_MESSAGE
     if values["kind"] not in KIND_LABELS:
@@ -979,16 +1128,17 @@ async def new_project(request: Request, user: dict = Depends(require_user)):
     if not values["idea"]:
         errors["idea"] = "Describe your idea in your own words."
     elif len(values["idea"]) > MAX_IDEA:
-        errors["idea"] = f"Your idea is {len(values['idea'])} characters. Please keep it under {MAX_IDEA}."
+        errors["idea"] = (f"Use {MAX_IDEA:,} characters or fewer for your idea. It is now {len(values['idea']):,} "
+                          "characters.")
     elif looks_like_secret(values["idea"]):
         errors["idea"] = SECRET_MESSAGE
     if len(values["feel"]) > MAX_FEEL:
-        errors["feel"] = (f"Your answer is {len(values['feel'])} characters. "
-                          f"Use at most {MAX_FEEL} characters, for example a few words like friendly and calm.")
+        errors["feel"] = (f"Use {MAX_FEEL} characters or fewer here, for example a few words like friendly and "
+                          f"calm. It is now {len(values['feel'])} characters.")
     elif values["feel"] and looks_like_secret(values["feel"]):
         errors["feel"] = SECRET_MESSAGE
     if errors:
-        return _index(request, title=f"{INDEX_TITLE}: please fix the problems", values=values, errors=errors,
+        return _index(request, title=error_title(INDEX_TITLE, errors), values=values, errors=errors,
                       status_code=400)
     with db.session() as conn:
         same = conn.execute(
@@ -1010,11 +1160,11 @@ async def new_project(request: Request, user: dict = Depends(require_user)):
     try:
         ai = get_ai(request, user)
     except AINotAvailable as exc:
-        flash(request, f"{exc.user_message} Your idea is saved here.", "error")
+        flash(request, exc.user_message, "error")
         return redirect(f"/build/{project_id}")
     _set_status(project_id, "understanding", token)
-    title = values["title"] or "your new idea"
-    job_id = jobs.submit(user["id"], "build.understand", f"Reading {title}", _understand, ai, project_id, token,
+    job_id = jobs.submit(user["id"], "build.understand", _reading_title(values["title"]), _understand, ai,
+                         project_id, token, back_url=f"/build/{project_id}",
                          dedupe_key=job_key({"share_token": token}), item_ref=job_key({"share_token": token}))
     return redirect(jobs.job_url(job_id))
 
@@ -1068,12 +1218,12 @@ def _understand(ctx, ai, project_id: int, token: str) -> str:
 def _files_result(result: object, nothing_saved: str) -> tuple[dict[str, str], dict]:
     """The AI's files, checked against the site's rules, plus its other answers as clean text."""
     if not isinstance(result, dict):
-        raise AIError(f"The AI's answer was not in the expected form, so {nothing_saved} Please try again.")
+        raise AIError(f"The AI's answer came back incomplete, so {nothing_saved} Please try again.")
     try:
         files = validate_files(result.get("files"))
     except BuildFilesError as exc:
-        raise AIError(f"The AI made files the site cannot accept, so {nothing_saved} {exc} Please try again. "
-                      "If it happens again, ask for something smaller.") from exc
+        raise AIError(f"The AI made a mistake in the files, so {nothing_saved} Please try again. If it happens "
+                      f"again, ask for something smaller. Technical detail: {exc}") from exc
     about = {"summary": _text(result.get("summary")), "how_to_use": _text(result.get("how_to_use")),
              "not_done": _texts(result.get("not_done"))}
     return files, about
@@ -1241,7 +1391,7 @@ def _look_and_repair(ctx, ai, project_id: int, token: str, files: dict[str, str]
                             purpose="build.visual_repair", max_tokens=64000)
         new_files, _ = _files_result(raw, "the first files were kept.")
     except AIError as exc:
-        why = ("its new files broke the site's file rules" if "cannot accept" in exc.user_message
+        why = ("it made a mistake in its new files" if isinstance(exc.__cause__, BuildFilesError)
                else "the AI could not finish")
         repaired["summary"] = (f"Before you saw it, the AI tried once to fix what the checks found, but {why}, "
                                "so this version keeps the files it made first.")
@@ -1338,6 +1488,7 @@ def _change(ctx, ai, project_id: int, token: str, base_number: int, request_text
 # ----- project page ----------------------------------------------------------------------------
 
 AI_NOT_AVAILABLE_TITLE = "the AI is not available, so nothing was sent to it"
+BUSY_KEPT_TITLE = "the AI is already working on it, so your words were not sent"
 
 
 def _project_page(request: Request, user: dict, project: dict, *, values: dict | None = None,
@@ -1346,11 +1497,17 @@ def _project_page(request: Request, user: dict, project: dict, *, values: dict |
     stored = _load_spec(project)
     versions = _versions(project["id"])
     title_text = _display_title(project)
-    busy = _is_busy(project)
+    busy_job = _busy_job(project)
+    busy = busy_job is not None
+    values = values or {}
+    # The extras ticked on the read-back: as just sent (after an error), else as saved with the project.
+    ticked = values.get("ticked", stored.get("chosen_additions", []))
     ctx = dict(project=project, stored=stored, spec=stored["spec"], versions=versions, busy=busy,
+               job_url=jobs.job_url(busy_job) if busy else "", ticked=ticked,
+               chosen_additions=stored.get("chosen_additions", []),
                unread_corrections=len(stored["corrections"]) - stored["applied"],
                kind_label=KIND_LABELS.get(project["kind"], "Something else"),
-               status_label=_status_label(project), values=values or {}, errors=errors or {})
+               status_label=_status_label(project), values=values, errors=errors or {})
     if versions:
         latest = versions[0]
         checks = json.loads(latest["checks_json"])
@@ -1370,9 +1527,7 @@ def _project_page(request: Request, user: dict, project: dict, *, values: dict |
     else:
         template = "build/waiting.html"
         about = "the AI is reading your idea" if busy else "the AI has not read your idea yet"
-    title = f"{title_text}: {note or about}"
-    if errors:
-        title += ": please fix the problems"
+    title = error_title(f"{title_text}: {note or about}", errors)
     return render(request, template, title=title, status_code=status_code, **ctx)
 
 
@@ -1391,32 +1546,44 @@ async def understand(request: Request, project_id: int, user: dict = Depends(req
     if _versions(project_id):
         flash(request, "This project is already built. To change it, use Ask for a change on the version page.", "info")
         return redirect(f"/build/{project_id}")
+    additions = (stored["spec"] or {}).get("additions_not_asked", [])
+    chosen = [a for i, a in enumerate(additions) if form.get(f"add_{i}") == "yes"]
     if _is_busy(project):
-        flash(request, BUSY_MESSAGE, "info")
-        return redirect(f"/build/{project_id}")
+        if not corrections:
+            flash(request, BUSY_MESSAGE, "info")
+            return redirect(f"/build/{project_id}")
+        # A form sent from an older copy of the page: never lose the member's words.
+        return _project_page(request, user, project, values={"corrections": corrections, "ticked": chosen},
+                             note=BUSY_KEPT_TITLE, status_code=409)
     if action == "build" and not stored["spec"]:
         return redirect(f"/build/{project_id}")
     unread = len(stored["corrections"]) > stored["applied"]
     errors: dict[str, str] = {}
     if len(corrections) > MAX_REQUEST:
-        errors["corrections"] = (f"This is {len(corrections)} characters. "
-                                 f"Please keep it under {MAX_REQUEST} characters.")
+        errors["corrections"] = (f"Use {MAX_REQUEST:,} characters or fewer here. It is now {len(corrections):,} "
+                                 "characters.")
     elif corrections and looks_like_secret(corrections):
         errors["corrections"] = SECRET_MESSAGE
     elif corrections and sum(map(len, stored["corrections"])) + len(corrections) > MAX_CORRECTIONS_TOTAL:
-        errors["corrections"] = (f"All your corrections on this project together would be more than "
-                                 f"{MAX_CORRECTIONS_TOTAL} characters, which is the limit. Start a new project "
-                                 "and write your idea again with the corrections included.")
+        errors["corrections"] = (f"Together, your corrections on this project would pass the limit of "
+                                 f"{MAX_CORRECTIONS_TOTAL:,} characters, so these were not sent. To go on, start a "
+                                 "new project with your idea and your corrections written together.")
     elif action == "update" and stored["spec"] and not corrections and not unread:
-        errors["corrections"] = "Write your corrections or answers first, or choose This is right: build it."
+        errors["corrections"] = ("Write your corrections or answers first. If everything is right, choose This is "
+                                 "right: build it.")
     if errors:
-        return _project_page(request, user, project, values={"corrections": corrections}, errors=errors,
-                             status_code=400)
+        return _project_page(request, user, project, values={"corrections": corrections, "ticked": chosen},
+                             errors=errors, status_code=400)
+    if stored["spec"]:
+        # The ticks are kept with the project, so a new read-back or a failed build never loses them.
+        stored["chosen_additions"] = chosen
+        with db.session() as conn:
+            conn.execute("UPDATE build_projects SET spec_json = ? WHERE id = ?", (json.dumps(stored), project_id))
     try:
         ai = get_ai(request, user)
     except AINotAvailable as exc:
         flash(request, exc.user_message, "error")
-        return _project_page(request, user, project, values={"corrections": corrections},
+        return _project_page(request, user, project, values={"corrections": corrections, "ticked": chosen},
                              note=AI_NOT_AVAILABLE_TITLE)
     if corrections:
         # The person's words are kept with the project, whether they lead to a new read-back or the build.
@@ -1426,15 +1593,23 @@ async def understand(request: Request, project_id: int, user: dict = Depends(req
                          (json.dumps(stored), db.now(), project_id))
     token = project["share_token"]
     if action == "build":
-        chosen = [a for i, a in enumerate(stored["spec"]["additions_not_asked"]) if form.get(f"add_{i}") == "yes"]
         _set_status(project_id, "building", token)
         job_id = jobs.submit(user["id"], "build.generate", f"Building {_display_title(project)}", _generate, ai,
-                             project_id, token, chosen, dedupe_key=job_key(project), item_ref=job_key(project))
+                             project_id, token, chosen, back_url=f"/build/{project_id}",
+                             dedupe_key=job_key(project), item_ref=job_key(project))
         return redirect(jobs.job_url(job_id))
     _set_status(project_id, "understanding", token)
-    job_id = jobs.submit(user["id"], "build.understand", f"Reading {_display_title(project)}", _understand, ai,
-                         project_id, token, dedupe_key=job_key(project), item_ref=job_key(project))
+    job_id = jobs.submit(user["id"], "build.understand", _reading_title(_display_title(project)), _understand, ai,
+                         project_id, token, back_url=f"/build/{project_id}",
+                         dedupe_key=job_key(project), item_ref=job_key(project))
     return redirect(jobs.job_url(job_id))
+
+
+@router.get("/{project_id:int}/understand")
+def understand_get(request: Request, project_id: int, user: dict = Depends(require_user)):
+    """The form's own address, reached by a reload or a restored tab after a form error: go to the project."""
+    _owned_project(project_id, user)
+    return redirect(f"/build/{project_id}")
 
 
 # ----- versions -------------------------------------------------------------------------------
@@ -1450,11 +1625,12 @@ def _stored_json(text: str | None) -> dict:
 LOOK_NOT_RUN = ("The look of this version was not checked: it was made before the site started checking how "
                 "builds look.")
 LOOK_UNAVAILABLE = ("The look was not checked. This server cannot open pages in a browser, so neither the site nor "
-                    "an AI could check how this version looks to sighted visitors.")
+                    "an AI could check how this version looks on screen.")
 
 
-def _look_context(version: dict) -> dict:
-    """What the version page says about how the build looks to sighted visitors. Outcomes only, no colours."""
+def _look_context(version: dict, describe_colours: bool = False) -> dict:
+    """What the version page says about how the build looks on screen: the effect, and colour words only for
+    members who chose them in Your profile (describe_colours)."""
     visual = _stored_json(version.get("visual_json"))
     review = _stored_json(version.get("design_review_json"))
     repaired = _stored_json(version.get("repaired_json"))
@@ -1508,12 +1684,17 @@ def _look_context(version: dict) -> dict:
             unknown_images=sum(int(page.get("unknown_images") or 0) for page in pages),
             skipped_pages=visual.get("skipped_pages", []))
     if review.get("state") == "done":
+        shown = review_for_member(review, describe_colours)
+        summary_before, _, summary_after = (shown["summary"].rpartition("Your profile") if shown["summary_withheld"]
+                                            else ("", "", ""))
         look["review"] = {
-            "summary": review.get("summary", ""),
+            "summary": shown["summary"],
+            # A withheld summary ends with a link to the choice in Your profile.
+            "summary_before_link": summary_before, "summary_after_link": summary_after,
+            "summary_withheld": shown["summary_withheld"], "profile_url": PROFILE_LOOKS_URL,
             "verdict": {"looks_finished": "In the AI's opinion, it looks finished.",
                         "needs_work": "In the AI's opinion, it still needs some work."}.get(review.get("verdict"), ""),
-            "problems": [p["builder_text"] for p in review.get("problems", []) if p.get("builder_text")]
-            if review.get("verdict") == "needs_work" else [],
+            "problems": shown["problems"] if review.get("verdict") == "needs_work" else [],
         }
     elif review.get("state") == "error":
         look["review_note"] = ("No AI looked at pictures of this version, because the AI could not answer: "
@@ -1523,38 +1704,78 @@ def _look_context(version: dict) -> dict:
     return look
 
 
-def _version_context(project: dict, version: dict) -> dict:
+_WHERE_LINE_RE = re.compile(r"^(?P<what>.*) on line (?P<line>\d+)$", re.S)
+# The machine checker's own "not checked" lines about the look. The visual checks measure these when they run,
+# so the page never lists contrast as not checked next to "Passed: Text stands out clearly" (docs/VOICE.md 4.8).
+LOOK_NOT_MEASURED = "Contrast, layout and spacing: not measured on this version."
+# Older words in the machine checker's list (also stored with older versions), as members read them now.
+NOT_CHECKED_WORDING = {
+    "How a real screen reader speaks the page (ask a peer check).":
+        "How a real screen reader reads the page, in speech and in braille (ask for a peer check).",
+}
+
+
+def _about_the_look(item: str) -> bool:
+    lowered = item.lower()
+    return "contrast" in lowered or "looks right to sighted" in lowered
+
+
+def _finding_place(finding: dict, file_url: str) -> dict:
+    """A finding with its place split into the element and a link to that line of the file."""
+    out = dict(finding)
+    match = _WHERE_LINE_RE.match(finding.get("where") or "")
+    if match:
+        out.update(where_what=match.group("what"), line=int(match.group("line")),
+                   line_url=f"{file_url}#L{match.group('line')}")
+    return out
+
+
+def _chosen_for_v1(project: dict) -> list[str] | None:
+    """The extras the member ticked for version 1, or None when the AI offered none or the ticks are not known
+    (projects built before the ticks were kept)."""
+    stored = _load_spec(project)
+    if not (stored["spec"] or {}).get("additions_not_asked") or "chosen_additions" not in stored:
+        return None
+    return stored["chosen_additions"]
+
+
+def _version_context(project: dict, version: dict, describe_colours: bool = False) -> dict:
     files = json.loads(version["files_json"])
     checks = json.loads(version["checks_json"])
     diff = json.loads(version["diff_json"]) or {}
     pages = []
     for page in checks.get("pages", []):
         findings = page["report"]["findings"]
+        file_url = f"/build/{project['id']}/v/{version['number']}/files/{quote(page['path'])}"
         pages.append({
             "found": _found_text(sum(f["severity"] == "error" for f in findings),
                                  sum(f["severity"] != "error" for f in findings)),
             "path": page["path"],
             "size": _size(page["bytes"]),
             "passed": _plural(len(page["report"]["passed"]), "check"),
-            "errors": [f for f in findings if f["severity"] == "error"],
-            "warnings": [f for f in findings if f["severity"] != "error"],
+            "errors": [_finding_place(f, file_url) for f in findings if f["severity"] == "error"],
+            "warnings": [_finding_place(f, file_url) for f in findings if f["severity"] != "error"],
         })
+    look = _look_context(version, describe_colours)
     not_checked: list[str] = []
     for page in checks.get("pages", []):
         for item in page["report"]["not_checked"]:
-            if item not in not_checked:
+            item = NOT_CHECKED_WORDING.get(item, item)
+            if _about_the_look(item):
+                item = "" if look["state"] == "checked" else LOOK_NOT_MEASURED
+            if item and item not in not_checked:
                 not_checked.append(item)
-    look = _look_context(version)
     site_not_checked = list(SITE_NOT_CHECKED)
     if look["state"] == "checked":
         site_not_checked[0] = JS_NOT_CHECKED_WITH_LOOK
     not_checked += site_not_checked
     if look.get("unknown_contrast"):
         n = look["unknown_contrast"]
-        not_checked.append(("How well 1 piece of text stands out from what is behind it. It sits" if n == 1 else
-                            f"How well {n} pieces of text stand out from what is behind them. They sit")
-                           + " on a picture, a blend or a box laid over the page, or are faded out, which the site "
-                             "cannot measure.")
+        not_checked.append(("Whether 1 piece of text is easy to read. The site cannot measure it, because it sits"
+                            if n == 1 else
+                            f"Whether {n} pieces of text are easy to read. The site cannot measure these, because "
+                            "they sit")
+                           + " on a picture, a colour fade or a box over the page, or are faded.")
     if look.get("unknown_images"):
         n = look["unknown_images"]
         not_checked.append(f"Whether {_plural(n, 'picture')} {'loads' if n == 1 else 'load'}: "
@@ -1570,10 +1791,11 @@ def _version_context(project: dict, version: dict) -> dict:
     diff_entries = diff.get("files", []) if version["number"] > 1 else []
     return dict(
         look=look, fix_count=errors + len(look["problems"]),
+        # The extras ticked for version 1, or None when not known (projects built before the ticks were kept).
+        chosen_additions=_chosen_for_v1(project) if version["number"] == 1 else None,
         files=files, checks=checks, pages=pages, not_checked=not_checked, unchecked_files=unchecked_files,
         not_done=checks.get("not_done", []), error_count=errors, warning_count=warnings,
         check_sentence=_check_sentence(checks),
-        file_summary=f"{_plural(checks.get('file_count', 0), 'file')}, {_size(checks.get('total_bytes', 0))} in total.",
         diff_base=diff.get("base", 0), diff_lines=[describe_diff_entry(e) for e in diff_entries],
         diff_count=len(diff_entries),
     )
@@ -1581,21 +1803,31 @@ def _version_context(project: dict, version: dict) -> dict:
 
 def _version_page(request: Request, project: dict, version: dict, *, values: dict | None = None,
                   errors: dict | None = None, status_code: int = 200, note: str = ""):
-    ctx = _version_context(project, version)
+    user = current_user(request) or {}
+    ctx = _version_context(project, version, bool(user.get("describe_colours")))
     settings = request.app.state.settings
-    preview = _preview_url(project, version["number"], request=request)
+    number = version["number"]
+    preview = _preview_url(project, number, request=request)
     title_text = _display_title(project)
     absolute = preview if settings.preview_base_url else settings.base_url + preview
-    checks_link = "/checks/new?" + urlencode({"url": absolute,
-                                              "title": f"{title_text}, version {version['number']}"})
-    sighted_link = "/checks/new?" + urlencode({"url": absolute, "title": f"{title_text}, version {version['number']}",
-                                               "kind": "sighted"})
-    title = f"{title_text}: version {version['number']} {note or 'is ready'}"
-    if errors:
-        title += ": please fix the problems"
+    # Each request names its kind, so the two show under different names in Peer checks.
+    checks_link = "/checks/new?" + urlencode({"url": absolute, "title": f"{title_text}, version {number}: screen "
+                                              "reader check", "kind": "screen_reader"})
+    sighted_link = "/checks/new?" + urlencode({"url": absolute, "title": f"{title_text}, version {number}: how it "
+                                               "looks", "kind": "sighted"})
     latest = _versions(project["id"])[0]["number"]
+    if errors:
+        title = error_title(f"your change to {title_text}, version {number}", errors)
+    elif note:
+        title = f"{title_text}: version {number} {note}"
+    elif number == latest:
+        title = f"{title_text}: version {number} is ready"
+    else:
+        title = f"{title_text}: version {number} (older; the latest is version {latest})"
+    busy = _is_busy(project)
     return render(request, "build/version.html", title=title, project=project, version=version,
                   preview_url=preview, checks_link=checks_link, sighted_link=sighted_link, latest_number=latest,
+                  peer_checks=peer_checks(project, number), busy=busy,
                   values=values or {}, errors=errors or {}, status_code=status_code, **ctx)
 
 
@@ -1611,9 +1843,24 @@ def files_page(request: Request, project_id: int, number: int, user: dict = Depe
     version = _get_version(project_id, number)
     files = json.loads(version["files_json"])
     listing = [{"path": p, "size": _size(len(c.encode("utf-8"))), "lines": _plural(len(c.splitlines()), "line"),
-                "url": f"/build/{project_id}/v/{number}/files/{quote(p)}"} for p, c in sorted(files.items())]
+                "url": _file_url(project_id, number, p)} for p, c in sorted(files.items())]
     return render(request, "build/files.html", title=f"{_display_title(project)}: the files in version {number}",
                   project=project, version=version, listing=listing)
+
+
+def _file_url(project_id: int, number: int, path: str) -> str:
+    return f"/build/{project_id}/v/{number}/files/{quote(path)}"
+
+
+def _numbered_lines(content: str) -> list[str]:
+    """The file's lines for the numbered list. Leading spaces become no-break spaces, so the indentation still
+    shows outside a <pre>; tabs count as four spaces."""
+    out = []
+    for line in content.splitlines():
+        stripped = line.lstrip(" \t")
+        indent = line[:len(line) - len(stripped)].replace("\t", "    ")
+        out.append("\u00a0" * len(indent) + stripped)
+    return out
 
 
 @router.get("/{project_id:int}/v/{number:int}/files/{path:path}")
@@ -1624,8 +1871,14 @@ def file_page(request: Request, project_id: int, number: int, path: str, user: d
     if path not in files:
         raise HTTPException(status_code=404, detail="There is no file with that name in this version.")
     content = files[path]
+    paths = sorted(files)
+    at = paths.index(path)
+    previous = {"path": paths[at - 1], "url": _file_url(project_id, number, paths[at - 1])} if at > 0 else None
+    following = ({"path": paths[at + 1], "url": _file_url(project_id, number, paths[at + 1])}
+                 if at + 1 < len(paths) else None)
     return render(request, "build/file.html", title=f"{_display_title(project)}: {path} in version {number}",
-                  project=project, version=version, path=path, content=content,
+                  project=project, version=version, path=path, numbered=_numbered_lines(content),
+                  previous=previous, following=following,
                   size=_size(len(content.encode("utf-8"))), lines=_plural(len(content.splitlines()), "line"))
 
 
@@ -1660,8 +1913,17 @@ def download_zip(request: Request, project_id: int, number: int, user: dict = De
                     headers={"Content-Disposition": f'attachment; filename="{slug}-version-{number}.zip"'})
 
 
-async def _submit_change(request: Request, user: dict, project: dict, version: dict, request_text: str):
+BUSY_CHANGE_ERROR = ("The AI is already working on this project, so this change was not sent. Your words are kept "
+                     "here: send them again when it is done. You can follow it in Your recent work.")
+
+
+async def _submit_change(request: Request, user: dict, project: dict, version: dict, request_text: str,
+                         typed: bool = False):
+    """typed: the member wrote request_text themselves, so it must never be lost."""
     if _is_busy(project):
+        if typed:
+            return _version_page(request, project, version, values={"request": request_text},
+                                 errors={"request": BUSY_CHANGE_ERROR}, status_code=409)
         flash(request, BUSY_MESSAGE, "info")
         return redirect(f"/build/{project['id']}")
     try:
@@ -1673,6 +1935,7 @@ async def _submit_change(request: Request, user: dict, project: dict, version: d
     _set_status(project["id"], "changing", project["share_token"])
     job_id = jobs.submit(user["id"], "build.change", f"Changing {_display_title(project)}", _change, ai,
                          project["id"], project["share_token"], version["number"], request_text,
+                         back_url=f"/build/{project['id']}/v/{version['number']}",
                          dedupe_key=job_key(project), item_ref=job_key(project))
     return redirect(jobs.job_url(job_id))
 
@@ -1687,13 +1950,26 @@ async def ask_for_change(request: Request, project_id: int, number: int, user: d
     if not text:
         error = "Describe the change you want."
     elif len(text) > MAX_REQUEST:
-        error = f"Your request is {len(text)} characters. Please keep it under {MAX_REQUEST} characters."
+        error = f"Use {MAX_REQUEST:,} characters or fewer for your change. It is now {len(text):,} characters."
     elif looks_like_secret(text):
         error = SECRET_MESSAGE
     if error:
         return _version_page(request, project, version, values={"request": text}, errors={"request": error},
                              status_code=400)
-    return await _submit_change(request, user, project, version, text)
+    return await _submit_change(request, user, project, version, text, typed=True)
+
+
+@router.get("/{project_id:int}/v/{number:int}/change")
+def ask_for_change_get(request: Request, project_id: int, number: int, user: dict = Depends(require_user)):
+    """The form's own address, reached by a reload after a form error: go to the form on the version page."""
+    _owned_project(project_id, user)
+    return redirect(f"/build/{project_id}/v/{number}#field-request")
+
+
+@router.get("/{project_id:int}/v/{number:int}/fix")
+def fix_problems_get(request: Request, project_id: int, number: int, user: dict = Depends(require_user)):
+    _owned_project(project_id, user)
+    return redirect(f"/build/{project_id}/v/{number}#fix")
 
 
 def fix_request_text(checks: dict, visual: dict | None = None) -> str:
@@ -1735,8 +2011,12 @@ async def fix_problems(request: Request, project_id: int, number: int, user: dic
 @router.get("/{project_id:int}/delete")
 def delete_form(request: Request, project_id: int, user: dict = Depends(require_user)):
     project = _owned_project(project_id, user)
+    versions = _versions(project_id)
+    open_checks = peer_checks(project, open_only=True)
+    held = sum(c["unpaid_cents"] for c in open_checks)
     return render(request, "build/delete.html", title=f"Delete {_display_title(project)}", project=project,
-                  version_count=len(_versions(project_id)))
+                  version_count=len(versions), latest_number=versions[0]["number"] if versions else 0,
+                  open_checks=open_checks, held_cents=held, held=credits.format_cents(held))
 
 
 @router.post("/{project_id:int}/delete")
@@ -1744,11 +2024,14 @@ async def delete_project(request: Request, project_id: int, user: dict = Depends
     await checked_form(request)
     project = _owned_project(project_id, user)
     with db.session() as conn:
+        # Deleting, closing the peer checks of its previews and returning their held credits are one unit.
+        conn.execute("BEGIN IMMEDIATE")
+        closed, returned = _close_peer_checks(conn, project)
         conn.execute("DELETE FROM build_versions WHERE project_id = ?", (project_id,))
         conn.execute("DELETE FROM build_projects WHERE id = ? AND user_id = ?", (project_id, user["id"]))
         jobs.forget_item(conn, user["id"], job_key(project))
     # The next page's heading says what happened (read once, like a flash message).
-    request.session["build_deleted"] = _display_title(project)
+    request.session["build_deleted"] = {"title": _display_title(project), "closed": closed, "returned": returned}
     return redirect("/build")
 
 
