@@ -589,11 +589,32 @@ def test_cover_letter_creates_new_document(user_client, fake_ai):
     page = user_client.get(new_url)
     assert h1(page.text) == "Cover letter: Screen readers in class"
     assert "Drafted by the AI" in page.text and "The AI wrote this draft" in page.text
+    assert "change anything that is not true before you send it." in page.text
     kind, purpose, kwargs = fake_ai.calls[-1]
     assert kind == "text" and purpose == "write.cover_letter"
     assert "Journal of Examples" in kwargs["prompt"] and "I teach braille." in kwargs["prompt"]
     # The original is unchanged
     assert body_of(doc_id) == BODY
+
+
+AI_DRAFT_PANEL = "The AI wrote this draft. Nobody has checked it. Fill in everything in square brackets"
+
+
+def test_the_ai_draft_panel_shows_for_any_ai_drafted_last_version(user_client):
+    doc_id = create_doc(user_client, "Exams and screen readers", "paper")
+    save(user_client, doc_id, BODY, title="Exams and screen readers")
+    assert AI_DRAFT_PANEL not in user_client.get(f"/write/{doc_id}").text
+    # Research copies its drafts into Write with a longer note that starts the same way.
+    with db.session() as conn:
+        conn.execute("INSERT INTO write_versions (doc_id, body, note, created_at) VALUES (?, ?, ?, ?)",
+                     (doc_id, BODY, "Drafted by the AI in Research (not checked)", db.now()))
+    page = user_client.get(f"/write/{doc_id}")
+    assert page.status_code == 200
+    assert '<p class="panel">' + AI_DRAFT_PANEL + ", and change anything that is not true before you share it.</p>" \
+        in page.text
+    # Once the member saves their own version, the last version is theirs and the panel goes.
+    save(user_client, doc_id, BODY + "\n\nMy own words.", title="Exams and screen readers")
+    assert AI_DRAFT_PANEL not in user_client.get(f"/write/{doc_id}").text
 
 
 def test_cover_letter_needs_target(user_client, fake_ai):

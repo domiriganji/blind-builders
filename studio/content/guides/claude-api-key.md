@@ -7,10 +7,10 @@ order: 2
 
 ## The short version
 
-1. Go to the Claude Console at [platform.claude.com](https://platform.claude.com/), and sign in or create an account.
-2. Add money: Settings, then Billing, then "Buy credits".
+1. Go to [the Claude Console (platform.claude.com), which opens Anthropic's website](https://platform.claude.com/), and sign in or create an account.
+2. Add money in advance: Settings, then Billing, then "Buy credits".
 3. Create a key: Settings, then API keys, then "Create key". The key starts with `sk-ant-`.
-4. Copy it straight away. The Console shows the whole key only once.
+4. Copy it straight away. The Claude Console shows the whole key only once.
 5. Paste it on [Your Claude API key](/account/ai-key) and choose "Check and save my key".
 
 ## What an API key is
@@ -23,7 +23,7 @@ The button and menu names below come from Anthropic's own pages: [Get your Claud
 
 ## Step 1: create an account in the Claude Console
 
-1. Go to [platform.claude.com](https://platform.claude.com/). Older pages call it the Anthropic Console, at console.anthropic.com.
+1. Go to [the Claude Console (platform.claude.com), which opens Anthropic's website](https://platform.claude.com/). Older pages call it the Anthropic Console, at console.anthropic.com.
 2. Sign in, or create an account.
 
 A paid Claude app plan is billed separately from the API. Some plans, such as Max and Team, include monthly API credits; others do not ([Anthropic: paying separately for the API](https://support.claude.com/en/articles/9876003-i-subscribe-to-a-paid-claude-ai-plan-why-do-i-have-to-pay-separately-for-api-usage-on-console)).
@@ -42,7 +42,7 @@ The Claude API is paid for in advance with credits bought from Anthropic. These 
 2. Choose "Create key".
 3. Give it a name you will recognise later, for example the name of this site.
 4. Choose when it expires, and set "Linked account" to yourself.
-5. Create it. The Console now shows the whole key, which starts with `sk-ant-`. It shows it only this once.
+5. Create it. The Claude Console now shows the whole key, which starts with `sk-ant-`. It shows it only this once.
 
 ## Step 4: copy the key
 
@@ -67,8 +67,8 @@ After that, the site shows only the key's last 4 characters, so you can tell whi
 
 ## If something goes wrong
 
-- **You lost the key:** create a new key in the Console, then connect the new one here.
-- **You shared the key by mistake:** in the Console, go to Settings, then API keys, and delete it straight away. Then create a new key and connect it here.
-- **You want to stop using it here:** on [Your Claude API key](/account/ai-key), choose "Remove my key". To stop it working anywhere, also delete it in the Console.
+- **You lost the key:** create a new key in the Claude Console, then connect the new one here.
+- **You shared the key by mistake:** in the Claude Console, go to Settings, then API keys, and delete it straight away. Then create a new key and connect it here.
+- **You want to stop using it here:** on [Your Claude API key](/account/ai-key), choose "Remove my key". To stop it working anywhere, also delete it in the Claude Console.
 
 If you get stuck at any step, [ask a question about this guide](/help/ask?title=Getting%20your%20Claude%20API%20key%2C%20step%20by%20step).

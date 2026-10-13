@@ -398,7 +398,7 @@ def test_api_key_journey(live, browser, monkeypatch):
     page.get_by_role("link", name="Your Claude API key", exact=True).click()
     assert heading(page) == "Your Claude API key"
     assert_page_ok(page, "api key")
-    expect(page.get_by_role("link", name="the Anthropic Console (opens Anthropic's website)")).to_be_visible()
+    expect(page.get_by_role("link", name="the Claude Console (platform.claude.com), which opens Anthropic's website")).to_be_visible()
 
     key_field = page.get_by_label("Claude API key")
     key_field.fill("sk-proj-" + "x" * 50)

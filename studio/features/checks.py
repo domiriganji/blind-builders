@@ -531,35 +531,62 @@ ROW_SQL = ("SELECT r.id, r.requester_id, r.title, r.url, r.wanted, r.status, r.m
            " FROM check_requests r")
 
 
-def requests_for_address(url_prefix: str, open_only: bool = False) -> list[dict]:
-    """Every check request whose address starts with url_prefix, newest first, for another section to list.
-
-    For Build, url_prefix is a preview address such as "https://site/build/p/<token>/v/2/" (one version) or
-    "https://site/build/p/<token>/" (the whole project). Each item has id, title, wanted, status, done,
-    max_checks, `label` (the name to use in links) and `record_url`."""
-    if not url_prefix:
-        return []
-    sql = ROW_SQL + " WHERE substr(r.url, 1, ?) = ?" + (" AND r.status = 'open'" if open_only else "")
-    with db.session() as conn:
-        rows = [dict(r) for r in conn.execute(sql + " ORDER BY r.id DESC", (len(url_prefix), url_prefix))]
+def _for_address(conn, address: str, open_only: bool, requester_id: int | None) -> list[dict]:
+    """The rows behind requests_for_address and close_requests_for_address, on the caller's connection."""
+    if address.startswith("/"):  # a path: the same path on any website (the site's own or its preview domain)
+        sql, args = ROW_SQL + " WHERE instr(r.url, ?) > 0", [address]
+    else:
+        sql, args = ROW_SQL + " WHERE substr(r.url, 1, ?) = ?", [len(address), address]
+    if open_only:
+        sql += " AND r.status = 'open'"
+    if requester_id is not None:
+        sql += " AND r.requester_id = ?"
+        args.append(requester_id)
+    rows = [dict(r) for r in conn.execute(sql + " ORDER BY r.id DESC", args)]
+    if address.startswith("/"):  # instr found it somewhere; keep only addresses that have it in their path
+        rows = [r for r in rows if address in urlparse(r["url"]).path]
     for r in rows:
         r["label"], r["record_url"] = label(r), f"/checks/{r['id']}/record"
+        r["unpaid_cents"] = r["reward_cents"] * max(r["max_checks"] - r["done"], 0)
     return rows
 
 
-def close_requests_for_address(url_prefix: str) -> int:
-    """Close every open request whose address starts with url_prefix, for example when Build deletes the project
-    the address belongs to. Credits held for checks not done go back to whoever asked, in the same transaction.
-    Safe to call twice. Returns how many requests were closed."""
-    if not url_prefix:
-        return 0
-    with db.session() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        rows = conn.execute(ROW_SQL + " WHERE substr(r.url, 1, ?) = ? AND r.status = 'open'",
-                            (len(url_prefix), url_prefix)).fetchall()
-        for row in rows:
-            _close_and_refund(conn, row)
-    return len(rows)
+def requests_for_address(address: str, open_only: bool = False, *, requester_id: int | None = None,
+                         conn=None) -> list[dict]:
+    """Every check request for an address, newest first, for another section to list.
+
+    `address` is either the start of a full address, such as "https://site/build/p/<token>/v/2/", or a path that
+    starts with "/", such as "/build/p/<token>/v/2/" (one version) or "/build/p/<token>/v/" (every version),
+    which matches an address with that in its path, on any website. `requester_id` keeps only one member's requests. Pass `conn` to read
+    inside the caller's transaction. Each item has id, requester_id, title, url, wanted, status, done,
+    max_checks, reward_cents, `unpaid_cents` (credits still held for checks not done), `label` (the name to use
+    in links) and `record_url`."""
+    if not address:
+        return []
+    if conn is not None:
+        return _for_address(conn, address, open_only, requester_id)
+    with db.session() as own:
+        return _for_address(own, address, open_only, requester_id)
+
+
+def close_requests_for_address(address: str, *, requester_id: int | None = None, conn=None) -> tuple[int, int]:
+    """Close every open request for an address (matched as in requests_for_address), for example when Build
+    deletes the project the address belongs to. Credits held for checks not done go back to whoever asked, in
+    the same transaction. Pass `conn` to do it inside the caller's own transaction (which the caller has begun
+    with BEGIN IMMEDIATE); without it the function opens its own. Safe to call twice.
+    Returns (requests closed, cents returned)."""
+    if not address:
+        return 0, 0
+    if conn is not None:
+        return _close_for_address(conn, address, requester_id)
+    with db.session() as own:
+        own.execute("BEGIN IMMEDIATE")
+        return _close_for_address(own, address, requester_id)
+
+
+def _close_for_address(conn, address: str, requester_id: int | None) -> tuple[int, int]:
+    rows = _for_address(conn, address, True, requester_id)
+    return len(rows), sum(_close_and_refund(conn, row) for row in rows)
 
 
 # ----- results back to the work ----------------------------------------------------------------

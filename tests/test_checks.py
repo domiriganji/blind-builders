@@ -1466,9 +1466,36 @@ def test_build_can_list_and_close_the_requests_for_its_previews(asker):
     assert [r["id"] for r in checks_module.requests_for_address(prefix + "v/2/")] == [v2]
     assert checks_module.requests_for_address("") == []
     assert credits.balance(uid) == 300
-    assert checks_module.close_requests_for_address(prefix) == 2
-    assert checks_module.close_requests_for_address(prefix) == 0  # safe to call twice
+    assert found[1]["unpaid_cents"] == 100 and found[0]["unpaid_cents"] == 0
+    assert checks_module.close_requests_for_address(prefix) == (2, 100)  # (requests closed, cents returned)
+    assert checks_module.close_requests_for_address(prefix) == (0, 0)  # safe to call twice
     assert checks_module.requests_for_address(prefix, open_only=True) == []
     assert credits.balance(uid) == 400  # the one check not done came back
     assert ledger_total_for(v1) == 0
     assert len(checks_module.requests_for_address("http://testserver/build/p/other/", open_only=True)) == 1
+
+
+def test_build_can_match_a_preview_path_on_any_domain_for_one_member_inside_its_own_transaction(asker):
+    uid = user_id(ASKER)
+    credits.add(uid, 500, "test top-up")
+    make_request(asker, title="Rota", url="https://previews.example/build/p/tok9/v/1/index.html", reward="100",
+                 max_checks="2")
+    mine = latest_request_id()
+    make_request(asker, title="Not a preview", url="https://elsewhere.example/notes?from=/build/p/tok9/v/1/")
+    sign_in_as(asker, CHECKER, "Chidi")
+    make_request(asker, title="Someone else's", url="https://previews.example/build/p/tok9/v/1/")
+    theirs = latest_request_id()
+    path = "/build/p/tok9/v/"
+    assert [r["id"] for r in checks_module.requests_for_address(path)] == [theirs, mine]
+    assert [r["id"] for r in checks_module.requests_for_address(path, requester_id=uid)] == [mine]
+    assert checks_module.requests_for_address("/build/p/tok9/v/2/") == []
+    with db.session() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        assert checks_module.close_requests_for_address(path, requester_id=uid, conn=conn) == (1, 200)
+        conn.rollback()  # the caller's transaction decides: nothing was closed or returned
+    assert credits.balance(uid) == 300
+    with db.session() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        assert checks_module.close_requests_for_address(path, requester_id=uid, conn=conn) == (1, 200)
+    assert credits.balance(uid) == 500
+    assert [r["id"] for r in checks_module.requests_for_address(path, open_only=True)] == [theirs]

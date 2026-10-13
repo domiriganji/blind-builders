@@ -196,10 +196,22 @@ def test_profile_needs_csrf(user_client):
 def test_key_field_is_a_password_field_without_autocomplete(user_client):
     r = user_client.get("/account/ai-key")
     assert re.search(r'<input id="field-api_key" name="api_key" type="password" value="" required autocomplete="off"', r.text)
-    assert "console.anthropic.com" in r.text and "encrypted" in r.text and "never shows it again" in r.text
+    assert 'href="https://platform.claude.com/"' in r.text and "encrypted" in r.text
+    assert "never shows it again" in r.text and "console.anthropic.com" not in r.text
+    # The steps match the guide, which the page links to.
+    assert '<a href="/learn/claude-api-key">Getting your Claude API key, step by step</a>' in r.text
+    from studio.features import learn
+    guide = learn.get_guide("claude-api-key").body
+    for step in ('Add money in advance: Settings, then Billing, then "Buy credits"',
+                 'Settings, then API keys, then "Create key"', "The Claude Console shows the whole key only once.",
+                 'tick "Show the key, to check what you pasted", under the box', "Check and save my key"):
+        assert step in r.text and step in guide, step
+    assert "Show the key, to check what you pasted</label>" in r.text
+    assert "[the Claude Console (platform.claude.com), which opens Anthropic's website](https://platform.claude.com/)" \
+        in guide
     # The key can be shown, to hear or read back a paste; the box appears only with JavaScript.
     assert '<div class="field choice js-only">' in r.text and 'data-shows="field-api_key"' in r.text
-    assert "the Anthropic Console (opens Anthropic's website)" in r.text
+    assert "the Claude Console (platform.claude.com), which opens Anthropic's website</a>" in r.text
 
 
 @pytest.mark.parametrize("bad, message", [
@@ -584,7 +596,9 @@ def test_pricing_is_public_and_explains_the_way_that_works(client):
     assert '<th scope="row">Building a small website (one version). <span class="meta">Typical size:' in r.text
     # A token is explained before the table that uses the word.
     assert r.text.index("A token is a piece of a word") < r.text.index("<table>")
-    assert 'href="https://console.anthropic.com/"' in r.text
+    assert ('href="https://platform.claude.com/" rel="noopener noreferrer">the Claude Console (platform.claude.com), '
+            "which opens Anthropic's website</a>") in r.text
+    assert 'href="/learn/claude-api-key"' in r.text
     # Building a small website: 15,000 in and 20,000 out on Opus 5.5 = $0.06 + $0.40 = $0.46
     assert "about $0.46" in r.text
     assert "$4.00 per million tokens read" in r.text

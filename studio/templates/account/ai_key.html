@@ -11,12 +11,14 @@
 {% endif %}
 {{ error_summary(errors) }}
 <h2>{{ 'Replace your key' if last4 else 'Connect your key' }}</h2>
-<p>To get a key, in <a href="https://console.anthropic.com/" rel="noopener noreferrer">the Anthropic Console (opens Anthropic's website)</a>:</p>
+<p>To get a key, use <a href="https://platform.claude.com/" rel="noopener noreferrer">the Claude Console (platform.claude.com), which opens Anthropic's website</a>. <a href="/learn/claude-api-key">Getting your Claude API key, step by step</a> goes through each step, including how to copy the key on a phone.</p>
 <ol>
-  <li>Create an account and sign in.</li>
-  <li>Add a payment method under Billing. Anthropic bills you for what you use.</li>
-  <li>Under API keys, create a key and copy it. Anthropic shows it only once.</li>
-  <li>Paste it in the box below.</li>
+  <li>Sign in, or create an account.</li>
+  <li>Add money in advance: Settings, then Billing, then "Buy credits".</li>
+  <li>Create a key: Settings, then API keys, then "Create key".</li>
+  <li>Copy it straight away. The Claude Console shows the whole key only once.</li>
+  <li>Paste it in the box below. The box hides what you paste. If your browser runs JavaScript, tick "Show the key, to check what you pasted", under the box.</li>
+  <li>Choose "Check and save my key".</li>
 </ol>
 <form method="post" action="/account/ai-key" novalidate>
   {{ csrf_input() }}

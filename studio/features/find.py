@@ -90,7 +90,9 @@ OUTCOME_WORDS = {"worked": "worked", "partly": "partly worked", "did_not_work": 
 # The same question and answers as the profile (docs/VOICE.md, 4.14): "Blind or low vision since".
 SIGHT_LABEL = "Blind or low vision since"
 SIGHT_ONSETS = [("birth", "Birth or early childhood"), ("later", "Later in life"), ("prefer_not", "Prefer not to say")]
-SIGHT_WORDS = {"birth": "birth or early childhood", "later": "later in life"}
+# Public report lines use the same answers, word for word ("Blind or low vision since: Later in life"). A report
+# with Prefer not to say, or a value from before these answers, shows no line about it.
+SIGHT_WORDS = {value: text for value, text in SIGHT_ONSETS if value != "prefer_not"}
 CATEGORY_PAIRS = [(c, c) for c in CATEGORIES]
 PAGE_SIZE = 25
 NEED_MAX = 500

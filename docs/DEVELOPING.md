@@ -47,11 +47,11 @@ Templates go in `studio/templates/<section>/`. Tests go in `tests/test_<section>
 
 | File | What it gives you |
 |---|---|
-| `studio/web.py` | `render(request, template, title=..., **ctx)`, `checked_form(request)`, `require_user`, `current_user`, `flash`, `redirect`, `get_ai(request, user)`, `error_title(title, errors)`, `date_words(iso)`, the `markdown`, `nest_headings`, `shift_headings` and `date_words` template filters |
+| `studio/web.py` | `render(request, template, title=..., **ctx)`, `checked_form(request)`, `require_user`, `current_user`, `flash`, `redirect`, `get_ai(request, user)`, `error_title(title, errors)`, `date_words(iso, with_time=False)`, `keep_form(request, form, page_path, reason)` and the `kept_forms` table (see "Keeping a member's words"), the `restored(name, value)` template global, the `markdown`, `nest_headings`, `shift_headings` and `date_words` template filters |
 | `studio/site_ai.py` | The owner's AI settings: `site_key(settings)`, `site_model(settings)`, `member_model(settings, user)`, `pay_mode()`, monthly limits with `reserve` and `release` (used by `AIClient`, not by sections) |
 | `studio/ai.py` | `AIClient.structured / text / research`, `member_voice(user)`, `AIError`, `AINotAvailable`, `AIRefused`, `ResearchResult`, `Source` |
 | `studio/jobs.py` | `submit(user_id, kind, title, fn, *args, back_url="", dedupe_key="", item_ref="")`, `job_url(job_id)`, `JobContext.progress(text)`, `forget_item(conn, user_id, item_ref)`, `still_wanted(conn, ctx)` |
-| `studio/sensitive.py` | `find_secret(text)`: a plain message if the text holds a password, PIN, one-time code, API key or card number |
+| `studio/sensitive.py` | `find_secret(text)`: a plain message if the text holds a password, PIN, one-time code, API key or card number. `SECRET_MESSAGE`: the one refusal wording (docs/VOICE.md, 4.9). `PUBLIC_SUFFIX`: " Everyone can read this page.", added to `SECRET_MESSAGE` where the text would be public |
 | `studio/db.py` | `with db.session() as conn:` and `db.now()` |
 | `studio/credits.py` | `balance`, `add`, `history`, `format_cents` |
 | `studio/a11y_check.py` | `check_html(html) -> Report` with `.errors`, `.warnings`, `.passed`, `.not_checked`, `.to_dict()` |
@@ -63,15 +63,41 @@ Do not edit these files from a section. If a section needs a change in a shared 
 
 ## Rules for every page
 
-1. **One h1 that says where you are or what just happened.** Pass the same words as `title=` to `render`, for example `title="Cake shop: version 2 is ready"`. Screen readers announce the title first.
+1. **One h1 that says where you are or what just happened.** Pass the same words as `title=` to `render`, for example `title="Cake shop: version 2 is ready"`. Screen readers announce the title first. After an action, the outcome goes in the next page's h1 and title, not only in a flash message (see "After an action").
 2. **Headings in order** (h1, then h2, then h3). People move by headings. Put the summary first, details after.
-3. **Forms use the macros** from `_macros.html` (pass `mark_optional=false` for a field that is optional but central, so it is not announced as "optional"): `csrf_input`, `error_summary`, `field`, `textarea`, `select`, `radios`, `checkbox`, `post_button`, `sources_list`. Import them with `{% from "_macros.html" import ... %}`. Every field gets a visible label. Hints and errors are linked automatically.
+3. **Forms use the macros** from `_macros.html` (pass `mark_optional=false` for a field that is optional but central, so it is not announced as "optional"): `csrf_input`, `error_summary`, `field`, `textarea`, `select`, `radios`, `checkbox`, `post_button`, `sources_list`. Import them with `{% from "_macros.html" import ... %}`. Every field gets a visible label. Hints and errors are linked automatically. `radios(name, legend, options, selected, hint=..., error=..., required=true)` marks each choice `required`, for a question that must be answered. A field you write by hand instead of with a macro takes its value through `restored(name, value)`, as the macros do, so a member's kept words come back in it (see "Keeping a member's words").
 4. **Every POST handler** starts with `form = await checked_form(request)`, which checks the CSRF token. Read values with `form_text(form, name, limit)`: a field sent twice arrives as a list, and every value needs a length limit. After success, `redirect()` (303) to a page. On a validation error, re-render the form with `status_code=400`, `errors={field: message}` and `title=error_title(title, errors)` (from `studio/web.py`), which gives "Please check 1 answer: Sign in".
 5. **No JavaScript required.** No streaming text. No auto-refresh. No content that changes while someone is reading. `static/enhance.js` is the only script.
 6. **Buttons are `<button>`, links are `<a>`.** Link text makes sense on its own ("Open the preview", never "click here").
 7. **Data tables have `<th scope="col">`.** Never use tables for layout.
 8. **Plain language, in the voice of `docs/VOICE.md`.** Every word a member reads follows it: short sentences, buttons that say what they do, errors that say what happened and what to do next. Dates in one format, "13 October 2026": `{{ value|date_words }}` in templates, `date_words(value)` in Python (`date_words(value, with_time=True)` adds "12:29 UTC" where the time matters).
 9. **Light pages.** No images unless they carry information, no web fonts, no external scripts.
+10. **Missing things are a 404 with a plain reason.** Raise `HTTPException(status_code=404, detail="We could not find that project.")` (a whole sentence, in the voice of `docs/VOICE.md`). The error page shows the reason and offers a link back to the section's index ("Go to Build"), worked out from the address, so keep every section's pages under its `NAV` url.
+
+### After an action
+
+When a form succeeds, the next page's h1 and title say what happened ("Your report is saved: Glide", "Deleted Kemi Kitchen and all its versions"), so a member who reads only the title or the first heading knows it worked. Store the words in the session just before `redirect()`, and have the next page take them once and use them as its `title=`:
+
+- Find and Library use `set_done(request, where, tool_id, text)` and `pop_done(request, where, tool_id)` in `studio/features/find.py`.
+- Your account uses `_announce(request, heading)` and `_done_title(request, default)` in `studio/features/account.py`.
+- A new section copies the same pattern: one session key, read with `pop`, and checked against the page it was meant for so it never shows on another page.
+
+Use `flash()` for extra detail under the heading, not instead of it.
+
+### Keeping a member's words
+
+A member's words are never lost because a form could not be sent. When a form is sent after the member was signed out (`LoginRequired`), or after its CSRF token stopped matching (`FormExpired`), `studio/app.py` calls `web.keep_form(request, form, page_path, reason)`. That stores the text fields for at most two hours in the `kept_forms` table (its schema is `web.KEPT_FORMS_SCHEMA`), keyed by a random token in the session. The next time the member opens that page, `render()` puts the words back once, through the `restored()` template global that the form macros call, and the page says why. Words no field took are shown under the form to copy.
+
+- Passwords, API keys, codes, card numbers, the CSRF token and anything `find_secret` flags are never kept.
+- Words sent from another website are never kept or shown, so no site can put text in a member's forms.
+- Words kept for one member are never shown to a different member who signs in on the same browser. Deleting an account deletes its rows in `kept_forms`.
+- A section needs nothing for this beyond using `checked_form`, `require_user` and the form macros (or `restored()` in a hand-written field). The GET address of each form's page must show the form, so the words have somewhere to come back to.
+
+### Account pages other sections link to
+
+- `/account/profile`: the member's profile. Its sight question is "Blind or low vision since" with the answers "Birth or early childhood", "Later in life" and "Prefer not to say" (`users.sight_onset`: `birth`, `later`, `prefer_not`), and a separate optional question, "Which fits you best?" (`users.vision`: `blind`, `low_vision`, `prefer_not`). Any form that asks about sight history uses exactly these words (docs/VOICE.md, 4.14) and pre-fills from the profile.
+- `/account/password`: change your password (the current one, then the new one). Changing it signs out every other device.
+- `/account/ai-key`: connect a Claude API key. Link to the guide `/learn/claude-api-key` ("Getting your Claude API key, step by step") wherever a page asks a member to get a key, and name Anthropic's site as "the Claude Console (platform.claude.com)", linked to `https://platform.claude.com/` with words saying it opens Anthropic's website.
 
 ## Using the AI
 
@@ -134,8 +160,13 @@ Each section has tests for: the main journey with `fake_ai`; validation errors; 
 
 ## Links between sections
 
-Sections link to each other with plain URLs and query parameters, never by importing each other's code:
+Sections link to each other with plain URLs and query parameters, not by importing each other's code:
 
 - `/checks/new?url=<absolute URL>&title=<title>&kind=screen_reader|sighted|both` opens the Peer checks request form pre-filled (`kind` says who should check; the default is both).
 - `/find/ask?need=<text>` opens the Find form pre-filled.
 - `/help/ask?title=<text>` opens the Ask the community form pre-filled.
+
+The one exception is these agreed functions, which a section may import because the work has to happen inside its own database transaction:
+
+- `studio.features.checks.requests_for_address(address, open_only=False, *, requester_id=None, conn=None)`: the peer check requests for an address, newest first. `address` is the start of a full address, or a path beginning with `/` that matches any address with it in its path, on any domain (Build passes `/build/p/<token>/v/<n>/` for one version, or `/build/p/<token>/v/` for every version). Each item has `id`, `title`, `wanted`, `status`, `done`, `max_checks`, `reward_cents`, `unpaid_cents`, `label` and `record_url`. Build uses it to list "Peer checks of this version" on a version page and the open requests on the delete page.
+- `studio.features.checks.close_requests_for_address(address, *, requester_id=None, conn=None)`: closes every open request for the address and returns the credits held for checks not done to whoever asked. Returns `(requests closed, cents returned)` and is safe to call twice. Pass `conn` to run it inside your own transaction (begun with `BEGIN IMMEDIATE`). Build calls it inside its delete transaction, so deleting a project, closing its peer checks and returning their credits happen together or not at all.

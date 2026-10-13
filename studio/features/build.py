@@ -39,6 +39,7 @@ from ..a11y_check import check_html
 from ..ai import AIError, AINotAvailable
 from ..web import (checked_form, current_user, error_title, flash, form_text, get_ai, redirect, render,
                    require_user)
+from .checks import close_requests_for_address, requests_for_address  # the agreed Peer checks functions
 
 router = APIRouter(prefix="/build")
 NAV = {"label": 'Build', "url": '/build', "description": 'Describe a website, app or tool in your own words. The AI reads back what it understood, builds it, checks it and tells you exactly what changed.'}
@@ -895,8 +896,9 @@ def _is_busy(project: dict) -> bool:
 
 # ----- peer checks of a project's previews ----------------------------------------------------------
 # A member can ask other members to check a preview (/checks/new?url=...). The requests live in the Peer checks
-# section's table; Build reads the member's own requests whose address is one of this project's previews, so the
-# version page can list them and deleting the project can close them.
+# section; Build lists and closes the member's own requests for this project's previews through the functions
+# Peer checks offers for this (docs/DEVELOPING.md, "Links between sections"), so the version page can list them
+# and deleting the project can close them.
 
 WANTED_WORDS = {"screen_reader": "people who use screen readers", "sighted": "sighted people, to check how it looks",
                 "both": "people who use screen readers, and sighted people to check how it looks"}
@@ -908,43 +910,19 @@ def _preview_path(project: dict, number: int | None = None) -> str:
 
 
 def peer_checks(project: dict, number: int | None = None, *, open_only: bool = False) -> list[dict]:
-    """The member's own peer check requests for this project's previews (one version, or all of them)."""
-    with db.session() as conn:
-        rows = conn.execute(
-            "SELECT r.id, r.title, r.status, r.max_checks, r.reward_cents, r.wanted,"
-            " (SELECT COUNT(*) FROM check_reports c WHERE c.request_id = r.id) AS done"
-            " FROM check_requests r WHERE r.requester_id = ? AND instr(r.url, ?) > 0"
-            + (" AND r.status = 'open'" if open_only else "") + " ORDER BY r.id",
-            (project["user_id"], _preview_path(project, number))).fetchall()
-    out = []
-    for row in rows:
-        item = dict(row)
+    """The member's own peer check requests for this project's previews (one version, or all of them), oldest
+    first."""
+    rows = requests_for_address(_preview_path(project, number), open_only, requester_id=project["user_id"])
+    for item in rows:
         item["wanted_words"] = WANTED_WORDS.get(item["wanted"], WANTED_WORDS["both"])
-        item["unpaid_cents"] = item["reward_cents"] * max(item["max_checks"] - item["done"], 0)
-        out.append(item)
-    return out
+    return rows[::-1]
 
 
 def _close_peer_checks(conn, project: dict) -> tuple[int, int]:
     """Close the member's open requests for this project's previews, which stop working when it is deleted, and
-    return the credits held for checks not done, as the Peer checks section does when a request is closed.
-    Runs inside the caller's transaction. Returns (requests closed, cents returned)."""
-    rows = conn.execute(
-        "SELECT r.id, r.title, r.max_checks, r.reward_cents,"
-        " (SELECT COUNT(*) FROM check_reports c WHERE c.request_id = r.id) AS done"
-        " FROM check_requests r WHERE r.requester_id = ? AND r.status = 'open' AND instr(r.url, ?) > 0",
-        (project["user_id"], _preview_path(project))).fetchall()
-    returned = 0
-    for row in rows:
-        conn.execute("UPDATE check_requests SET status = 'closed', closed_at = ? WHERE id = ?", (db.now(), row["id"]))
-        refund = row["reward_cents"] * max(row["max_checks"] - row["done"], 0)
-        if refund > 0:
-            conn.execute("INSERT INTO credit_ledger (user_id, delta_cents, reason, ref, created_at)"
-                         " VALUES (?, ?, ?, ?, ?)",
-                         (project["user_id"], refund, f"Returned from peer checks: {row['title']}",
-                          f"check:{row['id']}", db.now()))
-            returned += refund
-    return len(rows), returned
+    return the credits held for checks not done. Runs inside the caller's transaction.
+    Returns (requests closed, cents returned)."""
+    return close_requests_for_address(_preview_path(project), requester_id=project["user_id"], conn=conn)
 
 
 def _versions(project_id: int) -> list[dict]:
