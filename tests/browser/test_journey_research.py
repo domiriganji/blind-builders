@@ -119,8 +119,10 @@ def test_research_journey_end_to_end(live, browser):
     page.get_by_label("Project name").fill("   ")
     page.get_by_role("button", name="Start the project").click()
     pages.check("Please check 2 answers: Run your own research")
-    summary = page.get_by_role("alert")
-    assert "Please check 2 answers" in summary.inner_text()
+    # The h1 gives the count; the summary's heading does not repeat it, and it lists one link per answer.
+    summary = page.locator(".error-summary").filter(has=page.get_by_role("heading", name="What to check", exact=True))
+    assert summary.get_by_role("link").count() == 2
+    assert "Please check" not in summary.inner_text()
     summary.get_by_role("link", name="Enter a short name for your project.").click()
     assert _is_focused(page.get_by_label("Project name"))
     summary.get_by_role("link", name="Enter your research question.").click()
@@ -193,7 +195,7 @@ def test_research_journey_end_to_end(live, browser):
     pages.check(f"Please check 1 answer: Notes and data: {TITLE}")
     assert page.get_by_label("Notes").input_value() == "Pilot ran with 4 people. Two used braille displays."
     assert page.get_by_text("Your notes are not saved yet.").is_visible()
-    page.get_by_role("alert").get_by_role("link", name=re.compile("^This is not a CSV file")).click()
+    page.locator(".error-summary").get_by_role("link", name=re.compile("^This is not a CSV file")).click()
     assert _is_focused(page.get_by_label("CSV file"))
 
     # The notes and a good file are saved together.

@@ -16,7 +16,7 @@ from .conftest import check_page, check_page_narrow, new_page, sign_in, sign_up
 
 pytestmark = pytest.mark.browser
 
-ERROR_SUMMARY = re.compile(r"^Please check \d+ answers?$")
+ERROR_SUMMARY = "What to check"  # the h1 gives the count, so the summary heading does not repeat it
 
 RESEARCH = ResearchResult(
     text="## Summary\nTwo tools exist.\n\nAI Content Describer (https://github.com/cartertemm/AI-content-describer) ...",
@@ -90,7 +90,7 @@ def is_focused(locator) -> bool:
 
 def follow_error(page, message: str, field) -> None:
     """The error summary is shown; its link for `message` moves focus to `field`."""
-    summary = page.get_by_role("alert", name=ERROR_SUMMARY)
+    summary = page.locator(".error-summary").filter(has=page.get_by_role("heading", name=ERROR_SUMMARY, exact=True))
     expect(summary).to_be_visible()
     summary.get_by_role("link", name=message).click()
     assert is_focused(field), f"following the error {message!r} did not move focus to its field"
@@ -394,7 +394,8 @@ def test_key_pages_work_without_javascript(live, browser):
     page.goto(base + "/library/add")
     page.get_by_role("button", name="Add the tool to the library").click()
     expect_h1(page, re.compile(r"^Please check \d+ answers: Add a tool a blind or low-vision person made$"))
-    expect(page.get_by_role("alert", name=ERROR_SUMMARY)).to_be_visible()
+    # Without JavaScript the summary stays an alert, named by its heading.
+    expect(page.get_by_role("alert", name=ERROR_SUMMARY, exact=True)).to_be_visible()
     pages.check("library add errors without JavaScript")
     pages.assert_clean()
 

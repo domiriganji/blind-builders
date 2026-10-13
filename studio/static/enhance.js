@@ -3,12 +3,19 @@
    - A page that opens with a notice (for example "Your profile is saved") and no mistakes: focus goes to it.
    - "Show my password" boxes switch a password field to plain text and back.
    - "Copy the code" copies the recovery code and says whether it worked.
+   - Each prepared answer box (textarea[data-copy-name]) gets a Copy button after it, and one status message
+     says whether the copy worked.
+   - On the Write document page, leaving with changes in "Your text" that were not sent asks first. Sending a
+     form never asks.
    - On a job page: check every few seconds, say the step when it changes, and when the work ends play short
      taps (rhythm, not pitch) and move focus to a link: the result, or what to do next. */
 (function () {
   document.documentElement.className += " js";
   var summary = document.querySelector(".error-summary");
   if (summary) {
+    // Focus moving here makes a screen reader read the summary, so it is no longer also an alert:
+    // otherwise it would be read twice. Without this script the alert role stays.
+    summary.removeAttribute("role");
     try { summary.focus(); } catch (e) {}
   } else {
     var notice = document.querySelector("main .messages");
@@ -54,6 +61,71 @@
       }
     });
   });
+
+  // Copy a prepared answer. One status message, shared by every Copy button on the page.
+  var copyBoxes = document.querySelectorAll("textarea[data-copy-name]");
+  if (copyBoxes.length) {
+    var copyStatus = document.createElement("p");
+    copyStatus.className = "visually-hidden";
+    copyStatus.setAttribute("role", "status");
+    document.body.appendChild(copyStatus);
+    var sayCopy = function (text) {
+      copyStatus.textContent = "";
+      setTimeout(function () { copyStatus.textContent = text; }, 50);
+    };
+    Array.prototype.forEach.call(copyBoxes, function (box) {
+      var name = box.getAttribute("data-copy-name");
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "button button-secondary copy-button";
+      button.textContent = "Copy " + name;
+      // A short visible word beside the button, for people who use magnification. Screen readers hear
+      // the status message instead, so this word is hidden from them.
+      var seen = document.createElement("span");
+      seen.className = "copy-result";
+      seen.setAttribute("aria-hidden", "true");
+      box.parentNode.insertBefore(seen, box.nextSibling);
+      box.parentNode.insertBefore(button, seen);
+      function copied() {
+        seen.textContent = "Copied";
+        sayCopy("Copied: " + name);
+      }
+      function byHand() {
+        var ok = false;
+        try { box.focus(); box.select(); ok = document.execCommand("copy"); } catch (e) {}
+        if (ok) {
+          button.focus();
+          copied();
+        } else {
+          seen.textContent = "Could not copy";
+          sayCopy("Could not copy. Select the text in the box and copy it.");
+        }
+      }
+      button.addEventListener("click", function () {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(box.value).then(copied, byHand);
+        } else {
+          byHand();
+        }
+      });
+    });
+  }
+
+  // On the Write document page, ask before leaving with changes to "Your text" that were not sent.
+  var body = document.querySelector('form[action^="/write/"] textarea#field-body');
+  if (body) {
+    var atLoad = body.value;
+    var sending = false;
+    Array.prototype.forEach.call(document.forms, function (form) {
+      form.addEventListener("submit", function () { sending = true; });
+    });
+    window.addEventListener("beforeunload", function (event) {
+      if (sending || body.value === atLoad) return;
+      event.preventDefault();
+      event.returnValue = "";
+      return "";
+    });
+  }
 
   var main = document.getElementById("main");
   if (!main) return;

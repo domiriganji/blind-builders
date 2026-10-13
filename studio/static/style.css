@@ -38,6 +38,9 @@ main:focus { outline: none; box-shadow: none; }
 /* The current page is bold and underlined by a bar, which also shows in forced colours. */
 [aria-current] { font-weight: 700; border-bottom: 3px solid currentColor; }
 main { padding-top: 1rem; padding-bottom: 2rem; overflow-wrap: break-word; }
+/* break-word does not let a flex item shrink below its longest word, so a very long word in a link or
+   button in a row of actions would push the page sideways. Letting the items shrink lets the word wrap. */
+.actions > *, .pager > li, .choice > * { min-width: 0; max-width: 100%; }
 h1 { font-size: 1.7rem; line-height: 1.25; margin: 0.5rem 0 1rem; }
 h2 { font-size: 1.35rem; margin-top: 2rem; }
 h3 { font-size: 1.15rem; margin-bottom: 0.25rem; }
@@ -61,6 +64,10 @@ input[type=file]::file-selector-button { font: inherit; font-weight: 600; min-he
 .code-box { font-family: ui-monospace, Consolas, monospace; font-size: 1.3rem; letter-spacing: 0.08em; }
 .kept-words textarea[readonly] { background: var(--panel); }
 textarea { min-height: 8rem; }
+/* A read-only box (a prepared answer, kept words) is as tall as its rows attribute says. */
+textarea[readonly] { min-height: 0; }
+.copy-button { margin: 0.5rem 0.75rem 0.5rem 0; }
+.copy-result { font-weight: 600; }
 .hint { color: var(--muted); margin: 0.1rem 0 0.4rem; }
 .optional { font-weight: 400; color: var(--muted); }
 .field-error { color: var(--error); font-weight: 600; margin: 0.1rem 0 0.4rem; }
@@ -87,12 +94,28 @@ a.button-primary:visited { color: var(--accent-fg); }
 .sources .quote { color: var(--muted); }
 .status-pass { color: var(--ok); font-weight: 700; }
 .status-fail { color: var(--error); font-weight: 700; }
+/* Page links: a list (screen readers say how many pages), in a wrapping row with room between targets. */
+.pager { list-style: none; margin: 1rem 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.75rem; }
+/* The current page is filled and has a thick frame, so it stands out under magnification. */
+a.button[aria-current="page"], a.button[aria-current="page"]:visited { background: var(--accent); color: var(--accent-fg); border: 4px solid var(--fg); }
+@media (forced-colors: active) {
+  a.button[aria-current="page"] { forced-color-adjust: none; background: Highlight; color: HighlightText; border: 4px solid CanvasText; }
+}
 pre, code { font-family: ui-monospace, Consolas, monospace; }
 code { overflow-wrap: anywhere; }
+/* A numbered file view keeps each line's spaces and wraps long lines inside the page. */
+.code-lines code { white-space: pre-wrap; }
+.code-lines li { margin: 0.1rem 0; }
 pre { white-space: pre-wrap; word-break: break-word; background: var(--panel); padding: 0.75rem; border: 1px solid var(--border); }
 table { border-collapse: collapse; width: 100%; }
 th, td { border: 1px solid var(--border); padding: 0.4rem 0.5rem; text-align: left; vertical-align: top; overflow-wrap: break-word; }
 th[scope=row] { font-weight: normal; }
+/* A wide data table scrolls inside its own region, so the page itself never scrolls sideways.
+   Use it as <div class="table-scroll" role="region" aria-label="..." tabindex="0"> (or aria-labelledby). */
+.table-scroll { overflow-x: auto; max-width: 100%; margin: 1rem 0; }
+.table-scroll table { margin: 0; }
+/* The caption stays as wide as the visible part of the region, so it can be read without scrolling. */
+.table-scroll caption { text-align: left; position: sticky; left: 0; max-width: calc(min(100vw, 48rem) - 2rem); }
 .js-only { display: none; }
 .js .js-only { display: block; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }

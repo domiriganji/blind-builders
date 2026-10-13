@@ -5,7 +5,8 @@
 {% macro error_summary(errors) %}
 {% if errors %}
 <div class="error-summary" role="alert" aria-labelledby="error-summary-title" tabindex="-1">
-  <h2 id="error-summary-title">Please check {{ errors|length }} {{ 'answer' if errors|length == 1 else 'answers' }}</h2>
+  {#- The h1 and the title already give the count, so this heading does not repeat it. -#}
+  <h2 id="error-summary-title">What to check</h2>
   <ul>
   {% for name, message in errors.items() %}<li><a href="#field-{{ name }}">{{ message }}</a></li>{% endfor %}
   </ul>

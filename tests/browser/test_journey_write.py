@@ -43,7 +43,7 @@ def is_focused(locator) -> bool:
 
 def follow_error_link(page, message: str, field):
     """The error summary is shown; following its link moves focus to the field that needs fixing."""
-    summary = page.get_by_role("alert").filter(has=page.get_by_role("heading", name=re.compile(r"^Please check \d+ answers?$")))
+    summary = page.locator(".error-summary").filter(has=page.get_by_role("heading", name="What to check", exact=True))
     assert summary.count() == 1
     summary.get_by_role("link", name=message).click()
     expect(field, f"following {message!r} did not move focus to the field").to_be_focused(timeout=3000)

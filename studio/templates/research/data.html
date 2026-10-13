@@ -36,15 +36,22 @@
 </ul>
 {% endif %}
 {% if sample %}
-<h3>First rows of the file</h3>
+<h3 id="first-rows-title">First rows of the file</h3>
+{#- Every kept column is shown. A wide table scrolls sideways inside its own region, not the whole page. -#}
+{% set table_names = stats.column_names %}
+{% set table_rows = stats.sample or sample %}
+{% set n_rows = table_rows|length %}
+{% set n_cols = table_names|length %}
+<div class="table-scroll" role="region" aria-labelledby="first-rows-title" tabindex="0">
 <table>
-  <caption>The first {{ sample|length }} row{{ '' if sample|length == 1 else 's' }} of {{ meta.filename }}{% if stats.columns > sample_names|length %}, first {{ sample_names|length }} of {{ stats.columns }} columns{% endif %}</caption>
-  <thead><tr>{% for name in sample_names %}<th scope="col">{{ name }}</th>{% endfor %}</tr></thead>
+  <caption>The first {{ 'row' if n_rows == 1 else n_rows ~ ' rows' }} of {{ meta.filename }}, {% if stats.columns > n_cols %}the first {{ n_cols }} of {{ stats.columns }} columns{% else %}{{ 'its only column' if n_cols == 1 else 'all ' ~ n_cols ~ ' columns' }}{% endif %}</caption>
+  <thead><tr>{% for name in table_names %}<th scope="col">{{ name }}</th>{% endfor %}</tr></thead>
   <tbody>
-  {% for row in sample %}<tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>
+  {% for row in table_rows %}<tr>{% for i in range(n_cols) %}<td>{{ row[i] if i < row|length else '' }}</td>{% endfor %}</tr>
   {% endfor %}
   </tbody>
 </table>
+</div>
 {% endif %}
 {% else %}
 <p>No data file yet. Upload a CSV file with the form under the heading "Your notes and data file", and the site will count its rows and columns and work out averages.</p>
