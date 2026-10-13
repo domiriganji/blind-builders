@@ -1,24 +1,29 @@
 {% extends "base.html" %}
-{% from "_macros.html" import post_button, sources_list %}
+{% from "_macros.html" import post_button %}
+{% from "research/_sources.html" import numbered_sources %}
 {% block content %}
 <h1>{{ title }}</h1>
 {% if item %}
-<p class="panel">Written by the AI on {{ item.created_at[:10] }} after searching the web. The sources below are the pages its search returned ({{ item.sources|length }} in all). The site did not check that each study says what the AI says, or that the authors, years and venues are right. Open the sources to check.</p>
+<p class="panel">Written by the AI on {{ item.created_at|date_words }} after searching the web. The sources are the pages its search returned ({{ item.sources|length }} in all). The site did not check that each study says what the AI says, or that the authors, years and venues are right. Open the sources to check.</p>
 {% if not is_latest %}<p>This is an earlier version. <a href="{{ stage_url }}">Read the latest prior work</a>.</p>{% endif %}
 <h2>What the AI found</h2>
 {{ content_html }}
-{{ sources_list(item.sources, 2, 'Sources returned by the search') }}
+{{ numbered_sources(item.sources, 'Sources returned by the search', cited_first) }}
 <h2>What next</h2>
 <div class="actions">
-  <a class="button button-primary" href="/research/{{ project.id }}">Back to {{ project.title }}</a>
-  {{ post_button(stage_url, 'Search again') }}
-  <a href="/research/{{ project.id }}/prior-work.md">Download the prior work as Markdown</a>
+  {% if is_latest and next_action %}
+    {% if next_action.kind == 'button' %}{{ post_button(next_action.url, next_action.label, 'primary') }}{% else %}<a class="button button-primary" href="{{ next_action.url }}">{{ next_action.label }}</a>{% endif %}
+  {% endif %}
+  <a href="{{ download_url }}">{{ download_label }}</a>
+  {% if not is_latest %}{{ post_button(stage_url ~ '/restore', restore_label, hidden={'version': item.id}) }}{% endif %}
+  <a href="/research/{{ project.id }}">Back to {{ project.title }}</a>
 </div>
+{% include "research/_again.html" %}
 {% include "research/_versions.html" %}
 {% else %}
 <p>No prior work yet. The AI searches the web for studies on your question and lists them with their sources.</p>
 <div class="actions">
-  {{ post_button(stage_url, 'Find prior work', 'primary') }}
+  {{ post_button(stage_url, stage.start, 'primary') }}
   <a href="/research/{{ project.id }}">Back to {{ project.title }}</a>
 </div>
 {% endif %}

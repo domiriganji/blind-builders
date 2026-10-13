@@ -111,7 +111,7 @@ def test_create_project_and_see_stages(user_client):
 def test_create_validation_errors(user_client):
     r = post(user_client, "/research", {"title": "", "question": "  "})
     assert r.status_code == 400
-    assert h1(r) == "Run your own research: please fix the problems"
+    assert h1(r) == "Please check 2 answers: Run your own research"
     assert 'href="#field-title"' in r.text and 'href="#field-question"' in r.text
     assert 'aria-invalid="true"' in r.text
     r = post(user_client, "/research", {"title": "x" * 201, "question": "Why?"})
@@ -123,6 +123,8 @@ def test_create_validation_errors(user_client):
 def test_create_refuses_card_numbers_and_passwords(user_client):
     r = post(user_client, "/research", {"title": "Mine", "question": "Card 4111 1111 1111 1111 works?"})
     assert r.status_code == 400 and "card number" in r.text
+    # The message quotes the words it found, so they can be found in a long text.
+    assert 'near: &#34;Card 4111 1111 1111 1111 works?&#34;' in r.text
     r = post(user_client, "/research", {"title": "Mine", "question": "Why?", "known": "my password is hunter22"})
     assert r.status_code == 400 and 'href="#field-known"' in r.text
 
@@ -148,7 +150,10 @@ def test_full_journey(user_client, fake_ai):
     assert "Sources returned by the search (3)" in r.text
     kind, purpose, kwargs = fake_ai.calls[-1]
     assert (kind, purpose) == ("research", "research.prior_work")
-    assert "never invent" in kwargs["system"].lower() and "screen reader" in kwargs["system"]
+    assert "never invent" in kwargs["system"].lower()
+    # The shared member note comes from AIClient, so the section's prompt does not repeat it or assume
+    # that the researcher studies blindness.
+    assert "blind researcher" not in kwargs["system"] and "uses a screen reader" not in kwargs["system"]
     assert "one question per page" in kwargs["prompt"]
     # The AI's ## headings sit under the page's h2.
     assert "<h3>Summary</h3>" in r.text and "<h2>Summary</h2>" not in r.text
@@ -162,7 +167,10 @@ def test_full_journey(user_client, fake_ai):
     assert purpose == "research.plan"
     assert "Three studies looked at screen readers" in kwargs["prompt"]
     assert "[3] One question per page https://example.org/c" in kwargs["prompt"]
-    assert "blind participants" in kwargs["system"]
+    system = " ".join(kwargs["system"].split())
+    assert "Never use blindfolded sighted people as stand-ins for blind participants" in system
+    assert "only when the question involves blind or low-vision people" in system
+    assert "read in order in speech, braille and large print" in system
 
     # Stage 3: notes, CSV and the AI's interpretation.
     r = post(user_client, f"/research/{pid}/notes", {"notes": "Pilot ran with 4 people."})
@@ -170,7 +178,7 @@ def test_full_journey(user_client, fake_ai):
     assert h1(r) == "Your notes are saved: Exams and screen readers"
     r = upload(user_client, pid, CSV_TEXT.encode())
     assert_accessible(r)
-    assert h1(r) == "The site computed facts from data.csv: 4 rows and 3 columns: Exams and screen readers"
+    assert h1(r) == "Facts computed from data.csv: Exams and screen readers"
     assert "Computed by the site" in r.text
     r = post(user_client, f"/research/{pid}/data/describe")
     assert r.url.path == f"/research/{pid}/data"
@@ -180,7 +188,8 @@ def test_full_journey(user_client, fake_ai):
     assert "It is an interpretation, not a result" in r.text
     _, purpose, kwargs = fake_ai.calls[-1]
     assert purpose == "research.data"
-    assert "score (numbers): 3 values, 1 empty, mean 4, smallest 3, largest 5" in kwargs["prompt"]
+    assert ("score (numbers): 3 values, 1 missing (empty). Mean 4, median 4, smallest 3, largest 5, "
+            "standard deviation 1." in kwargs["prompt"])
     assert "Pilot ran with 4 people." in kwargs["prompt"]
     assert "Ana,3,A" in kwargs["prompt"]
 
@@ -193,13 +202,14 @@ def test_full_journey(user_client, fake_ai):
     _, purpose, kwargs = fake_ai.calls[-1]
     assert purpose == "research.draft"
     assert "[RESULT NEEDED]" in kwargs["system"]
+    system = " ".join(kwargs["system"].split())
+    assert "Never mention the person's blindness or low vision" in system
+    assert "Do not mention the researcher's own sight in the paper unless they ask." in system
     assert "A within-subjects study" in kwargs["prompt"] and "Pilot ran with 4 people." in kwargs["prompt"]
     assert "score (numbers)" in kwargs["prompt"]
     assert 'href="/research/%d/draft.md"' % pid in r.text
-    assert 'href="/write/new?title=Exams+and+screen+readers&amp;kind=paper"' in r.text
-    # Write does not receive the draft, so the page must not promise that it does.
-    assert "Start a paper in Write with this title" in r.text and "it does not copy the draft" in r.text
-    assert "Edit it in Write" not in r.text
+    assert "Copy this draft into a new Write document" in r.text
+    assert "<h2>The draft, written by the AI (not checked)</h2>" in r.text
 
     # Every stage now shows as done with a date.
     r = user_client.get(f"/research/{pid}")
@@ -215,7 +225,9 @@ def test_draft_flags_citations_outside_the_source_list(user_client, fake_ai):
     r = post(user_client, f"/research/{pid}/draft")
     assert "<h2>Citations the site could not match</h2>" in r.text
     section = r.text.split("<h2>Citations the site could not match</h2>")[1].split("<h2>")[0]
-    assert "<li>[7]</li>" in section
+    # The AI made the citation up, and the list quotes the sentence it is in and its heading.
+    assert "The AI cited these numbers, but they are not in the list of 3 sources." in section
+    assert '<li>[7] in: "A made-up claim [7]." (Abstract)</li>' in section
     assert "[1]" not in section and "[2]" not in section and "[3]" not in section
     assert "Places marked [RESULT NEEDED]: 2" in r.text
     assert "Citation numbers that match a source: [1], [2], [3]" in r.text
@@ -240,7 +252,7 @@ def test_draft_with_no_sources_flags_every_citation(user_client, fake_ai):
     pid = new_project(user_client)
     r = post(user_client, f"/research/{pid}/draft")
     assert_accessible(r)
-    assert "<li>[1]</li>" in r.text and "There are no sources yet" in r.text
+    assert '<li>[1] in: "See [1]." (Abstract)</li>' in r.text and "There are no sources yet" in r.text
     _, _, kwargs = fake_ai.calls[-1]
     assert "No prior work search has been done yet." in kwargs["prompt"]
 
@@ -297,7 +309,7 @@ def test_empty_ai_answer_is_a_failure(user_client, fake_ai):
     fake_ai.on("research.prior_work", ResearchResult(text="   ", sources=[]))
     pid = new_project(user_client)
     r = post(user_client, f"/research/{pid}/prior-work")
-    assert "This did not finish" in r.text and "empty answer" in r.text
+    assert "This did not finish" in r.text and "came back empty, so nothing was saved" in r.text
 
 
 def test_unsafe_source_urls_are_dropped(user_client, fake_ai):
@@ -340,11 +352,11 @@ def test_csv_statistics_edge_cases():
     assert stats["uneven_rows"] == 1
     a, b, c3, _ = stats["column_stats"]
     assert a["kind"] == "number" and a["mean"] == pytest.approx((1.5 - 2 + 2.75 + 10) / 4)
-    assert a["mean_text"] == "3.0625" and a["min_text"] == "-2" and a["max_text"] == "10"
+    assert a["mean_text"] == "3.06" and a["min_text"] == "-2" and a["max_text"] == "10"
     assert b["top"][0] == {"value": "x", "count": 3}
     assert c3["empty"] == 1 and c3["distinct"] == 1
-    # A column with a word among numbers is not numeric; NaN is not a number here.
-    mixed = research.compute_csv_stats("v\n1\n2\nnan\n")["column_stats"][0]
+    # A column with a word among numbers is not numeric.
+    mixed = research.compute_csv_stats("v\n1\n2\nmany\n")["column_stats"][0]
     assert mixed["kind"] == "text" and mixed["distinct"] == 3
     with pytest.raises(research.CSVProblem):
         research.compute_csv_stats("only,headers\n")
@@ -360,12 +372,15 @@ def test_csv_page_shows_computed_facts(user_client):
     assert "From data.csv, uploaded" in page
     assert "Rows of data, not counting the column names: 4" in page
     assert "Columns: 3" in page and "Column names: name, score, group" in page
-    assert "Empty cells: 1" in page
+    assert "Missing cells, empty or written as NA, n/a, null and similar: 1" in page
     # Long column lists are split under headings: numbers first, then text.
     numbers = page.split("<h3>Columns with numbers (1)</h3>")[1].split("<h3>")[0]
     text = page.split("<h3>Columns with text (2)</h3>")[1].split("<h2>")[0]
-    assert "<strong>score</strong>: 3 values, 1 empty. Mean 4, smallest 3, largest 5." in numbers
-    assert "<strong>group</strong>: 4 filled, 0 empty, 2 distinct values. Most common: A (3); B (1)." in text
+    assert ("<strong>score</strong>: 3 values, 1 missing (empty). Mean 4, median 4, smallest 3, largest 5, "
+            "standard deviation 1." in numbers)
+    assert "<strong>group</strong>: 4 filled, none missing, 2 distinct values. Most common: A (3); B (1)." in text
+    # A column where every value is different says so, instead of a "most common" list of ones.
+    assert "<strong>name</strong>: 4 filled, none missing, all 4 values are different." in text
     assert "<strong>name</strong>" in text and "<strong>name</strong>" not in numbers
     assert "They are not written by the AI" in page
     r = user_client.get(f"/research/{pid}")
@@ -379,7 +394,8 @@ def test_csv_too_large_is_rejected(user_client):
     r = upload(user_client, pid, big)
     assert r.status_code == 400
     assert "larger than 200 KB" in r.text and 'href="#field-csv"' in r.text
-    assert h1(r).endswith(": please fix the problems")
+    assert h1(r) == "Please check 1 answer: Notes and data: Exams and screen readers"
+    assert "Nothing was changed." in r.text
     with db.session() as conn:
         assert conn.execute("SELECT COUNT(*) FROM research_items").fetchone()[0] == 0
 
@@ -413,7 +429,7 @@ def test_notes_validation(user_client):
     assert r.status_code == 400 and 'href="#field-notes"' in r.text
     assert "n" * 100 in r.text  # what they typed is kept
     r = post(user_client, f"/research/{pid}/notes", {"notes": "code: 4111-1111-1111-1111"})
-    assert r.status_code == 400 and "card number" in r.text
+    assert r.status_code == 400 and "card number" in r.text and 'near: &#34;code: 4111-1111-1111-1111&#34;' in r.text
     r = post(user_client, f"/research/{pid}/notes", {"notes": "First note"})
     r = post(user_client, f"/research/{pid}/notes", {"notes": "Second note"})
     assert "Second note" in r.text
@@ -618,7 +634,7 @@ def test_csv_problems_say_how_to_fix_them(user_client):
     assert r.status_code == 400 and "column names in the first row" in r.text
     # A file name with a path or runs of spaces is reduced to a plain name.
     r = upload(user_client, pid, b"x\n1\n", filename="C:\\Users\\me\\my    data.csv")
-    assert h1(r) == "The site computed facts from my data.csv: 1 row and 1 column: Exams and screen readers"
+    assert h1(r) == "Facts computed from my data.csv: Exams and screen readers"
 
 
 @pytest.mark.parametrize("answer", [123, None, {"text": "x"}, ["x"]])
@@ -626,8 +642,7 @@ def test_ai_answer_of_the_wrong_type_fails_plainly(user_client, fake_ai, answer)
     fake_ai.on("research.plan", answer)
     pid = new_project(user_client)
     r = post(user_client, f"/research/{pid}/plan")
-    assert "This did not finish" in r.text and "not in the expected form" in r.text
-    assert "Nothing was saved" in r.text
+    assert "This did not finish" in r.text and "came back incomplete, so nothing was saved" in r.text
     with db.session() as conn:
         assert conn.execute("SELECT COUNT(*) FROM research_items").fetchone()[0] == 0
 
@@ -639,7 +654,7 @@ def test_search_result_with_missing_parts_fails_plainly(user_client, fake_ai):
     fake_ai.on("research.prior_work", lambda **kwargs: Odd())
     pid = new_project(user_client)
     r = post(user_client, f"/research/{pid}/prior-work")
-    assert "This did not finish" in r.text and "not in the expected form" in r.text
+    assert "This did not finish" in r.text and "came back incomplete" in r.text
 
 
 def test_sources_from_the_ai_are_cleaned():
@@ -751,7 +766,7 @@ def test_plan_page_says_what_the_site_checked(user_client, fake_ai):
     assert "Not checked: whether a source supports the sentence that cites it." in r.text
     post(user_client, f"/research/{pid}/prior-work")
     r = post(user_client, f"/research/{pid}/plan")
-    assert "Every one matches a source." in r.text
+    assert "Every one matches a source, and each links to it." in r.text
     fake_ai.on("research.plan", "## Summary\nNo citations.")
     r = post(user_client, f"/research/{pid}/plan")
     assert "The plan cites no numbered sources." in r.text
@@ -774,7 +789,7 @@ def test_data_page_wording(user_client, fake_ai):
     fake_answers(fake_ai)
     pid = new_project(user_client)
     r = user_client.get(f"/research/{pid}/data")
-    assert " below" not in r.text and 'under the heading "Upload a data file"' in r.text
+    assert " below" not in r.text and 'under the heading "Your notes and data file"' in r.text
     assert " below" not in user_client.get("/research").text
     post(user_client, f"/research/{pid}/notes", {"notes": "Only notes."})
     r = post(user_client, f"/research/{pid}/data/describe")
@@ -782,4 +797,196 @@ def test_data_page_wording(user_client, fake_ai):
     assert "Ask the AI to describe the data again" in r.text
     upload(user_client, pid, CSV_TEXT.encode())
     r = post(user_client, f"/research/{pid}/data/describe")
-    assert "from the computed facts, the first 10 rows of data.csv and your notes" in r.text
+    assert "from the computed facts, the first 4 rows of data.csv and your notes" in r.text
+    assert "Test any pattern with a statistical analysis before you report it." in r.text
+
+
+# ----- ease of use: findings from blind members' sessions -----------------------------------------
+
+def test_notes_and_file_are_one_form_so_typed_notes_are_never_lost(user_client):
+    pid = new_project(user_client)
+    page = user_client.get(f"/research/{pid}/data").text
+    form = page.split(f'action="/research/{pid}/notes"')[1].split("</form>")[0]
+    assert 'name="notes"' in form and 'name="csv"' in form and 'enctype="multipart/form-data"' in form
+    assert "Save notes and file</button>" in form
+    # Notes typed and a file chosen are saved together.
+    r = post(user_client, f"/research/{pid}/notes", {"notes": "Pilot ran with 4 people."},
+             files={"csv": ("data.csv", CSV_TEXT.encode(), "text/csv")})
+    assert r.status_code == 200
+    assert h1(r) == "Notes saved and facts computed from data.csv: Exams and screen readers"
+    assert "Pilot ran with 4 people." in r.text and "Rows of data, not counting the column names: 4" in r.text
+    # A bad file keeps the newly typed notes in the box, unsaved, and says the old facts are still in use.
+    r = post(user_client, f"/research/{pid}/csv", {"notes": "A longer note I typed first."},
+             files={"csv": ("photo.png", b"\x89PNG\r\n\x1a\n", "image/png")})
+    assert r.status_code == 400
+    assert "A longer note I typed first.</textarea>" in r.text
+    assert "Your notes are not saved yet." in r.text
+    assert "Nothing was changed. The facts from data.csv are still in use." in r.text
+    with db.session() as conn:
+        assert conn.execute("SELECT body FROM research_notes").fetchone()[0] == "Pilot ran with 4 people."
+    # Notes with a problem: the file is not uploaded either, and the member is told to choose it again.
+    r = post(user_client, f"/research/{pid}/notes", {"notes": "n" * 20001},
+             files={"csv": ("new.csv", b"x\n1\n", "text/csv")})
+    assert r.status_code == 400 and "please choose the file again too" in r.text
+    assert "From data.csv" in r.text
+
+
+def test_ordinary_sentences_about_passwords_and_codes_are_accepted(user_client):
+    pid = new_project(user_client)
+    for sentence in ["The password is hard to type with a braille display.",
+                     "The verification code is read aloud by JAWS.",
+                     "We asked about password managers."]:
+        assert not research.looks_secret(sentence), sentence
+        r = post(user_client, f"/research/{pid}/notes", {"notes": sentence})
+        assert h1(r) == "Your notes are saved: Exams and screen readers", sentence
+    r = post(user_client, "/research", {"title": "Login study", "question": "Why the password is hard to find?"},
+             follow_redirects=False)
+    assert r.status_code == 303
+
+
+def test_missing_values_like_na_do_not_turn_numbers_into_text(user_client):
+    text = "id,time_seconds,group\n1,182.5,A\n2,240,B\n3,NA,A\n4,300.4,A\n"
+    stats = research.compute_csv_stats(text)
+    _, time, _ = stats["column_stats"]
+    assert time["kind"] == "number" and time["count"] == 3 and time["empty"] == 1
+    assert time["missing_marks"] == ["NA"] and time["unit"] == "seconds"
+    assert research.column_facts(time) == (
+        "3 values, 1 missing (NA). In seconds: mean 240.97, median 240, smallest 182.5, largest 300.4, "
+        "standard deviation 58.96.")
+    for mark in ["n/a", "N/A", "-", ".", "null", "NaN"]:
+        col = research.compute_csv_stats(f"v\n1\n{mark}\n3\n")["column_stats"][0]
+        assert col["kind"] == "number" and col["empty"] == 1, mark
+    pid = new_project(user_client)
+    r = upload(user_client, pid, text.encode(), filename="pilot.csv")
+    assert_accessible(r)
+    assert "<strong>time_seconds</strong>: 3 values, 1 missing (NA). In seconds: mean 240.97" in r.text
+    # The first rows are shown as a table with column headers and a caption.
+    table = r.text.split("<table>")[1].split("</table>")[0]
+    assert "<caption>The first 4 rows of pilot.csv</caption>" in table
+    assert '<th scope="col">time_seconds</th>' in table and "<td>NA</td>" in table
+
+
+def test_plan_and_draft_say_when_there_are_no_sources_to_cite(user_client, fake_ai):
+    fake_answers(fake_ai)
+    pid = new_project(user_client)
+    r = user_client.get(f"/research/{pid}")
+    assert r.text.count(research.NO_SOURCES_NOTE) == 2
+    # Only stage 1 is the main action; the others say plainly that they would have nothing to cite.
+    assert r.text.count("button-primary") == 1
+    assert 'class="button button-primary">Find prior work</button>' in r.text
+    assert ">Write a study plan without sources</button>" in r.text
+    assert ">Write a draft paper without sources</button>" in r.text
+    r = user_client.get(f"/research/{pid}/draft")
+    assert research.NO_SOURCES_NOTE in r.text and "Go to stage 1, prior work" in r.text
+    post(user_client, f"/research/{pid}/prior-work")
+    r = user_client.get(f"/research/{pid}")
+    assert research.NO_SOURCES_NOTE not in r.text
+    assert 'class="button button-primary">Write a study plan</button>' in r.text
+
+
+def test_rerun_buttons_are_apart_and_say_which_stage(user_client, fake_ai):
+    fake_answers(fake_ai)
+    pid = new_project(user_client)
+    r = post(user_client, f"/research/{pid}/prior-work")
+    # The next stage is the main action on the stage page; running this one again sits under its own heading.
+    assert 'class="button button-primary">Next: write the study plan</button>' in r.text
+    after = r.text.split("<h3>Run this stage again</h3>")[1]
+    assert "Search for prior work again (uses your key or credits)</button>" in after
+    r = user_client.get(f"/research/{pid}")
+    stage = r.text.split("<h2>1. Prior work</h2>")[1].split("<h2>")[0]
+    assert "Read the prior work</a>" in stage and "<button" not in stage
+    rerun = r.text.split("<h2>Run a stage again</h2>")[1].split("<h2>")[0]
+    assert "Search for prior work again (uses your key or credits)</button>" in rerun
+    assert "Write the study plan again" not in rerun  # not done yet, so nothing to run again
+    r = post(user_client, f"/research/{pid}/plan")
+    assert f'class="button button-primary" href="/research/{pid}/data">Next: add notes and data</a>' in r.text
+
+
+def test_citations_link_to_their_sources_and_back(user_client, fake_ai):
+    fake_answers(fake_ai)
+    pid = new_project(user_client)
+    post(user_client, f"/research/{pid}/prior-work")
+    r = post(user_client, f"/research/{pid}/draft")
+    assert_accessible(r)
+    page = r.text
+    assert '[<a href="#source-1" id="cite-1"><span class="visually-hidden">source </span>1</a>]' in page
+    assert ('[<a href="#source-2" id="cite-2"><span class="visually-hidden">source </span>2</a>, '
+            '<a href="#source-3" id="cite-3"><span class="visually-hidden">source </span>3</a>]') in page
+    # A number with no source stays plain text: there is nothing to link to.
+    assert "A made-up claim [7]." in page and 'href="#source-7"' not in page
+    assert '<li id="source-1" tabindex="-1">' in page and '<a href="#cite-1">Back to [1] in the text</a>' in page
+    r = post(user_client, f"/research/{pid}/plan")
+    assert "<h2>The study plan, written by the AI (not checked)</h2>" in r.text
+    assert 'href="#source-2" id="cite-2"' in r.text
+
+
+def test_link_citations_leaves_links_and_code_alone():
+    html, cited = research.link_citations('<p>A [1]. <code>x[2]</code> <a href="#">[2]</a> [5]</p>', 3)
+    assert "<code>x[2]</code>" in html and '<a href="#">[2]</a>' in html and "[5]" in html
+    assert cited == {1}
+
+
+def test_older_versions_can_be_downloaded_and_made_current(user_client, fake_ai):
+    fake_answers(fake_ai)
+    pid = new_project(user_client)
+    post(user_client, f"/research/{pid}/draft")
+    fake_ai.on("research.draft", "# Second\n## Abstract\nThe second draft.")
+    post(user_client, f"/research/{pid}/draft")
+    with db.session() as conn:
+        first, _ = [r[0] for r in conn.execute("SELECT id FROM research_items WHERE kind = 'draft' ORDER BY id")]
+    old = user_client.get(f"/research/{pid}/draft?version={first}")
+    assert_accessible(old)
+    assert f'href="/research/{pid}/draft.md?version={first}">Download this version (' in old.text
+    assert "Make this the current draft</button>" in old.text
+    text = user_client.get(f"/research/{pid}/draft.md?version={first}").text
+    assert "A made-up claim [7]" in text and "The second draft." not in text
+    assert "The second draft." in user_client.get(f"/research/{pid}/draft.md").text
+    r = post(user_client, f"/research/{pid}/draft/restore", {"version": str(first)})
+    assert r.url.path == f"/research/{pid}/draft"
+    assert h1(r).startswith("The draft from ")
+    assert h1(r).endswith(" is now the current version: Exams and screen readers")
+    assert "A made-up claim [7]" in r.text and "(a copy of the version from " in r.text
+    with db.session() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM research_items WHERE kind = 'draft'").fetchone()[0] == 3
+    assert post(user_client, f"/research/{pid}/data/restore", {"version": str(first)}).status_code == 404
+    assert post(user_client, f"/research/{pid}/draft/restore", {"version": "x"}).status_code == 404
+
+
+def test_copy_the_draft_into_a_new_write_document(user_client, fake_ai):
+    fake_answers(fake_ai)
+    pid = new_project(user_client)
+    post(user_client, f"/research/{pid}/prior-work")
+    post(user_client, f"/research/{pid}/draft")
+    with db.session() as conn:
+        draft_id = conn.execute("SELECT id FROM research_items WHERE kind = 'draft'").fetchone()[0]
+    r = post(user_client, f"/research/{pid}/draft/write", {"version": str(draft_id)}, follow_redirects=False)
+    assert r.status_code == 303 and re.fullmatch(r"/write/\d+", r.headers["location"])
+    doc = user_client.get(r.headers["location"])
+    assert doc.status_code == 200
+    assert "The AI wrote it and nobody has checked it." in doc.text
+    with db.session() as conn:
+        row = conn.execute("SELECT * FROM write_docs").fetchone()
+        note = conn.execute("SELECT note FROM write_versions WHERE doc_id = ?", (row["id"],)).fetchone()[0]
+    assert row["title"] == "Exams and screen readers" and row["kind"] == "paper"
+    assert "A made-up claim [7]." in row["body"] and "## Sources" in row["body"]
+    assert "1. Exam access study. <https://example.org/a>" in row["body"]
+    assert note == "Drafted by the AI in Research (not checked)"
+    # A second press opens the same copy instead of making another.
+    again = post(user_client, f"/research/{pid}/draft/write", {"version": str(draft_id)}, follow_redirects=False)
+    assert again.headers["location"] == r.headers["location"]
+    with db.session() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM write_docs").fetchone()[0] == 1
+
+
+def test_new_routes_are_private(client, fake_ai):
+    fake_answers(fake_ai)
+    register(client, "owner2@example.com", "Owner")
+    pid = new_project(client)
+    post(client, f"/research/{pid}/draft")
+    post(client, "/logout")
+    register(client, "other2@example.com", "Other")
+    for path in ["/draft/write", "/draft/restore", "/plan/restore"]:
+        assert post(client, f"/research/{pid}{path}").status_code == 404, path
+    assert client.get(f"/research/{pid}/draft.md?version=1").status_code == 404
+    with db.session() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM write_docs").fetchone()[0] == 0

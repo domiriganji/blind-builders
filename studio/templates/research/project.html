@@ -11,20 +11,30 @@
 </ul>
 {% endif %}
 {% for s in stages %}
+{% set is_next = next_stage and next_stage.key == s.key %}
 <h2>{{ s.number }}. {{ s.name }}</h2>
 <p><strong>{% if s.done %}Done on {{ s.done_at }}{% else %}Not started{% endif %}</strong></p>
 <p>{{ s.explanation }}</p>
+{% if not s.done and s.key in ('plan', 'draft') and not sources_ready %}<p>{{ no_sources_note }}</p>{% endif %}
 <div class="actions">
-  {% if s.key == 'data' %}
-    <a href="{{ s.url }}"{% if not s.done %} class="button button-primary"{% endif %}>{{ s.read if s.done else 'Add notes and data' }}</a>
-  {% elif s.done %}
+  {% if s.done %}
     <a href="{{ s.url }}">{{ s.read }}</a>
-    {{ post_button(s.url, s.again) }}
+  {% elif s.key == 'data' %}
+    <a href="{{ s.url }}"{% if is_next %} class="button button-primary"{% endif %}>{{ s.start }}</a>
+  {% elif s.key in ('plan', 'draft') and not sources_ready %}
+    {{ post_button(s.url, s.start_no_sources) }}
   {% else %}
-    {{ post_button(s.url, s.start, 'primary') }}
+    {{ post_button(s.url, s.start, 'primary' if is_next else 'secondary') }}
   {% endif %}
 </div>
 {% endfor %}
+{% if rerun %}
+<h2>Run a stage again</h2>
+<p>The earlier version is kept, and you can make it the current one again.</p>
+<div class="actions">
+  {% for s in rerun %}{{ post_button(s.url, s.again) }}{% endfor %}
+</div>
+{% endif %}
 <h2>Delete this project</h2>
 <p>Deleting removes the project, every result and your notes. It cannot be undone.</p>
 <p><a href="/research/{{ project.id }}/delete">Delete this project</a></p>

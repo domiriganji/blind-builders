@@ -1,0 +1,4 @@
+{# Each citation number the site could not match, with the sentence it is in and its heading, so it can be found. #}
+<ul>
+{% for p in places %}<li>[{{ p.n }}]{% if p.sentence %} in: "{{ p.sentence }}"{% if p.section %} ({{ p.section }}){% endif %}{% endif %}</li>{% endfor %}
+</ul>
