@@ -1,6 +1,8 @@
 """Do this for me: the AI finds information on the web, or prepares a task on a website for the person to do.
 
-The flow for every errand:
+Members see each item as a "request" (docs/VOICE.md 4.14); the code and the table call it an errand.
+
+The flow for every request:
 1. The person says what they need, in their own words.
 2. The AI reads back an errand contract (goal, steps, what it will not do, when it is done, questions).
 3. The person corrects it or says go ahead.
@@ -24,7 +26,7 @@ from markupsafe import Markup
 
 from .. import db, jobs, sensitive
 from ..ai import AIError, AINotAvailable
-from ..web import checked_form, flash, get_ai, markdown, redirect, render, require_user
+from ..web import checked_form, date_words, error_title, flash, get_ai, markdown, redirect, render, require_user
 
 router = APIRouter(prefix="/do")
 NAV = {"label": "Do this for me", "url": "/do", "description": "Ask the AI to find information on the web and bring it back with sources, or to prepare a task like a form or an application for you to send."}
@@ -96,6 +98,25 @@ def _short(text: str, limit: int = 80) -> str:
         return text
     cut = text[:limit].rsplit(" ", 1)[0].rstrip(",;:.-")
     return (cut or text[:limit]) + "..."
+
+
+def _label(request_text: str) -> str:
+    """The member's own words, shortened: the name of a request in lists, titles, links and job titles.
+    The first line is used; if more follows, the label ends with "..." so it is clear there is more."""
+    lines = [line for line in (request_text or "").splitlines() if line.strip()]
+    if not lines:
+        return ""
+    label = _short(lines[0])
+    if len(lines) > 1 and not label.endswith("..."):
+        label = label.rstrip(",;:.-") + "..."
+    return label
+
+
+def _sentence(text: str) -> str:
+    """The text with a full stop at the end if it has none, so speech and braille never run it into the
+    next words ("Open the pageScreen reader tip")."""
+    text = (text or "").strip()
+    return text if not text or text[-1] in ".!?:;" or text.endswith("...") else text + "."
 
 
 def _str(value: Any, limit: int = 2000) -> str:
@@ -244,7 +265,7 @@ def _row(errand_id: int) -> dict | None:
 def _owned(errand_id: int, user: dict) -> dict:
     errand = _row(errand_id)
     if errand is None or errand["user_id"] != user["id"]:
-        raise HTTPException(status_code=404, detail="We could not find that errand.")
+        raise HTTPException(status_code=404, detail="We could not find that request.")
     return errand
 
 
@@ -313,7 +334,7 @@ def _job_is_stale(job: dict) -> bool:
 
 
 def _view(errand: dict) -> dict:
-    """The errand with its JSON fields decoded and a short label for headings and lists."""
+    """The errand with its JSON fields decoded, and a label in the member's own words for headings and lists."""
     errand = dict(errand)
     errand["contract"] = _loads(errand["contract_json"], None)
     errand["prepared"] = _loads(errand["prepared_json"], None)
@@ -323,8 +344,17 @@ def _view(errand: dict) -> dict:
         errand["status"] = "new"  # the read-back is missing: offer to read it back again
     if errand["status"] == "done" and errand["kind"] == "task" and not isinstance(errand["prepared"], dict):
         errand["prepared"] = normalize_prepared({})
-    goal = (errand["contract"] or {}).get("goal") or ""
-    errand["label"] = _short(goal or errand["request"])
+    goal = _str(errand["contract"].get("goal"), 500) if isinstance(errand["contract"], dict) else ""
+    # A request is always named by what the member typed, so it has one name in every list
+    # (here and in Your recent work). What the AI understood is shown beside it, never instead of it.
+    errand["label"] = _label(errand["request"]) or _short(goal)
+    errand["goal"] = goal
+    errand["goal_sentence"] = _sentence(goal)
+    errand["updated_words"] = date_words(errand["updated_at"], with_time=True)
+    if isinstance(errand["prepared"], dict):
+        errand["prepared"] = dict(errand["prepared"])
+        errand["prepared"]["steps"] = [dict(s, sentence=_sentence(s.get("instruction", "")))
+                                       for s in _list(errand["prepared"].get("steps")) if isinstance(s, dict)]
     errand["kind_words"] = "Find information" if errand["kind"] == "find" else "Task on a website"
     errand["status_words"] = STATUS_WORDS.get(errand["status"], errand["status"])
     job = jobs.get(errand["job_id"]) if errand["job_id"] else None
@@ -335,7 +365,8 @@ def _view(errand: dict) -> dict:
     if errand["job_active"] and _job_is_stale(job):
         # The server restarted or the work hung: say so and offer to try again, instead of waiting forever.
         errand["job_active"], errand["job_failed"] = False, True
-        errand["job_error"] = "It may have been stopped by a restart of the site. Nothing was lost: your request is saved."
+        errand["job_error"] = ("It may have been stopped by a restart of the site, on our side. "
+                               "Nothing was lost: your request is saved.")
     if errand["status"] in ("new", "working") and not errand["job_active"]:
         errand["status_words"] = ("Not read back yet" if errand["status"] == "new" else "Not finished yet")
     return errand
@@ -343,10 +374,9 @@ def _view(errand: dict) -> dict:
 
 # ----- prompts -----------------------------------------------------------------------------------
 
+# The shared member note (studio/ai.member_voice) is put before every system prompt by AIClient: who
+# the person is, their tools, the tone and the plain-language rules. These prompts add only the task.
 BASE_RULES = (
-    "The person is blind or has low vision and uses a screen reader. Put the summary first. Use plain "
-    "language, short sentences and short headings. No tables unless asked. No emoji. Never claim something "
-    "was checked or tested unless it was.\n"
     "This site never logs in to any website, never pays for anything and never submits, sends or signs "
     "anything for the person. It finds, explains and prepares; the person stays in control and does the "
     "final steps themselves. Never ask for passwords, card numbers, bank details or one-time codes."
@@ -354,19 +384,19 @@ BASE_RULES = (
 
 UNDERSTAND_SYSTEM = BASE_RULES + """
 
-Your job now: read the person's request and say back, as an errand contract, what you understood
-BEFORE doing anything. Do not do the errand yet and do not search the web.
+Your job now: read the person's request and say back, as a read-back, what you understood
+BEFORE doing anything. Do not do the request yet and do not search the web.
 - goal: one short sentence in plain words, starting with a verb, for example "Find the opening hours of the
   Leeds central library". At most 12 words.
 - steps: the few steps you will take, in order, in plain words (for example "Search official sources",
   "Bring back the answer with links"). For a task on a website, the steps are about finding the official
   place and preparing instructions and answers; the person does the task themselves.
 - will_not_do: what you will not do. Always include: log in for them, pay for anything, send or submit anything.
-- done_when: one sentence that says when the errand is finished.
+- done_when: one sentence that says when the request is finished.
 - questions: only questions whose answers change the result (for example which country or city). Empty if none.
 - information_needed_from_you: for a task, the facts the person may want to give so you can prepare answers
   (for example their name or the date they want). Never passwords, card numbers, codes or other secrets.
-  Empty for most "find" errands."""
+  Empty for most "find" requests."""
 
 FIND_SYSTEM = BASE_RULES + """
 
@@ -397,14 +427,17 @@ Your job now: turn the research into a plan the person can follow by themselves.
 - where_to_go: the official page to start from, with its title and full https address. Use only an address
   that appears in the research. If none was found, leave url empty.
 - before_you_start: what to have ready (documents, information, time needed, fees).
-- steps: numbered actions on the website, each with a screen_reader_tip: practical advice for doing that
-  step with a screen reader (for example "Press H to move by heading to 'Your details'", or "The date
-  field is three separate boxes: day, month, year"). Say when a tip is general advice rather than known
-  from a report about this site.
+- steps: numbered actions on the website, each one a sentence ending with a full stop, each with a
+  screen_reader_tip: practical advice for doing that step with the person's own tools, in speech or braille,
+  that does not depend on hearing (for example "Press H to move by heading to 'Your details'", or "The date
+  field is three separate boxes: day, month, year"). Add a zoom tip if the step is visual. Say when a tip
+  is general advice rather than known from a report about this site.
 - prepared_answers: suggested answers for form fields, ONLY from information the person gave in their
   request or their answers. For anything you do not know, or anything sensitive (ID numbers, passwords,
   card or bank details, codes), write a placeholder in square brackets, for example
   "[your passport number]". Never invent personal facts. Never fill in a password, card number or code.
+  Never mention the person's blindness or low vision in a prepared answer meant for a form or another
+  person, unless they ask.
 - known_accessibility_problems: problems reported by real people or stated by the site. Empty if none
   were found. Do not guess.
 - what_happens_after: what happens after the person sends the form themselves (emails, waiting times).
@@ -461,7 +494,7 @@ def _profile_line(profile: dict) -> str:
 
 def _context(errand: dict, profile: dict, *, with_contract: bool) -> str:
     kind = "Find information and bring it back" if errand["kind"] == "find" else "Help me do a task on a website (the person does the task)"
-    parts = [f"Kind of errand: {kind}.", "The person's request, in their own words:", errand["request"]]
+    parts = [f"Kind of request: {kind}.", "The person's request, in their own words:", errand["request"]]
     notes = _loads(errand["notes_json"], [])
     if notes:
         parts.append("What the person told you after earlier read-backs (corrections and answers), oldest first:")
@@ -469,13 +502,13 @@ def _context(errand: dict, profile: dict, *, with_contract: bool) -> str:
     if errand.get("parent_id"):
         parent = _row(errand["parent_id"])
         if parent and parent["user_id"] == errand["user_id"]:
-            parts.append("This is a follow-up to an earlier errand.")
+            parts.append("This is a follow-up to an earlier request.")
             parts.append("Earlier request: " + parent["request"])
             if parent["result_md"]:
                 parts.append("Earlier answer (written by the AI):\n" + parent["result_md"][:8000])
     contract = _loads(errand["contract_json"], None)
     if with_contract and contract:
-        parts.append("The errand contract the person agreed to:")
+        parts.append("The read-back the person agreed to:")
         parts.append("Goal: " + contract.get("goal", ""))
         parts.extend(f"Step: {s}" for s in contract.get("steps", []))
         parts.append("Done when: " + contract.get("done_when", ""))
@@ -511,7 +544,8 @@ def _run(ctx, ai, errand_id: int, created_at: str, profile: dict) -> str:
         text = (result.text or "").strip() if isinstance(result.text, str) else ""
         if not text:
             # Never show an empty page that says "Found". The job page explains, and the errand offers Try again.
-            raise AIError("The AI searched but did not write an answer. Press Try again, or reword your request.")
+            raise AIError("The AI searched but did not write an answer, so nothing was saved. "
+                          "Choose Try again, or reword your request.")
         if not _job_update(ctx, errand_id, created_at, result_md=text,
                            sources_json=json.dumps(_clean_sources(result.sources)), status="done"):
             return "/do"
@@ -552,9 +586,10 @@ def _start(request: Request, user: dict, errand_id: int, step: str):
         flash(request, exc.user_message, "error")
         return None
     errand = _view(_row(errand_id))
-    # The title names the errand, so the list in "Your recent work" says which errand each line is about.
+    # The title names the request in the member's own words, the same name as on Do this for me, so the
+    # list in "Your recent work" says which request each line is about.
     if step == "understand":
-        title = f"Reading back your request: {_short(errand['request'], 60)}"
+        title = f"Reading back your request: {errand['label']}"
         job_id = jobs.submit(user["id"], "errands.understand", title, _understand, ai, errand_id,
                              errand["created_at"], _profile(user),
                              dedupe_key=f"errands.understand:{errand_id}:{errand['created_at']}",
@@ -597,7 +632,7 @@ def _group(errand: dict) -> str:
 
 def _index_page(request: Request, user: dict, *, values: dict | None = None, errors: dict | None = None,
                 status_code: int = 200, title: str = "Do this for me"):
-    title = title + (": please fix the problems" if errors else "")
+    title = error_title(title, errors)
     errands = _list_for(user["id"])
     groups = [(heading, [e for e in errands if _group(e) == key]) for key, heading in GROUPS]
     return render(request, "errands/index.html", title=title, kinds=KINDS, hint=REQUEST_HINT,
@@ -610,7 +645,7 @@ def index(request: Request, user: dict = Depends(require_user)):
     deleted = request.session.pop("errands_deleted", None)
     if isinstance(deleted, str) and deleted:
         # The h1 says what just happened.
-        return _index_page(request, user, title=f"Errand deleted: {deleted}")
+        return _index_page(request, user, title=f"Request deleted: {deleted}")
     return _index_page(request, user)
 
 
@@ -662,23 +697,22 @@ def _understood_title(errand: dict) -> str:
 
 
 def _done_title(errand: dict) -> str:
-    return (f"Found: {errand['label']}" if errand["kind"] == "find" else f"Ready for you to do: {errand['label']}")
+    return (f"Answer ready: {errand['label']}" if errand["kind"] == "find" else f"Ready for you to do: {errand['label']}")
 
 
 def _errand_page(request: Request, errand: dict, *, values: dict | None = None, errors: dict | None = None,
                  status_code: int = 200):
-    suffix = ": please fix the problems" if errors else ""
     ctx = {"errand": errand, "values": values or {}, "errors": errors or {}, "status_code": status_code}
     if errand["status"] == "understood" and errand["contract"]:
-        return render(request, "errands/understood.html", title=_understood_title(errand) + suffix, **ctx)
+        return render(request, "errands/understood.html", title=error_title(_understood_title(errand), errors), **ctx)
     if errand["status"] == "done" and errand["kind"] == "find":
-        return render(request, "errands/found.html", title=_done_title(errand) + suffix,
+        return render(request, "errands/found.html", title=error_title(_done_title(errand), errors),
                       answer=answer_html(errand["result_md"]), **ctx)
     if errand["status"] == "done":
-        return render(request, "errands/ready.html", title=_done_title(errand) + suffix, **ctx)
+        return render(request, "errands/ready.html", title=error_title(_done_title(errand), errors), **ctx)
     if errand["status"] == "new":
-        title = ("Reading back your request" if errand["job_active"]
-                 else f"Saved but not read back yet: {_short(errand['request'], 60)}")
+        title = (f"Reading back your request: {errand['label']}" if errand["job_active"]
+                 else f"Saved but not read back yet: {errand['label']}")
     else:
         title = (f"Working on it: {errand['label']}" if errand["job_active"]
                  else f"Not finished yet: {errand['label']}")
@@ -695,20 +729,22 @@ async def respond(request: Request, errand_id: int, user: dict = Depends(require
     form = await checked_form(request)
     errand = _view(_owned(errand_id, user))
     if errand["status"] != "understood":
-        flash(request, "This errand is not waiting for an answer from you right now.", "info")
+        flash(request, "This request is not waiting for an answer from you right now.", "info")
         return redirect(f"/do/{errand_id}")
     action = _form_text(form, "action")
     text = _form_text(form, "answer")
     error = ""
     if action not in ("update", "go"):
-        error = "Press Update to have me read it back again, or Go ahead to start."
+        error = ("Choose Update what you understood to have me read it back again, "
+                 "or This is right: go ahead to start.")
     elif action == "update" and not text:
-        error = "Write your corrections or answers, then press Update. If everything is right, press Go ahead."
+        error = ("Write your corrections or answers, then choose Update what you understood. "
+                 "If everything is right, choose This is right: go ahead.")
     elif len(text) > MAX_NOTE:
         error = f"Make this shorter: at most {MAX_NOTE:,} characters. It has {len(text):,}."
     elif text and len(errand["notes"]) >= MAX_NOTES:
-        error = (f"This errand already has {MAX_NOTES} corrections, which is the most it can hold. "
-                 "Empty this box and press Go ahead, or start a new errand with everything in one request.")
+        error = (f"This request already has {MAX_NOTES} corrections, which is the most it can hold. "
+                 "Empty this box and choose This is right: go ahead, or start a new request with everything in it.")
     elif text:
         error = find_secret(text) or ""
     if error:
@@ -750,7 +786,7 @@ async def follow_up(request: Request, errand_id: int, user: dict = Depends(requi
     text = _form_text(form, "question")
     error = ""
     if not text:
-        error = "Write your follow-up question in the box, then press Ask the follow-up."
+        error = "Write your follow-up question in the box, then choose Ask the follow-up."
     elif len(text) > MAX_REQUEST:
         error = f"Make your question shorter: at most {MAX_REQUEST:,} characters. It has {len(text):,}."
     else:
@@ -767,7 +803,7 @@ async def follow_up(request: Request, errand_id: int, user: dict = Depends(requi
 @router.get("/{errand_id}/delete")
 def confirm_delete(request: Request, errand_id: int, user: dict = Depends(require_user)):
     errand = _view(_owned(errand_id, user))
-    return render(request, "errands/delete.html", title=f"Delete this errand: {errand['label']}", errand=errand)
+    return render(request, "errands/delete.html", title=f"Delete this request: {errand['label']}", errand=errand)
 
 
 @router.post("/{errand_id}/delete")

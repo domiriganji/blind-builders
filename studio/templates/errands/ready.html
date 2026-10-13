@@ -3,7 +3,7 @@
 {% block content %}
 <h1>{{ title }}</h1>
 {% set p = errand.prepared %}
-<p class="lead">The AI wrote this plan from web pages it found: where to go, what to have ready, the steps and answers for the form. Nobody at the site has tried it. This site does not log in, pay or send anything for you. You do the task yourself, when you are ready.</p>
+<p class="lead">The AI wrote this plan from web pages it found: where to go, what to have ready, the steps and answers for the form. Nobody has tried it. This site does not log in, pay or send anything for you. You do the task yourself, when you are ready.</p>
 
 <h2>Where to go</h2>
 {% if p.where_to_go.url %}
@@ -24,7 +24,7 @@
 {% if p.steps %}
 <ol>
 {% for s in p.steps %}
-  <li>{{ s.instruction }}{% if s.screen_reader_tip %}<br>Screen reader tip: {{ s.screen_reader_tip }}{% endif %}</li>
+  <li><p>{{ s.sentence }}</p>{% if s.screen_reader_tip %}<p>Screen reader tip: {{ s.screen_reader_tip }}</p>{% endif %}</li>
 {% endfor %}
 </ol>
 {% else %}
@@ -33,14 +33,16 @@
 
 <h2>Prepared answers</h2>
 {% if p.prepared_answers %}
-<p>Each answer is in its own block, so you can select it and copy it. Text in square brackets, like [your passport number], is a gap for you to fill in yourself. Read each answer before you use it.</p>
+<p>Each answer is in its own read-only text box, so you can select all of it and copy it. Text in square brackets, like [your passport number], is a gap for you to fill in yourself. Read each answer before you use it.</p>
 {% for a in p.prepared_answers %}
-<h3>{{ a.field_label }}</h3>
-<pre>{{ a.suggested_answer }}</pre>
-{% if a.note %}<p>Note: {{ a.note }}</p>{% endif %}
+{# The heading is the box's label, so moving by heading and by form field give the same name. #}
+<h3><label for="answer-{{ loop.index }}">Answer for: {{ a.field_label }}</label></h3>
+{% set lines = a.suggested_answer.splitlines()|length + (a.suggested_answer|length // 60) %}
+<textarea id="answer-{{ loop.index }}" readonly rows="{{ [[lines, 1]|max, 8]|min }}" data-copy-name="the answer for {{ a.field_label }}"{% if a.note %} aria-describedby="answer-{{ loop.index }}-note"{% endif %}>{{ a.suggested_answer }}</textarea>
+{% if a.note %}<p id="answer-{{ loop.index }}-note">Note: {{ a.note }}</p>{% endif %}
 {% endfor %}
 {% else %}
-<p>There are no prepared answers. You did not give details the form asks for, or the AI could not tell which fields the form has.</p>
+<p>There are no prepared answers yet. The form may need details the AI does not have, or the AI could not tell which boxes the form has. To get answers, <a href="/do">make a new request</a> with your details in it.</p>
 {% endif %}
 
 <h2>Known accessibility problems</h2>
@@ -56,7 +58,7 @@
 
 <h2>What was checked</h2>
 <p>Checked by the site: the "Where to go" link and every source link are ordinary web addresses, and the site looked for passwords, PINs, card numbers and codes in the prepared answers and replaced any it found with a gap for you to fill in.</p>
-<p>Not checked: the AI wrote these steps and tips from the web pages listed under sources. Nobody at the site has tried them, and the website may have changed. If a step does not match what you hear, trust the website itself over this page.</p>
+<p>Not checked: the AI wrote these steps and tips from the web pages listed under sources. Nobody has tried them, and the website may have changed. If a step does not match what you find on the website, trust the website itself over this page.</p>
 {% if errand.sources %}
 {{ sources_list(errand.sources, 2, 'Sources the AI used') }}
 {% else %}

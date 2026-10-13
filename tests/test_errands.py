@@ -12,6 +12,8 @@ from studio.features import errands
 
 from .conftest import post, register, user_id
 
+Q = "When is the central library in Leeds open?"
+
 CONTRACT = {
     "goal": "Find the opening hours of the central library",
     "steps": ["Search the library's own website", "Bring back the hours with links"],
@@ -96,7 +98,7 @@ def test_index_explains_rules_and_has_form(user_client):
     assert "Find information and bring it back to me" in r.text
     assert "Help me do a task on a website" in r.text
     assert "Say what you need, as you would to a friend. Do not include passwords, card numbers or codes." in r.text
-    assert "You have no errands yet" in r.text
+    assert "You have no requests yet" in r.text
 
 
 def test_signed_out_is_asked_to_sign_in(client):
@@ -113,7 +115,7 @@ def test_find_journey(user_client, fake_ai):
     eid = _last_errand_id()
     assert r.url.path == f"/do/{eid}"
     _a11y_ok(r.text)
-    assert _h1(r.text) == "Here is what I understood: Find the opening hours of the central library" == _title(r.text)
+    assert _h1(r.text) == "Here is what I understood: When is the central library in Leeds open?" == _title(r.text)
     assert "Search the library&#39;s own website" in r.text
     assert "Which city is the library in?" in r.text
     assert "this week&#39;s opening hours" in r.text
@@ -122,7 +124,9 @@ def test_find_journey(user_client, fake_ai):
     kind, purpose, kwargs = fake_ai.calls[0]
     assert (kind, purpose) == ("structured", "errands.understand")
     assert "When is the central library in Leeds open?" in kwargs["prompt"]
-    assert "NVDA" in kwargs["prompt"] and "screen reader" in kwargs["system"]
+    assert "NVDA" in kwargs["prompt"]
+    # The shared member note (added by AIClient) is not repeated in the section prompt.
+    assert "blind" not in kwargs["system"] and "Put the summary first" not in kwargs["system"]
     assert fake_ai.purposes() == ["errands.understand"]
     assert _errand(eid)["status"] == "understood"
 
@@ -130,7 +134,7 @@ def test_find_journey(user_client, fake_ai):
     r = post(user_client, f"/do/{eid}/respond", {"answer": "Leeds, England", "action": "go"})
     assert r.status_code == 200 and r.url.path == f"/do/{eid}"
     _a11y_ok(r.text)
-    assert _h1(r.text) == "Found: Find the opening hours of the central library" == _title(r.text)
+    assert _h1(r.text) == "Answer ready: When is the central library in Leeds open?" == _title(r.text)
     assert "open 9am to 5pm" in r.text
     # The AI's text sits under its own labelled heading; its top heading level becomes h3.
     assert "<h2>Answer written by the AI</h2>" in r.text
@@ -153,7 +157,8 @@ def test_find_journey(user_client, fake_ai):
         {"url": "https://library.example.org/hours", "title": "Library opening hours", "quote": "Open 9 to 5"}]
     # The index lists it as done.
     index = user_client.get("/do").text
-    assert "Find the opening hours of the central library" in index and "Done" in index
+    assert f'<a href="/do/{eid}">{Q}</a>' in index and "Done" in index
+    assert "The AI understood: Find the opening hours of the central library." in index
 
 
 def test_will_not_do_always_has_site_rules(user_client, fake_ai):
@@ -188,7 +193,8 @@ def test_update_reruns_the_read_back(user_client, fake_ai):
     eid = _last_errand_id()
     r = post(user_client, f"/do/{eid}/respond", {"answer": "It is the one in Leeds.", "action": "update"})
     assert r.url.path == f"/do/{eid}"
-    assert _h1(r.text) == "Here is what I understood: Find the opening hours of Leeds central library"
+    assert _h1(r.text) == "Here is what I understood: " + Q
+    assert "<p>Find the opening hours of Leeds central library</p>" in r.text
     assert fake_ai.purposes() == ["errands.understand", "errands.understand"]
     assert "It is the one in Leeds." in fake_ai.calls[-1][2]["prompt"]
     assert "It is the one in Leeds." in r.text
@@ -201,7 +207,7 @@ def test_update_needs_text(user_client, fake_ai):
     r = post(user_client, f"/do/{eid}/respond", {"answer": "  ", "action": "update"})
     assert r.status_code == 400
     _a11y_ok(r.text)
-    assert _h1(r.text).endswith(": please fix the problems") and _h1(r.text) == _title(r.text)
+    assert _h1(r.text) == "Please check 1 answer: Here is what I understood: " + Q == _title(r.text)
     assert 'href="#field-answer"' in r.text and 'aria-invalid="true"' in r.text
     assert fake_ai.purposes() == ["errands.understand"]
 
@@ -239,12 +245,12 @@ def test_follow_up_creates_child_with_context(user_client, fake_ai):
     row = _errand(child)
     assert row["parent_id"] == parent and row["kind"] == "find"
     assert row["request"] == "Are the hours different in summer?"
-    assert _h1(r.text) == "Here is what I understood: Find summer opening hours"
-    assert f'href="/do/{parent}"' in r.text  # link back to the earlier errand
+    assert _h1(r.text) == "Here is what I understood: Are the hours different in summer?"
+    assert f'href="/do/{parent}"' in r.text  # link back to the earlier request
     prompt = fake_ai.calls[-1][2]["prompt"]
     assert "open 9am to 5pm" in prompt and "When is the central library in Leeds open?" in prompt
     r = post(user_client, f"/do/{child}/respond", {"action": "go"})
-    assert _h1(r.text) == "Found: Find summer opening hours"
+    assert _h1(r.text) == "Answer ready: Are the hours different in summer?"
     assert "open 9am to 5pm" in fake_ai.calls[-1][2]["prompt"]
     # Deleting the parent keeps the follow-up.
     post(user_client, f"/do/{parent}/delete")
@@ -259,7 +265,7 @@ def test_follow_up_validation(user_client, fake_ai):
     r = post(user_client, f"/do/{eid}/follow-up", {"question": ""})
     assert r.status_code == 400
     _a11y_ok(r.text)
-    assert _h1(r.text) == "Found: Find the opening hours of the central library: please fix the problems"
+    assert _h1(r.text) == "Please check 1 answer: Answer ready: " + Q
     assert 'href="#field-question"' in r.text
     r = post(user_client, f"/do/{eid}/follow-up", {"question": "My card is 4111 1111 1111 1111, is that ok?"})
     assert r.status_code == 400 and "card number" in r.text
@@ -284,12 +290,12 @@ def test_task_journey(user_client, fake_ai):
     fake_ai.on("errands.task_research", TASK_RESEARCH).on("errands.task_prepare", PREPARED)
     r = _new(user_client, kind="task", text="Help me renew my library card on the library website")
     eid = _last_errand_id()
-    assert _h1(r.text) == "Here is what I understood: Renew my library card online"
+    assert _h1(r.text) == "Here is what I understood: Help me renew my library card on the library website"
     assert "Your library card number" in r.text and "Never give passwords" in r.text
     r = post(user_client, f"/do/{eid}/respond", {"answer": "My name is Amina Yusuf.", "action": "go"})
     assert r.status_code == 200
     _a11y_ok(r.text)
-    assert _h1(r.text) == "Ready for you to do: Renew my library card online" == _title(r.text)
+    assert _h1(r.text) == "Ready for you to do: Help me renew my library card on the library website" == _title(r.text)
     assert fake_ai.purposes() == ["errands.understand", "errands.task_research", "errands.task_prepare"]
     research_call, prepare_call = fake_ai.calls[1], fake_ai.calls[2]
     assert "My name is Amina Yusuf." in research_call[2]["prompt"]
@@ -300,9 +306,12 @@ def test_task_journey(user_client, fake_ai):
     assert '<a href="https://library.example.org/renew" rel="noopener noreferrer">Renew your library card</a>' in text
     assert "Have your library card number ready" in text
     assert "<ol>" in text and "Open the renewal page" in text and "Screen reader tip: Press H" in text
-    assert "<pre>Amina Yusuf</pre>" in text and "<pre>[your library card number]</pre>" in text
+    assert re.search(r'<label for="answer-1">Answer for: Full name</label></h3>\s*<textarea id="answer-1" readonly', text)
+    assert ">Amina Yusuf</textarea>" in text and ">[your library card number]</textarea>" in text
+    assert 'aria-describedby="answer-1-note"' in text and '<p id="answer-1-note">Note: From your answer.</p>' in text
+    assert "<pre>" not in text
     # A password suggested by the AI is never shown; it becomes a gap for the person.
-    assert "hunter2" not in text and "<pre>[your password]</pre>" in text
+    assert "hunter2" not in text and ">[your password]</textarea>" in text
     assert "picture CAPTCHA" in text
     assert "You get an email within two days." in text
     assert "This site does not log in, pay or send anything for you." in text
@@ -351,7 +360,7 @@ def test_requests_with_secrets_are_refused(user_client, fake_ai, text):
     r = _new(user_client, text=text)
     assert r.status_code == 400
     _a11y_ok(r.text)
-    assert _h1(r.text) == "Do this for me: please fix the problems" == _title(r.text)
+    assert _h1(r.text) == "Please check 1 answer: Do this for me" == _title(r.text)
     assert 'href="#field-request"' in r.text and "Please take it out" in r.text
     assert fake_ai.calls == []
     with db.session() as conn:
@@ -417,7 +426,7 @@ def test_failed_read_back_can_be_retried(user_client, fake_ai):
     assert "When is the central library in Leeds open?" in page.text
     fake_ai.on("errands.understand", CONTRACT)
     r = post(user_client, f"/do/{eid}/retry")
-    assert _h1(r.text) == "Here is what I understood: Find the opening hours of the central library"
+    assert _h1(r.text) == "Here is what I understood: When is the central library in Leeds open?"
 
 
 def test_failed_run_can_be_retried(user_client, fake_ai):
@@ -427,11 +436,11 @@ def test_failed_run_can_be_retried(user_client, fake_ai):
     post(user_client, f"/do/{eid}/respond", {"action": "go"})
     page = user_client.get(f"/do/{eid}")
     _a11y_ok(page.text)
-    assert _h1(page.text) == "Not finished yet: Find the opening hours of the central library"
+    assert _h1(page.text) == "Not finished yet: When is the central library in Leeds open?"
     assert "Could not reach the AI service." in page.text and "Try again" in page.text
     fake_ai.on("errands.find", FIND_ANSWER)
     r = post(user_client, f"/do/{eid}/retry")
-    assert _h1(r.text) == "Found: Find the opening hours of the central library"
+    assert _h1(r.text) == "Answer ready: When is the central library in Leeds open?"
 
 
 def test_retry_on_finished_errand_does_nothing(user_client, fake_ai):
@@ -453,7 +462,7 @@ def test_running_job_page(user_client, fake_ai):
         conn.execute("UPDATE errands SET status = 'working', job_id = ? WHERE id = ?", (job_id, eid))
     page = user_client.get(f"/do/{eid}")
     _a11y_ok(page.text)
-    assert _h1(page.text) == "Working on it: Find the opening hours of the central library"
+    assert _h1(page.text) == "Working on it: When is the central library in Leeds open?"
     assert f'href="/jobs/{job_id}"' in page.text
     r = post(user_client, f"/do/{eid}/retry", follow_redirects=False)
     assert r.headers["location"] == f"/jobs/{job_id}"
@@ -475,14 +484,14 @@ def test_delete_with_confirmation(user_client, fake_ai):
     r = user_client.get(f"/do/{eid}/delete")
     assert r.status_code == 200
     _a11y_ok(r.text)
-    assert _h1(r.text) == "Delete this errand: Find the opening hours of the central library"
+    assert _h1(r.text) == "Delete this request: When is the central library in Leeds open?"
     assert "cannot undo" in r.text
     r = post(user_client, f"/do/{eid}/delete")
     assert r.url.path == "/do"
     _a11y_ok(r.text)
     # The next page's h1 says what just happened, once.
-    assert _h1(r.text) == "Errand deleted: Find the opening hours of the central library" == _title(r.text)
-    assert "You have no errands yet" in r.text
+    assert _h1(r.text) == "Request deleted: When is the central library in Leeds open?" == _title(r.text)
+    assert "You have no requests yet" in r.text
     assert user_client.get(f"/do/{eid}").status_code == 404
     assert _h1(user_client.get("/do").text) == "Do this for me"
 
@@ -589,7 +598,7 @@ def test_wrong_types_from_the_ai_in_a_task_still_show_a_page(user_client, fake_a
     r = post(user_client, f"/do/{_last_errand_id()}/respond", {"action": "go"})
     assert r.status_code == 200
     _a11y_ok(r.text)
-    assert _h1(r.text) == "Ready for you to do: Renew my library card online"
+    assert _h1(r.text) == "Ready for you to do: Renew my library card"
     assert "could not work out the steps" in r.text
 
 
@@ -612,7 +621,7 @@ def test_empty_answer_from_the_ai_is_not_shown_as_found(user_client, fake_ai):
     assert "did not write an answer" in r.text
     page = user_client.get(f"/do/{eid}")
     _a11y_ok(page.text)
-    assert _h1(page.text) == "Not finished yet: Find the opening hours of the central library"
+    assert _h1(page.text) == "Not finished yet: When is the central library in Leeds open?"
     assert "did not write an answer" in page.text and "Try again" in page.text
     assert _errand(eid)["status"] == "working"
 
@@ -627,11 +636,11 @@ def test_task_that_fails_halfway_keeps_the_research(user_client, fake_ai):
     assert row["status"] == "working" and row["prepared_json"] == ""
     assert "Renew at the official library site" in row["result_md"]
     page = user_client.get(f"/do/{eid}")
-    assert _h1(page.text) == "Not finished yet: Renew my library card online"
+    assert _h1(page.text) == "Not finished yet: Renew my library card"
     assert "cut off or malformed" in page.text
     fake_ai.on("errands.task_prepare", PREPARED)
     r = post(user_client, f"/do/{eid}/retry")
-    assert _h1(r.text) == "Ready for you to do: Renew my library card online"
+    assert _h1(r.text) == "Ready for you to do: Renew my library card"
     # The web research was not paid for twice; the saved research went to the AI.
     assert fake_ai.purposes() == ["errands.understand", "errands.task_research", "errands.task_prepare",
                                   "errands.task_prepare"]
@@ -664,7 +673,7 @@ def test_sending_the_same_request_after_a_failed_read_back_tries_again(user_clie
     fake_ai.on("errands.understand", CONTRACT)
     r = _new(user_client)
     assert _last_errand_id() == first
-    assert _h1(r.text) == "Here is what I understood: Find the opening hours of the central library"
+    assert _h1(r.text) == "Here is what I understood: When is the central library in Leeds open?"
     assert fake_ai.purposes() == ["errands.understand", "errands.understand"]
 
 
@@ -693,7 +702,7 @@ def test_stuck_job_offers_to_try_again(user_client, fake_ai):
     assert _h1(page.text) == "Saved but not read back yet: Bus times from Leeds to York"
     assert "stopped by a restart" in page.text and "See how it is going" not in page.text
     r = post(user_client, f"/do/{eid}/retry")
-    assert _h1(r.text) == "Here is what I understood: Find the opening hours of the central library"
+    assert _h1(r.text) == "Here is what I understood: Bus times from Leeds to York"
 
 
 def test_missing_read_back_can_be_read_back_again(user_client, fake_ai):
@@ -739,7 +748,7 @@ def test_index_groups_errands_under_headings(user_client, fake_ai):
     errands._create(user_id(), "find", "Train times")
     r = user_client.get("/do")
     _a11y_ok(r.text)
-    assert "You have 3 errands" in r.text
+    assert "You have 3 requests" in r.text
     h3 = re.findall(r"<h3>(.*?)</h3>", r.text)
     assert h3 == ["Waiting for you to check what I understood (1)", "Being worked on or not finished (1)",
                   "Done (1)"]
@@ -752,7 +761,7 @@ def test_job_titles_name_the_errand(user_client, fake_ai):
     post(user_client, f"/do/{_last_errand_id()}/respond", {"action": "go"})
     titles = [j["title"] for j in jobs.recent_for_user(user_id())]
     assert "Reading back your request: When is the central library in Leeds open?" in titles
-    assert "Finding the information: Find the opening hours of the central library" in titles
+    assert "Finding the information: " + Q in titles
 
 
 def test_corrections_have_a_limit(user_client, fake_ai):
@@ -779,3 +788,119 @@ def test_no_words_that_depend_on_where_things_are(user_client, fake_ai):
         main = html.split("<main", 1)[1]
         for word in ("below", "above", "on the right", "on the left", "click here"):
             assert word not in main.lower(), word
+
+
+# ----- kindness and ease of use ------------------------------------------------------------------
+
+def test_requests_are_named_by_the_members_own_words(user_client, fake_ai):
+    from studio import jobs
+    fake_ai.on("errands.understand", CONTRACT).on("errands.find", FIND_ANSWER)
+    _new(user_client)
+    eid = _last_errand_id()
+    post(user_client, f"/do/{eid}/respond", {"action": "go"})
+    index = user_client.get("/do").text
+    _a11y_ok(index)
+    # One name in the list, the delete link, the page title and Your recent work: the member's words.
+    assert f'<a href="/do/{eid}">{Q}</a>' in index
+    assert f'<a href="/do/{eid}/delete">Delete request: {Q}</a>' in index
+    assert "The AI understood: Find the opening hours of the central library." in index
+    titles = [j["title"] for j in jobs.recent_for_user(user_id())]
+    assert titles and all(t.endswith(": " + Q) for t in titles), titles
+    # Similar requests can be told apart by the time they last changed, in words.
+    assert re.search(r"Last changed \d{1,2} [A-Z][a-z]+ 20\d\d, \d\d:\d\d UTC\.", index)
+    assert "Times are in UTC, the same as London time in winter." in index
+    assert not re.search(r"\d{4}-\d{2}-\d{2}", index.split("<main", 1)[1])
+
+
+def test_long_or_multi_line_requests_get_a_short_name():
+    assert errands._label("Renew my card\nMy name is Amina") == "Renew my card..."
+    assert errands._label("\n  Bus times  \n") == "Bus times"
+    assert errands._label("word " * 40).endswith("...") and len(errands._label("word " * 40)) <= 83
+
+
+def test_index_lists_requests_before_the_form_when_there_are_some(user_client, fake_ai):
+    empty = user_client.get("/do").text
+    assert empty.index("<h2>Ask for something</h2>") < empty.index('<h2 id="your-requests">Your requests</h2>')
+    assert "You have no requests yet. When you ask for something, it appears here." in empty
+    fake_ai.on("errands.understand", CONTRACT)
+    _new(user_client)
+    index = user_client.get("/do").text
+    _a11y_ok(index)
+    assert index.count('<h2 id="your-requests">') == 1
+    assert (index.index('<h2 id="your-requests">Your requests</h2>') < index.index("<h2>What this site will never do</h2>")
+            < index.index("<h2>Ask for something</h2>"))
+
+
+def test_read_back_buttons_say_what_they_do(user_client, fake_ai):
+    fake_ai.on("errands.understand", CONTRACT)
+    r = _new(user_client)
+    eid = _last_errand_id()
+    for name in ("What I will not do", "It is finished when", "Questions for you"):
+        assert f"<h2>{name}</h2>" in r.text
+    assert ('<button type="submit" name="action" value="update" class="button button-secondary">'
+            'Update what you understood</button>') in r.text
+    assert ('<button type="submit" name="action" value="go" class="button button-primary">'
+            'This is right: go ahead</button>') in r.text
+    # The AI asked a question, so the box is not announced as optional, and the hint says what to do.
+    assert '<label for="field-answer">Corrections or answers</label>' in r.text
+    assert "Answer the questions under &#34;Questions for you&#34;, then choose This is right: go ahead." in r.text
+    # Without questions the box is optional.
+    errands._update(eid, contract_json=json.dumps(errands.normalize_contract(dict(CONTRACT, questions=[]))))
+    page = user_client.get(f"/do/{eid}").text
+    _a11y_ok(page)
+    assert '<label for="field-answer">Corrections or answers <span class="optional">(optional)</span></label>' in page
+    # The error names the button to choose, and what was typed stays in the box.
+    r = post(user_client, f"/do/{eid}/respond", {"answer": "x" * 4001, "action": "update"})
+    assert r.status_code == 400 and "x" * 4001 in r.text
+    r = post(user_client, f"/do/{eid}/respond", {"answer": "", "action": "update"})
+    assert "then choose Update what you understood" in r.text
+
+
+def test_steps_and_tips_never_run_together(user_client, fake_ai):
+    fake_ai.on("errands.understand", TASK_CONTRACT)
+    fake_ai.on("errands.task_research", TASK_RESEARCH).on("errands.task_prepare", PREPARED)
+    _new(user_client, kind="task", text="Renew my library card")
+    r = post(user_client, f"/do/{_last_errand_id()}/respond", {"action": "go"})
+    assert ("<li><p>Open the renewal page.</p><p>Screen reader tip: Press H to move to the heading "
+            "&#39;Renew&#39;.</p></li>") in r.text
+    assert errands._sentence("Done!") == "Done!" and errands._sentence("Open it") == "Open it."
+
+
+def test_no_prepared_answers_offers_a_next_step(user_client, fake_ai):
+    fake_ai.on("errands.understand", TASK_CONTRACT).on("errands.task_research", TASK_RESEARCH)
+    fake_ai.on("errands.task_prepare", dict(PREPARED, prepared_answers=[]))
+    _new(user_client, kind="task", text="Renew my library card")
+    r = post(user_client, f"/do/{_last_errand_id()}/respond", {"action": "go"})
+    _a11y_ok(r.text)
+    assert "There are no prepared answers yet." in r.text and "You did not give" not in r.text
+    assert '<a href="/do">make a new request</a>' in r.text
+
+
+def test_prompts_add_only_the_task_rules():
+    for system in (errands.UNDERSTAND_SYSTEM, errands.FIND_SYSTEM, errands.TASK_RESEARCH_SYSTEM,
+                   errands.TASK_PREPARE_SYSTEM):
+        assert "uses a screen reader" not in system and "Put the summary first" not in system
+        assert "errand" not in system
+    assert "in speech or braille" in errands.TASK_PREPARE_SYSTEM and "zoom tip" in errands.TASK_PREPARE_SYSTEM
+    assert ("Never mention the person's blindness or low vision in a prepared answer meant for a form or "
+            "another\n  person, unless they ask.") in errands.TASK_PREPARE_SYSTEM
+
+
+def test_member_pages_use_the_voice_guide(user_client, fake_ai):
+    fake_ai.on("errands.understand", TASK_CONTRACT)
+    # The AI's own tip says "Press H", about a key; this checks only the site's words.
+    steps = [dict(s, screen_reader_tip="Move by heading.") for s in PREPARED["steps"]]
+    fake_ai.on("errands.task_research", TASK_RESEARCH).on("errands.task_prepare", dict(PREPARED, steps=steps))
+    pages = [user_client.get("/do").text, _new(user_client, kind="task", text="Renew my library card").text]
+    pages.append(post(user_client, f"/do/{_last_errand_id()}/respond", {"action": "go"}).text)
+    fake_ai.on("errands.understand", CONTRACT).on("errands.find", FIND_ANSWER)
+    _new(user_client)
+    fid = _last_errand_id()
+    pages.append(post(user_client, f"/do/{fid}/respond", {"action": "go"}).text)
+    pages += [user_client.get(f"/do/{fid}/delete").text, user_client.get("/do").text]
+    for html in pages:
+        main = html.split("<main", 1)[1]
+        for word in ("errand", "Errand", "Press ", "press ", "Nobody at the site", "what you hear",
+                     "please fix the problems"):
+            assert word not in main, word
+    assert "Nobody has checked it." in pages[3] and "Nobody has tried it." in pages[2]
