@@ -7,12 +7,18 @@ The flow:
    accessibility checks on every HTML page and saves version 1.
 4. The member asks for changes (build.change). The site computes what changed with difflib,
    so "what changed" is a machine fact, never the AI's claim.
+5. After every build or change, if the server has a browser (studio/visual_check.py), the site opens each
+   page on a phone and a computer and measures what sighted visitors meet. An AI then looks at pictures of
+   the pages (build.design_review). If either finds problems, the AI repairs them once (build.visual_repair)
+   and the site checks again. The member is told about the look in outcomes (easy to read, works on phones,
+   looks finished), never in colours.
 
 Everything the AI builds is static HTML, CSS and plain JavaScript. Previews are served under a
 sandbox Content-Security-Policy so a built page cannot read the site's cookies.
 """
 from __future__ import annotations
 
+import base64
 import bisect
 import difflib
 import io
@@ -27,10 +33,10 @@ from urllib.parse import quote, urlencode
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 
-from .. import db, jobs, sensitive
+from .. import db, jobs, sensitive, visual_check
 from ..a11y_check import check_html
 from ..ai import AIError, AINotAvailable
-from ..web import checked_form, current_user, flash, get_ai, redirect, render, require_user
+from ..web import checked_form, current_user, flash, form_text, get_ai, redirect, render, require_user
 
 router = APIRouter(prefix="/build")
 NAV = {"label": 'Build', "url": '/build', "description": 'Describe a website, app or tool in your own words. The AI reads back what it understood, builds it, checks it and tells you exactly what changed.'}
@@ -44,6 +50,7 @@ CREATE TABLE IF NOT EXISTS build_projects (
     idea TEXT NOT NULL,
     status TEXT NOT NULL,
     spec_json TEXT,
+    feel TEXT NOT NULL DEFAULT '',
     share_token TEXT NOT NULL UNIQUE,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -59,10 +66,24 @@ CREATE TABLE IF NOT EXISTS build_versions (
     how_to_use TEXT NOT NULL DEFAULT '',
     diff_json TEXT NOT NULL DEFAULT '{}',
     checks_json TEXT NOT NULL DEFAULT '{}',
+    visual_json TEXT NOT NULL DEFAULT '{}',
+    design_review_json TEXT NOT NULL DEFAULT '{}',
+    repaired_json TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL,
     UNIQUE (project_id, number)
 );
 """
+
+
+def seed() -> None:
+    """Add the columns that came after the first release to databases made before them."""
+    with db.session() as conn:
+        db.ensure_column(conn, "build_projects", "feel", "TEXT NOT NULL DEFAULT ''")
+        # The site's visual checks, the AI's look at pictures of the pages, and the one automatic repair.
+        db.ensure_column(conn, "build_versions", "visual_json", "TEXT NOT NULL DEFAULT '{}'")
+        db.ensure_column(conn, "build_versions", "design_review_json", "TEXT NOT NULL DEFAULT '{}'")
+        db.ensure_column(conn, "build_versions", "repaired_json", "TEXT NOT NULL DEFAULT '{}'")
+
 
 INDEX_TITLE = "Build a website, app, tool or game"
 
@@ -85,6 +106,10 @@ STATUS_LABELS = {
 }
 
 IDEA_HINT = "Say it the way you would tell a friend: who it is for, what it should do, and what it should say."
+FEEL_LABEL = "How should it feel to the people who use it?"
+FEEL_HINT = ("For example friendly, calm, professional or playful. You do not need to choose colours: "
+             "the AI designs the look for you.")
+MAX_FEEL = 200
 MAX_TITLE = 120
 MAX_IDEA = 20_000
 MAX_REQUEST = 10_000
@@ -121,8 +146,11 @@ PREVIEW_CSP = ("sandbox allow-scripts allow-forms allow-popups allow-modals; "
                "default-src 'self' 'unsafe-inline' data:; form-action 'none'; frame-ancestors 'none'")
 
 # Things the site itself does not check about a build (added to the checker's own list).
+JS_NOT_CHECKED = "Whether the JavaScript works. The site reads the files but does not run them."
+JS_NOT_CHECKED_WITH_LOOK = ("Whether the buttons, forms and scripts work. The site opens each page in a browser to "
+                            "check how it looks when it first opens, but does not press anything or fill in forms.")
 SITE_NOT_CHECKED = [
-    "Whether the JavaScript works. The site reads the files but does not run them.",
+    JS_NOT_CHECKED,
     "CSS, JavaScript and other files that are not HTML pages. Only HTML pages get the machine checks.",
     "Saving data and installing as an app inside the preview. The preview runs in a locked-down sandbox "
     "for your safety, so these may not work there. They need the files on your own web host.",
@@ -157,6 +185,10 @@ Read their idea and say back what you understood, so they can correct you before
 - additions_not_asked: things you would add that the person did not ask for. Never put these in pages or features.
 - not_doing: what you will not do, including anything that cannot be built here.
 - suggested_title: a short title, at most six words.
+- look_and_feel: one or two sentences on how the finished thing will feel to sighted visitors, in words about
+  mood and purpose, for example "Warm and welcoming, like a family bakery; clear and easy to read on a phone."
+  Follow how the person said it should feel, if they did. Never name colours, colour codes or fonts, and never
+  describe what things look like: the person cannot see them. Say what effect the look has and what it suits.
 Only put in pages and features what the person asked for, or what is needed for it to work.
 
 {WHAT_CAN_BE_BUILT}
@@ -166,7 +198,7 @@ UNDERSTAND_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
     "required": ["summary", "audience", "pages", "features", "data_kept", "questions",
-                 "additions_not_asked", "not_doing", "suggested_title"],
+                 "additions_not_asked", "not_doing", "suggested_title", "look_and_feel"],
     "properties": {
         "summary": {"type": "string"},
         "audience": {"type": "string"},
@@ -189,6 +221,7 @@ UNDERSTAND_SCHEMA = {
         "additions_not_asked": {"type": "array", "items": {"type": "string"}},
         "not_doing": {"type": "array", "items": {"type": "string"}},
         "suggested_title": {"type": "string"},
+        "look_and_feel": {"type": "string"},
     },
 }
 
@@ -229,11 +262,34 @@ BUILD_RULES = """Rules for the files. Follow every one.
   storage is blocked, and say in how_to_use that the data stays only in that browser on that device.
 - Never ask for or store passwords, card numbers or one-time codes.
 
+Design: sighted people will use it too, so it must look polished and finished. Follow every rule.
+- Design a polished, modern visual look that suits the purpose and the audience, and how the person wants it
+  to feel. It should look as if a professional designer made it.
+- A coherent colour palette of a few colours that meets WCAG AA contrast: at least 4.5:1 for normal text, 3:1
+  for large text and for the edges of buttons and form fields. Check every text and background pair.
+- A readable type scale: base font size 16 to 18px, line height about 1.5, clearly larger headings. System font
+  stacks only, for example system-ui, -apple-system, "Segoe UI", Roboto, sans-serif. No web fonts.
+- Generous spacing between sections and around text. Lines of text at most about 70 characters wide.
+- A responsive layout that works from 320px phones to wide screens with no sideways scrolling: include
+  <meta name="viewport" content="width=device-width, initial-scale=1">, use flexible widths, flex-wrap or grid,
+  and max-width: 100% on media.
+- A clear visual hierarchy: the most important thing is the most prominent.
+- Buttons look like buttons and are at least 44px tall. Links that stand alone (navigation, lists of links) are
+  at least 44px tall too. Links inside sentences are underlined. Form fields are at least 44px tall, with their
+  labels visible above them.
+- Visible focus outlines on every link, button and form field (for example :focus-visible with a 3px outline).
+  Never remove outlines.
+- No text on top of other text, no text cut off, no text smaller than 14px.
+- Put the styles in a separate style.css linked from every page.
+
 What to return:
 - files: every file, each with its complete content.
 - summary: what you built, summary first, in plain words. Do not say you checked or tested anything.
 - how_to_use: how to open it and use it with a screen reader and keyboard.
-- not_done: anything the person asked for that you did not do, and any guesses you made. Empty if none."""
+- not_done: anything the person asked for that you did not do, and any guesses you made. Empty if none.
+- In summary and how_to_use, never name colours, colour codes or fonts, and never describe what things look
+  like: the person cannot see them. Describe the look by how it will feel to visitors and what it suits, for
+  example "a calm, professional look that suits a law office"."""
 
 PHONE_APP_RULES = """This is a web app people can install on their phone. Also include:
 - manifest.webmanifest with name, short_name, start_url "./index.html", scope "./", display "standalone",
@@ -255,6 +311,55 @@ Return the complete new set of files, including the ones you did not change. Any
 In summary, say what you changed, in plain words.
 
 {BUILD_RULES}"""
+
+DESIGN_REVIEW_SYSTEM = f"""You are an experienced visual designer. You look at pictures of a small website, web app, tool or
+game that an AI built for a person. The person is blind or has low vision: they cannot see these pictures and
+rely on you to tell them honestly how sighted visitors will experience what they made.
+{READER_RULES}
+
+Each picture shows one page as it first opens, on a phone (390 pixels wide) or a computer (1280 pixels wide).
+Judge: does it look finished and professional; is all text easy to read; is there a clear order of importance;
+is the spacing comfortable; does it work on both the phone and the computer; does the look suit its purpose, its
+audience and how the person wants it to feel; is anything broken, overlapping, cut off, crowded, misaligned or
+oddly empty.
+
+- verdict: "looks_finished" if a sighted visitor would see a finished, well made result. "needs_work" if
+  anything noticeable should be fixed first.
+- summary_for_builder: one or two plain sentences for the person about how sighted visitors will experience it:
+  whether it looks finished and professional, easy to read, works on phones and computers, and suits the people
+  it is for. Never name colours, colour codes or fonts, and never describe what things look like. Say what
+  effect the look has, for example "It looks finished and welcoming, and is easy to read on a phone."
+- problems: only problems worth fixing, most important first. Empty if none. page: the file name, like
+  index.html. builder_text: one plain sentence about the effect on visitors, with no colour names.
+  fix_text: a precise technical instruction for the AI that will fix it. Here you may name colours, CSS
+  properties and values.
+You only see these pictures. Do not claim you tested or checked anything else."""
+
+DESIGN_REVIEW_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["verdict", "summary_for_builder", "problems"],
+    "properties": {
+        "verdict": {"type": "string", "enum": ["looks_finished", "needs_work"]},
+        "summary_for_builder": {"type": "string"},
+        "problems": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["page", "builder_text", "fix_text"],
+                "properties": {
+                    "page": {"type": "string"},
+                    "builder_text": {"type": "string"},
+                    "fix_text": {"type": "string"},
+                },
+            },
+        },
+    },
+}
+REVIEW_VERDICTS = {"looks_finished", "needs_work"}
+MAX_REVIEW_SHOTS = 6
+MAX_REVIEW_PROBLEMS = 10
 
 
 # ----- helpers --------------------------------------------------------------------------------
@@ -380,7 +485,25 @@ def normalize_spec(raw: object) -> dict | None:
         "additions_not_asked": _texts(raw.get("additions_not_asked")),
         "not_doing": _texts(raw.get("not_doing")),
         "suggested_title": _text(raw.get("suggested_title"), MAX_TITLE),
+        "look_and_feel": _text(raw.get("look_and_feel"), 2000),
     }
+
+
+def normalize_review(raw: object) -> dict:
+    """The AI's look at the pictures, in exactly the shape the pages expect."""
+    if not isinstance(raw, dict):
+        return {"state": "error", "message": "The AI's answer about the pictures was not in the expected form."}
+    verdict = raw.get("verdict") if raw.get("verdict") in REVIEW_VERDICTS else ""
+    problems = []
+    items = raw.get("problems")
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        builder_text, fix_text = _text(item.get("builder_text"), 1000), _text(item.get("fix_text"), 3000)
+        if builder_text or fix_text:
+            problems.append({"page": _text(item.get("page"), 200), "builder_text": builder_text, "fix_text": fix_text})
+    return {"state": "done", "verdict": verdict, "summary": _text(raw.get("summary_for_builder"), 3000),
+            "problems": problems[:MAX_REVIEW_PROBLEMS]}
 
 
 def run_checks(files: dict[str, str]) -> dict:
@@ -395,6 +518,57 @@ def run_checks(files: dict[str, str]) -> dict:
         "total_bytes": sum(len(c.encode("utf-8")) for c in files.values()),
         "pages": pages,
     }
+
+
+# ----- how it looks to sighted visitors ---------------------------------------------------------
+
+def _size_words(sizes: list[str]) -> str:
+    names = [visual_check.SIZE_LABELS.get(s, s) for s in sizes]
+    if len(names) == 2 and all(n.startswith("on a ") for n in names):
+        return f"on a {names[0][5:]} and a {names[1][5:]}"
+    return " and ".join(names)
+
+
+def visual_problems(visual: dict) -> list[dict]:
+    """The problems the site's visual checks found, one per page and kind (a problem found on both the phone
+    and the computer counts once): path, kind, where (plain words), builder_text, fix_texts."""
+    merged: dict[tuple[str, str], dict] = {}
+    for page in visual.get("pages", []) if isinstance(visual, dict) else []:
+        for problem in page.get("problems", []):
+            entry = merged.setdefault((page.get("path", ""), problem.get("kind", "")), {
+                "path": page.get("path", ""), "kind": problem.get("kind", ""), "sizes": [],
+                "builder_text": problem.get("builder_text", ""), "fix_texts": []})
+            if page.get("size") not in entry["sizes"]:
+                entry["sizes"].append(page.get("size"))
+            entry["fix_texts"].append(problem.get("fix_text", ""))
+    out = list(merged.values())
+    for entry in out:
+        entry["where"] = f"{entry['path']}, {_size_words(entry['sizes'])}"
+    return out
+
+
+def _visual_measured(visual: dict) -> bool:
+    return any(page.get("checked") for page in visual.get("pages", []))
+
+
+def _visual_passed(visual: dict) -> list[str]:
+    """The kinds of visual check no page failed, from the stored report."""
+    if not _visual_measured(visual):
+        return []
+    failed = {problem.get("kind") for page in visual.get("pages", []) for problem in page.get("problems", [])}
+    return [kind for kind in visual_check.CHECKS if kind not in failed]
+
+
+def visual_fix_lines(visual: dict, review: dict | None = None) -> list[str]:
+    """Technical instructions for the AI, from the site's visual checks and the AI's look at the pictures."""
+    lines = [fix for entry in visual_problems(visual) for fix in entry["fix_texts"] if fix]
+    if review and review.get("state") == "done" and review.get("verdict") == "needs_work":
+        from_review = [f"{p['page'] or 'All pages'} (from a designer who looked at pictures of the pages): "
+                       f"{p['fix_text']}" for p in review.get("problems", []) if p.get("fix_text")]
+        if not from_review and review.get("summary"):
+            from_review = [f"All pages (from a designer who looked at pictures of the pages): {review['summary']}"]
+        lines += from_review
+    return lines
 
 
 # difflib with autojunk off takes time that grows much faster than the file size when lines repeat
@@ -753,7 +927,8 @@ def _index(request: Request, *, title: str = INDEX_TITLE, values: dict | None = 
             p["status_label"] = _status_label(p)
             projects.append(p)
     return render(request, "build/index.html", title=title, projects=projects, kinds=KINDS, idea_hint=IDEA_HINT,
-                  values=values or {}, errors=errors or {}, status_code=status_code)
+                  feel_label=FEEL_LABEL, feel_hint=FEEL_HINT, values=values or {}, errors=errors or {},
+                  status_code=status_code)
 
 
 def _status_label(project: dict) -> str:
@@ -782,6 +957,7 @@ def _seconds_since(stamp: str) -> float:
 async def new_project(request: Request, user: dict = Depends(require_user)):
     form = await checked_form(request)
     values = {k: _form_text(form, k) for k in ("title", "kind", "idea")}
+    values["feel"] = form_text(form, "feel", 10_000).strip()
     errors: dict[str, str] = {}
     if len(values["title"]) > MAX_TITLE:
         errors["title"] = (f"Your title is {len(values['title'])} characters. "
@@ -796,6 +972,11 @@ async def new_project(request: Request, user: dict = Depends(require_user)):
         errors["idea"] = f"Your idea is {len(values['idea'])} characters. Please keep it under {MAX_IDEA}."
     elif looks_like_secret(values["idea"]):
         errors["idea"] = SECRET_MESSAGE
+    if len(values["feel"]) > MAX_FEEL:
+        errors["feel"] = (f"Your answer is {len(values['feel'])} characters. "
+                          f"Use at most {MAX_FEEL} characters, for example a few words like friendly and calm.")
+    elif values["feel"] and looks_like_secret(values["feel"]):
+        errors["feel"] = SECRET_MESSAGE
     if errors:
         return _index(request, title=f"{INDEX_TITLE}: please fix the problems", values=values, errors=errors,
                       status_code=400)
@@ -811,9 +992,9 @@ async def new_project(request: Request, user: dict = Depends(require_user)):
     token = secrets.token_urlsafe(16)
     with db.session() as conn:
         cur = conn.execute(
-            "INSERT INTO build_projects (user_id, title, kind, idea, status, spec_json, share_token, created_at, updated_at)"
-            " VALUES (?, ?, ?, ?, 'new', NULL, ?, ?, ?)",
-            (user["id"], values["title"], values["kind"], values["idea"], token, now, now),
+            "INSERT INTO build_projects (user_id, title, kind, idea, feel, status, spec_json, share_token, created_at,"
+            " updated_at) VALUES (?, ?, ?, ?, ?, 'new', NULL, ?, ?, ?)",
+            (user["id"], values["title"], values["kind"], values["idea"], values["feel"], token, now, now),
         )
         project_id = cur.lastrowid
     try:
@@ -840,7 +1021,8 @@ def _understand(ctx, ai, project_id: int, token: str) -> str:
     try:
         ctx.progress("Reading your idea")
         prompt = (f"What they want to make: {KIND_LABELS.get(project['kind'], 'Something else')}\n"
-                  f"Title: {project['title'] or '(none given; suggest one)'}\n\n"
+                  f"Title: {project['title'] or '(none given; suggest one)'}\n"
+                  f"{_feel_line(project)}\n\n"
                   f"Their idea, in their own words:\n<idea>\n{project['idea']}\n</idea>\n")
         if stored["spec"]:
             prompt += "\nWhat you understood last time (JSON):\n" + json.dumps(stored["spec"], indent=2) + "\n"
@@ -888,10 +1070,11 @@ def _files_result(result: object, nothing_saved: str) -> tuple[dict[str, str], d
 
 
 def _save_version(project_id: int, token: str, files: dict[str, str], about: dict, request_text: str,
-                  base: dict[str, str], base_number: int) -> int:
+                  base: dict[str, str], base_number: int, look: dict | None = None) -> int:
     checks = run_checks(files)
     checks["not_done"] = about["not_done"]
     diff = {"base": base_number, "files": compute_diff(base, files)}
+    look = look or {}
     with db.session() as conn:
         # Take the write lock first, so two jobs can never pick the same version number.
         conn.execute("BEGIN IMMEDIATE")
@@ -905,12 +1088,157 @@ def _save_version(project_id: int, token: str, files: dict[str, str], about: dic
                           "saved. Open the project to see the version that was built.")
         conn.execute(
             "INSERT INTO build_versions (project_id, number, files_json, request_text, ai_summary, how_to_use,"
-            " diff_json, checks_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " diff_json, checks_json, visual_json, design_review_json, repaired_json, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (project_id, number, json.dumps(files), request_text, about["summary"], about["how_to_use"],
-             json.dumps(diff), json.dumps(checks), db.now()),
+             json.dumps(diff), json.dumps(checks), json.dumps(look.get("visual") or {}),
+             json.dumps(look.get("review") or {}), json.dumps(look.get("repaired") or {}), db.now()),
         )
         conn.execute("UPDATE build_projects SET status = 'ready', updated_at = ? WHERE id = ?", (db.now(), project_id))
     return number
+
+
+def _feel_line(project: dict) -> str:
+    feel = (project.get("feel") or "").strip()
+    if feel:
+        return f"How the person wants it to feel to the people who use it, in their words: <feel>{feel}</feel>"
+    return "How it should feel: the person did not say. Choose what suits the purpose and the audience."
+
+
+def _system_for(base: str, project: dict) -> str:
+    return base + ("\n\n" + PHONE_APP_RULES if project["kind"] == "phone_app" else "")
+
+
+def _files_text(files: dict[str, str]) -> str:
+    return "\n\n".join(f'<file path="{p}">\n{c}\n</file>' for p, c in sorted(files.items()))
+
+
+# ----- the look: the site's visual checks, the AI's look at pictures, and one repair ------------------
+
+def _review_shots(report) -> list:
+    """Up to MAX_REVIEW_SHOTS pictures: index.html on the phone and the computer first, then the other pages."""
+    shots = sorted(report.screenshots, key=lambda s: (s.path != "index.html", s.size != "phone"))
+    by_page: dict[str, list] = {}
+    for shot in shots:
+        by_page.setdefault(shot.path, []).append(shot)
+    ordered = [shot for page in by_page.values() for shot in page]
+    return ordered[:MAX_REVIEW_SHOTS]
+
+
+def _site_findings_text(visual: dict) -> str:
+    problems = visual_problems(visual)
+    if not problems:
+        return "The site's own measurements found no problems."
+    return "The site's own measurements found these problems:\n" + "\n".join(
+        f"- {p['where']}: {p['builder_text']}" for p in problems)
+
+
+def _design_review(ctx, ai, project: dict, report) -> dict:
+    """An AI looks at pictures of the pages and says how sighted visitors will experience them."""
+    shots = _review_shots(report)
+    if not shots:
+        return {"state": "skipped", "reason": "no_pictures"}
+    ctx.progress("An AI is looking at pictures of the pages")
+    spec = _load_spec(project)["spec"] or {}
+    blocks: list[dict] = []
+    for i, shot in enumerate(shots, start=1):
+        blocks.append({"type": "text", "text": f"Picture {i}: {shot.path} {visual_check.SIZE_LABELS.get(shot.size, '')}"
+                                                f" ({shot.width} pixels wide)."})
+        blocks.append({"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                                                   "data": base64.b64encode(shot.png).decode("ascii")}})
+    blocks.append({"type": "text", "text": (
+        f"What it is: {KIND_LABELS.get(project['kind'], 'Something else')}\n"
+        f"Title: {project['title']}\n"
+        f"What it is for: {spec.get('summary') or '(not given)'}\n"
+        f"Who it is for: {spec.get('audience') or '(not given)'}\n"
+        f"{_feel_line(project)}\n"
+        f"How the plan said it would feel: {spec.get('look_and_feel') or '(not given)'}\n\n"
+        f"{_site_findings_text(report.to_dict())}\n\n"
+        "Look at the pictures and say how sighted visitors will experience it.")})
+    try:
+        raw = ai.structured(system=DESIGN_REVIEW_SYSTEM, prompt=blocks, schema=DESIGN_REVIEW_SCHEMA,
+                            purpose="build.design_review", max_tokens=8000)
+    except AIError as exc:
+        # The files are good and already paid for: save them, and say the AI could not look.
+        return {"state": "error", "message": exc.user_message}
+    return normalize_review(raw)
+
+
+def _accessibility_errors(files: dict[str, str]) -> int:
+    return _check_counts(run_checks(files))[0]
+
+
+def _repair_sentence(fixed: int, before: int, after: int) -> str:
+    if fixed:
+        sentence = f"Fixed before you saw it: the AI fixed {_plural(fixed, 'problem')} the checks found."
+        if after:
+            sentence += f" {_plural(after, 'problem')} {'is' if after == 1 else 'are'} still there, listed in this section."
+        return sentence
+    if before:
+        return ("Before you saw it, the AI tried once to fix what the checks found, but the problems are still "
+                "there.")
+    return "Improved before you saw it: after an AI looked at pictures of the pages, the AI improved the design once."
+
+
+def _look_and_repair(ctx, ai, project_id: int, token: str, files: dict[str, str]) -> tuple[dict[str, str], dict]:
+    """Check how the files look, ask an AI to look at pictures, and repair once if either found problems.
+    Returns the files to save (the repaired ones only if they are valid and not worse) and what to store."""
+    if not visual_check.available():
+        return files, {"visual": {"available": False}, "review": {"state": "skipped", "reason": "unavailable"},
+                       "repaired": {}}
+    project = _project_row(project_id, token)
+    if project is None:
+        raise AIError(DELETED_MESSAGE)
+    ctx.progress("Checking how it looks on a phone and a computer")
+    report = visual_check.check_site(files)
+    visual = report.to_dict()
+    review = _design_review(ctx, ai, project, report)
+    before = visual_problems(visual)
+    fix_lines = visual_fix_lines(visual, review)
+    if not fix_lines:
+        return files, {"visual": visual, "review": review, "repaired": {}}
+
+    # One repair, never more.
+    if _project_row(project_id, token) is None:
+        raise AIError(DELETED_MESSAGE)
+    ctx.progress("Fixing what the checks found")
+    found_by = "and an AI designer looked at pictures of them" if any("(from a designer" in f for f in fix_lines) else ""
+    prompt = (f"What it is: {KIND_LABELS.get(project['kind'], 'Something else')}\n"
+              f"Title: {project['title']}\n"
+              f"{_feel_line(project)}\n\n"
+              f"The files you just made:\n\n{_files_text(files)}\n\n"
+              "The site opened every page in a real browser, on a phone 390 pixels wide and a computer 1280 pixels "
+              f"wide{', ' + found_by if found_by else ''}. Fix these problems with how the pages look:\n<problems>\n"
+              + "\n".join(f"- {line}" for line in fix_lines) +
+              "\n</problems>\nKeep all the content, features and accessibility exactly as they are. Change only what "
+              "is needed to fix these problems, mostly in style.css.\n")
+    repaired = {"ran": True, "kept": False, "before": len(before), "after": len(before), "fixed": 0}
+    try:
+        raw = ai.structured(system=_system_for(CHANGE_SYSTEM, project), prompt=prompt, schema=FILES_SCHEMA,
+                            purpose="build.visual_repair", max_tokens=64000)
+        new_files, _ = _files_result(raw, "the first files were kept.")
+    except AIError as exc:
+        why = ("its new files broke the site's file rules" if "cannot accept" in exc.user_message
+               else "the AI could not finish")
+        repaired["summary"] = (f"Before you saw it, the AI tried once to fix what the checks found, but {why}, "
+                               "so this version keeps the files it made first.")
+        return files, {"visual": visual, "review": review, "repaired": repaired}
+
+    ctx.progress("Checking how it looks again")
+    new_report = visual_check.check_site(new_files)
+    new_visual = new_report.to_dict()
+    after = visual_problems(new_visual)
+    worse = (_accessibility_errors(new_files) > _accessibility_errors(files) or len(after) > len(before)
+             or (_visual_measured(visual) and not _visual_measured(new_visual)))
+    if worse:
+        repaired["summary"] = ("Before you saw it, the AI tried once to fix what the checks found, but its new files "
+                               "were not better, so this version keeps the files it made first.")
+        return files, {"visual": visual, "review": review, "repaired": repaired}
+    new_review = _design_review(ctx, ai, project, new_report)
+    fixed = len({(p["path"], p["kind"]) for p in before} - {(p["path"], p["kind"]) for p in after})
+    repaired.update(kept=True, after=len(after), fixed=fixed,
+                    summary=_repair_sentence(fixed, len(before), len(after)))
+    return new_files, {"visual": new_visual, "review": new_review, "repaired": repaired}
 
 
 def _generate(ctx, ai, project_id: int, token: str, additions: list[str]) -> str:
@@ -924,7 +1252,8 @@ def _generate(ctx, ai, project_id: int, token: str, additions: list[str]) -> str
         ctx.progress("Writing the files")
         spec = {k: v for k, v in (stored["spec"] or {}).items() if k not in ("additions_not_asked", "suggested_title")}
         prompt = (f"What to build: {KIND_LABELS.get(project['kind'], 'Something else')}\n"
-                  f"Title: {project['title']}\n\n"
+                  f"Title: {project['title']}\n"
+                  f"{_feel_line(project)}\n\n"
                   f"The person's idea, in their own words:\n<idea>\n{project['idea']}\n</idea>\n\n"
                   "What you understood, which the person approved (JSON). If a question was not answered, "
                   "choose the simplest sensible option and list your guess in not_done:\n"
@@ -936,12 +1265,12 @@ def _generate(ctx, ai, project_id: int, token: str, additions: list[str]) -> str
         if stored["corrections"]:
             prompt += ("Corrections and answers from the person, oldest first:\n" +
                        "\n".join(f"<correction>\n{c}\n</correction>" for c in stored["corrections"]) + "\n\n")
-        system = GENERATE_SYSTEM + ("\n\n" + PHONE_APP_RULES if project["kind"] == "phone_app" else "")
-        result = ai.structured(system=system, prompt=prompt, schema=FILES_SCHEMA, purpose="build.generate",
-                               max_tokens=64000)
+        result = ai.structured(system=_system_for(GENERATE_SYSTEM, project), prompt=prompt, schema=FILES_SCHEMA,
+                               purpose="build.generate", max_tokens=64000)
         ctx.progress("Checking the files")
         files, about = _files_result(result, "nothing was saved.")
-        number = _save_version(project_id, token, files, about, "First version", {}, 0)
+        files, look = _look_and_repair(ctx, ai, project_id, token, files)
+        number = _save_version(project_id, token, files, about, "First version", {}, 0, look)
     except BaseException:
         _set_status(project_id, "ready" if _versions(project_id) else "understood", token)
         raise
@@ -955,17 +1284,17 @@ def _change(ctx, ai, project_id: int, token: str, base_number: int, request_text
     try:
         base = json.loads(_get_version(project_id, base_number)["files_json"])
         ctx.progress("Making the change")
-        file_text = "\n\n".join(f'<file path="{p}">\n{c}\n</file>' for p, c in sorted(base.items()))
         prompt = (f"What it is: {KIND_LABELS.get(project['kind'], 'Something else')}\n"
-                  f"Title: {project['title']}\n\n"
-                  f"The current files (version {base_number}):\n\n{file_text}\n\n"
+                  f"Title: {project['title']}\n"
+                  f"{_feel_line(project)}\n\n"
+                  f"The current files (version {base_number}):\n\n{_files_text(base)}\n\n"
                   f"What the person asks you to change:\n<request>\n{request_text}\n</request>\n")
-        system = CHANGE_SYSTEM + ("\n\n" + PHONE_APP_RULES if project["kind"] == "phone_app" else "")
-        result = ai.structured(system=system, prompt=prompt, schema=FILES_SCHEMA, purpose="build.change",
-                               max_tokens=64000)
+        result = ai.structured(system=_system_for(CHANGE_SYSTEM, project), prompt=prompt, schema=FILES_SCHEMA,
+                               purpose="build.change", max_tokens=64000)
         ctx.progress("Checking the files and working out what changed")
         files, about = _files_result(result, f"nothing was saved and version {base_number} is unchanged.")
-        number = _save_version(project_id, token, files, about, request_text, base, base_number)
+        files, look = _look_and_repair(ctx, ai, project_id, token, files)
+        number = _save_version(project_id, token, files, about, request_text, base, base_number, look)
     except BaseException:
         _set_status(project_id, "ready", token)
         raise
@@ -1076,6 +1405,69 @@ async def understand(request: Request, project_id: int, user: dict = Depends(req
 
 # ----- versions -------------------------------------------------------------------------------
 
+def _stored_json(text: str | None) -> dict:
+    try:
+        value = json.loads(text or "{}")
+    except ValueError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+LOOK_NOT_RUN = ("The look of this version was not checked: it was made before the site started checking how "
+                "builds look.")
+LOOK_UNAVAILABLE = ("The look was not checked. This server cannot open pages in a browser, so neither the site nor "
+                    "an AI could check how this version looks to sighted visitors.")
+
+
+def _look_context(version: dict) -> dict:
+    """What the version page says about how the build looks to sighted visitors. Outcomes only, no colours."""
+    visual = _stored_json(version.get("visual_json"))
+    review = _stored_json(version.get("design_review_json"))
+    repaired = _stored_json(version.get("repaired_json"))
+    total = len(visual_check.CHECKS)
+    look: dict = {"total": total, "problems": [], "check_lines": [], "unchecked_pages": [], "unknown_contrast": 0,
+                  "review": None, "review_note": "", "repaired": repaired.get("summary", "") if repaired else ""}
+    if not visual:
+        look.update(state="not_run", sentence=LOOK_NOT_RUN)
+    elif not visual.get("available", True):
+        look.update(state="unavailable", sentence=LOOK_UNAVAILABLE)
+    elif not _visual_measured(visual):
+        problems = visual_problems(visual)
+        look.update(state="error", problems=problems,
+                    sentence=("The site tried to check how it looks on a phone and a computer, but could not "
+                              "measure any page. " + (visual.get("error") or "")).strip())
+    else:
+        problems = visual_problems(visual)
+        passed = _visual_passed(visual)
+        unchecked = [f"{page['path']} {visual_check.SIZE_LABELS.get(page['size'], page['size'])}"
+                     for page in visual.get("pages", []) if not page.get("checked")]
+        if not problems and not unchecked:
+            sentence = f"Checked by the site on a phone and a computer: passed all {total} visual checks."
+        else:
+            sentence = f"Checked by the site on a phone and a computer: passed {len(passed)} of {total} visual checks."
+            if problems:
+                sentence += f" It found {_plural(len(problems), 'problem')}:"
+        look.update(
+            state="checked", sentence=sentence, problems=problems, unchecked_pages=unchecked,
+            check_lines=[{"label": label, "passed": kind in passed} for kind, label in visual_check.CHECKS.items()],
+            unknown_contrast=sum(int(page.get("unknown_contrast") or 0) for page in visual.get("pages", [])),
+            skipped_pages=visual.get("skipped_pages", []))
+    if review.get("state") == "done":
+        look["review"] = {
+            "summary": review.get("summary", ""),
+            "verdict": {"looks_finished": "In the AI's opinion, it looks finished.",
+                        "needs_work": "In the AI's opinion, it still needs some work."}.get(review.get("verdict"), ""),
+            "problems": [p["builder_text"] for p in review.get("problems", []) if p.get("builder_text")]
+            if review.get("verdict") == "needs_work" else [],
+        }
+    elif review.get("state") == "error":
+        look["review_note"] = ("No AI looked at pictures of this version, because the AI could not answer: "
+                               + review.get("message", ""))
+    elif look["state"] != "not_run":
+        look["review_note"] = "No AI looked at pictures of this version, because the site could not take any."
+    return look
+
+
 def _version_context(project: dict, version: dict) -> dict:
     files = json.loads(version["files_json"])
     checks = json.loads(version["checks_json"])
@@ -1097,11 +1489,27 @@ def _version_context(project: dict, version: dict) -> dict:
         for item in page["report"]["not_checked"]:
             if item not in not_checked:
                 not_checked.append(item)
-    not_checked += SITE_NOT_CHECKED
+    look = _look_context(version)
+    site_not_checked = list(SITE_NOT_CHECKED)
+    if look["state"] == "checked":
+        site_not_checked[0] = JS_NOT_CHECKED_WITH_LOOK
+    not_checked += site_not_checked
+    if look.get("unknown_contrast"):
+        n = look["unknown_contrast"]
+        not_checked.append(("How well 1 piece of text stands out from what is behind it. It sits" if n == 1 else
+                            f"How well {n} pieces of text stand out from what is behind them. They sit")
+                           + " on a picture or a blend, which the site cannot measure.")
+    if look.get("unchecked_pages"):
+        not_checked.append("How these pages look, because they did not finish opening in time: "
+                           + ", ".join(look["unchecked_pages"]) + ".")
+    if look.get("skipped_pages"):
+        not_checked.append(f"How these pages look, because the site checks the first {visual_check.MAX_PAGES} pages "
+                           "only: " + ", ".join(look["skipped_pages"]) + ".")
     unchecked_files = [p for p in sorted(files) if _ext(p) != "html"]
     errors, warnings = _check_counts(checks)
     diff_entries = diff.get("files", []) if version["number"] > 1 else []
     return dict(
+        look=look, fix_count=errors + len(look["problems"]),
         files=files, checks=checks, pages=pages, not_checked=not_checked, unchecked_files=unchecked_files,
         not_done=checks.get("not_done", []), error_count=errors, warning_count=warnings,
         check_sentence=_check_sentence(checks),
@@ -1120,12 +1528,14 @@ def _version_page(request: Request, project: dict, version: dict, *, values: dic
     absolute = preview if settings.preview_base_url else settings.base_url + preview
     checks_link = "/checks/new?" + urlencode({"url": absolute,
                                               "title": f"{title_text}, version {version['number']}"})
+    sighted_link = "/checks/new?" + urlencode({"url": absolute, "title": f"{title_text}, version {version['number']}",
+                                               "kind": "sighted"})
     title = f"{title_text}: version {version['number']} {note or 'is ready'}"
     if errors:
         title += ": please fix the problems"
     latest = _versions(project["id"])[0]["number"]
     return render(request, "build/version.html", title=title, project=project, version=version,
-                  preview_url=preview, checks_link=checks_link, latest_number=latest,
+                  preview_url=preview, checks_link=checks_link, sighted_link=sighted_link, latest_number=latest,
                   values=values or {}, errors=errors or {}, status_code=status_code, **ctx)
 
 
@@ -1226,9 +1636,9 @@ async def ask_for_change(request: Request, project_id: int, number: int, user: d
     return await _submit_change(request, user, project, version, text)
 
 
-def fix_request_text(checks: dict) -> str:
+def fix_request_text(checks: dict, visual: dict | None = None) -> str:
     """The request the site writes for "Fix the problems the checks found"."""
-    lines = ["Fix these problems that the site's accessibility checks found. Do not change anything else."]
+    lines = ["Fix these problems that the site's checks found. Do not change anything else."]
     for page in checks.get("pages", []):
         findings = page["report"]["findings"]
         if not findings:
@@ -1239,6 +1649,11 @@ def fix_request_text(checks: dict) -> str:
             label = "Problem" if f["severity"] == "error" else "Warning"
             where = f" ({f['where']})" if f.get("where") else ""
             lines.append(f"- {label}: {f['message']}{where}")
+    look_lines = visual_fix_lines(visual or {})
+    if look_lines:
+        lines.append("")
+        lines.append("How the pages look, found by opening them in a browser on a phone and a computer:")
+        lines += [f"- {line}" for line in look_lines]
     return "\n".join(lines)
 
 
@@ -1248,10 +1663,11 @@ async def fix_problems(request: Request, project_id: int, number: int, user: dic
     project = _owned_project(project_id, user)
     version = _get_version(project_id, number)
     checks = json.loads(version["checks_json"])
-    if _check_counts(checks)[0] == 0:
+    visual = _stored_json(version.get("visual_json"))
+    if _check_counts(checks)[0] == 0 and not visual_problems(visual):
         flash(request, "The checks found no problems to fix in this version.", "info")
         return redirect(f"/build/{project_id}/v/{number}")
-    return await _submit_change(request, user, project, version, fix_request_text(checks))
+    return await _submit_change(request, user, project, version, fix_request_text(checks, visual))
 
 
 # ----- delete ---------------------------------------------------------------------------------

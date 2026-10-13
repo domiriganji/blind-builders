@@ -122,6 +122,10 @@ def _understand(ctx, ai, thing_id):          # runs in the background
 - Accept only `http` and `https` URLs from people. Render external links with `rel="noopener noreferrer"`.
 - Anything served from a member's build runs under a sandbox Content-Security-Policy so it cannot read the site's cookies.
 
+## Visual checks
+
+`studio/visual_check.py` opens a build's pages in Chromium (Playwright) on a phone and a computer and measures what sighted visitors meet: sideways scrolling, text contrast, cut-off and overlapping text, small tap targets and text on phones, and broken pictures. `available()` says whether the server has a browser; `check_site(files)` never raises and returns a `VisualReport` with pictures for an AI to look at. Each problem has `builder_text` for the member and `fix_text` for the AI. Members are told about the look in outcomes (easy to read, works on phones, looks finished), never in colours: no member-facing text names a colour. Built pages are untrusted, so they run with every request outside their own files blocked and a time limit. In tests, replace `visual_check.available` and `check_site` with a fake (see `tests/test_build.py`); `tests/test_visual_check.py` uses the real browser.
+
 ## Tests
 
 Each section has tests for: the main journey with `fake_ai`; validation errors; another member cannot see or change private items (404); what happens when the AI is not available (`no_ai_app`); and every page linked from the section index renders. `tests/test_site_pages.py` follows every link on the site and runs the accessibility checker on every page, so link your pages from your section's index. `python -m pytest -q` must pass in full.

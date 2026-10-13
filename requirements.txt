@@ -7,3 +7,4 @@ anthropic>=1.13
 markdown-it-py>=4.0
 python-docx>=1.2
 cryptography>=45
+playwright>=1.56

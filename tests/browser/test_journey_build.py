@@ -25,8 +25,12 @@ SPEC = {
     "additions_not_asked": ["A dark colour switch", "A printable menu page"],
     "not_doing": ["Online ordering or payments"],
     "suggested_title": "Kemi's menu",
+    "look_and_feel": "Warm and friendly, like a busy family food stall, and easy to read on a phone.",
 }
 SPEC_2 = dict(SPEC, summary="A menu website in naira for Kemi's food stall.", questions=[])
+REVIEW_OK = {"verdict": "looks_finished",
+             "summary_for_builder": "It looks finished and friendly, and it is easy to read on a phone and a computer.",
+             "problems": []}
 
 INDEX_V1 = """<!doctype html>
 <html lang="en">
@@ -41,9 +45,11 @@ INDEX_V1 = """<!doctype html>
 </html>
 """
 ABOUT_NO_LANG = """<!doctype html>
-<html><head><title>About Kemi</title></head>
+<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>About Kemi</title></head>
 <body><main><h1>About Kemi</h1><p>We cook every day.</p></main></body></html>
 """
+# Without the viewport line, phones shrink the page and its text becomes tiny: the site's visual checks find it.
+ABOUT_NOT_FOR_PHONES = ABOUT_NO_LANG.replace('<meta name="viewport" content="width=device-width, initial-scale=1">', "")
 CSS = "body { font-size: 1.2rem; }\n"
 
 
@@ -58,6 +64,17 @@ CHANGED = {"files": files(index=INDEX_V1.replace("Small chops: 1200 naira", "Sma
            "summary": "I changed the price of small chops.", "how_to_use": "Open index.html.", "not_done": []}
 FIXED = {"files": files(index=CHANGED["files"][0]["content"], about=ABOUT_NO_LANG.replace("<html>", '<html lang="en">')),
          "summary": "I added the page language to about.html.", "how_to_use": "Open index.html.", "not_done": []}
+NOT_FOR_PHONES = dict(GENERATED, files=files(about=ABOUT_NOT_FOR_PHONES))
+
+
+def answer_the_look(fake):
+    """The AI's look at the pictures, and the one repair (which returns the files with the viewport line)."""
+    fake.on("build.design_review", REVIEW_OK)
+    fake.on("build.visual_repair", GENERATED)
+
+
+def last_call(fake, purpose):
+    return [kw for _, p, kw in fake.calls if p == purpose][-1]
 
 
 def structure_problems(page, width: int | None = None) -> list[str]:
@@ -131,10 +148,13 @@ def open_build(page):
     page.get_by_role("navigation", name="Sections").get_by_role("link", name="Build", exact=True).click()
 
 
-def send_idea(page, title="Kemi Kitchen", kind="A website", idea="A menu for my food stall.\nIt shows small chops."):
+def send_idea(page, title="Kemi Kitchen", kind="A website", idea="A menu for my food stall.\nIt shows small chops.",
+              feel=""):
     page.get_by_label("Title").fill(title)
     page.get_by_label(kind, exact=True).check()
     page.get_by_label("Your idea").fill(idea)
+    if feel:
+        page.get_by_label("How should it feel to the people who use it?").fill(feel)
     button(page, "Send my idea to the AI").click()
 
 
@@ -155,11 +175,15 @@ def test_build_journey_from_idea_to_delete(live, browser):
     link(page, "Describe your idea in your own words.").click()
     expect(page.get_by_label("Your idea")).to_be_focused()
 
-    # Send the idea. The AI reads it back; nothing is built yet.
+    # Send the idea, with how it should feel. The AI reads it back; nothing is built yet.
     fake.on("build.understand", SPEC)
-    send_idea(page)
+    send_idea(page, feel="Friendly and welcoming")
     check("Kemi Kitchen: here is what I understood")
     expect(page.get_by_text("Written by the AI. Nothing is built yet.")).to_be_visible()
+    expect(page.get_by_role("heading", name="How it will feel to visitors")).to_be_visible()
+    expect(page.get_by_text(SPEC["look_and_feel"])).to_be_visible()
+    expect(page.get_by_text("How it should feel, in your words: Friendly and welcoming")).to_be_visible()
+    assert "<feel>Friendly and welcoming</feel>" in last_call(fake, "build.understand")["prompt"]
     expect(page.get_by_text("Should prices be shown in naira?")).to_be_visible()
     expect(page.get_by_label("A dark colour switch")).not_to_be_checked()
     expect(page.get_by_label("A printable menu page")).not_to_be_checked()
@@ -178,16 +202,34 @@ def test_build_journey_from_idea_to_delete(live, browser):
     expect(page.get_by_text("A menu website in naira for Kemi's food stall.")).to_be_visible()
     expect(page.get_by_role("listitem").filter(has_text="Prices are in naira.")).to_be_visible()
 
-    # Approve with one extra ticked.
-    fake.on("build.generate", GENERATED)
+    # Approve with one extra ticked. The AI's about page is not set up for phones: the site's own visual checks
+    # (a real browser) find it, the AI repairs it once, and the site checks again before the member sees it.
+    fake.on("build.generate", NOT_FOR_PHONES)
+    answer_the_look(fake)
+    repairs_before = len([p for p in fake.purposes() if p == "build.visual_repair"])
     page.get_by_label("A printable menu page").check()
     button(page, "This is right: build it").click()
     check("Kemi Kitchen: version 1 is ready")
-    expect(page.get_by_role("heading", name="Checked by the site")).to_be_visible()
+    expect(page.get_by_role("heading", name="Checked by the site", exact=True)).to_be_visible()
     expect(page.get_by_text("Written by the AI. The site has not checked these claims.")).to_be_visible()
     expect(page.get_by_text("Problem:")).to_be_visible()  # about.html has no page language
-    assert "A printable menu page" in fake.calls[-1][2]["prompt"]
-    assert "A dark colour switch" not in fake.calls[-1][2]["prompt"]
+    assert "A printable menu page" in last_call(fake, "build.generate")["prompt"]
+    assert "A dark colour switch" not in last_call(fake, "build.generate")["prompt"]
+
+    # How it looks to sighted visitors: the site's checks, the AI's opinion, and the repair, in plain outcomes.
+    expect(page.get_by_role("heading", name="How it looks to sighted visitors")).to_be_visible()
+    expect(page.get_by_text("Checked by the site on a phone and a computer: passed all 7 visual checks.")).to_be_visible()
+    expect(page.get_by_role("heading", name="An AI looked at pictures of the pages")).to_be_visible()
+    expect(page.get_by_text("This is the AI's opinion, not a check by the site.")).to_be_visible()
+    expect(page.get_by_text(REVIEW_OK["summary_for_builder"])).to_be_visible()
+    expect(page.get_by_text("Fixed before you saw it: the AI fixed 1 problem the checks found.")).to_be_visible()
+    assert len([p for p in fake.purposes() if p == "build.visual_repair"]) == repairs_before + 1
+    repair = last_call(fake, "build.visual_repair")["prompt"]
+    assert 'name="viewport"' in repair and "about.html" in repair
+    review = last_call(fake, "build.design_review")["prompt"]
+    assert [b["type"] for b in review].count("image") == 4  # two pages, each on a phone and a computer
+    sighted = link(page, "Ask a sighted person to check how it looks")
+    assert "kind=sighted" in sighted.get_attribute("href")
 
     # Read the files, one file, and come back.
     link(page, "Read the files").click()
@@ -241,7 +283,7 @@ def test_build_journey_from_idea_to_delete(live, browser):
     button(page, "Fix the problems the checks found").click()
     check("Kemi Kitchen: version 3 is ready")
     expect(button(page, "Fix the problems the checks found")).to_have_count(0)
-    assert "In about.html:" in fake.calls[-1][2]["prompt"]
+    assert "In about.html:" in last_call(fake, "build.change")["prompt"]
 
     # The project page lists every version; an older one warns that changes start from it.
     link(page, "All versions of this project").click()
@@ -310,6 +352,7 @@ def test_preview_cannot_read_the_site_cookies(live, browser):
     signed_in(setup)
     fake.on("build.understand", SPEC)
     fake.on("build.generate", GENERATED)
+    answer_the_look(fake)
     open_build(setup)
     send_idea(setup, title="Sandbox test", idea="A menu page for the sandbox test.")
     button(setup, "This is right: build it").click()
@@ -345,6 +388,7 @@ def test_build_works_without_javascript(live, browser):
     send_idea(page, title="Quiet menu", idea="A menu that works with no scripts.")
     check("Quiet menu: here is what I understood")
     fake.on("build.generate", GENERATED)
+    answer_the_look(fake)
     button(page, "This is right: build it").click()
     check("Quiet menu: version 1 is ready")
     link(page, "Read the files").click()
@@ -388,10 +432,13 @@ def test_keyboard_order_on_the_new_idea_form(live, browser):
     else:
         pytest.fail("Tab never reached the Title field")
 
-    # The rest of the form follows in reading order: the kind of thing, the idea, then the button.
+    # The rest of the form follows in reading order: the kind of thing, the idea, how it should feel, then the
+    # button.
     page.keyboard.press("Tab")
     expect(page.get_by_label("A website", exact=True)).to_be_focused()
     page.keyboard.press("Tab")
     expect(page.get_by_label("Your idea")).to_be_focused()
+    page.keyboard.press("Tab")
+    expect(page.get_by_label("How should it feel to the people who use it?")).to_be_focused()
     page.keyboard.press("Tab")
     expect(button(page, "Send my idea to the AI")).to_be_focused()
