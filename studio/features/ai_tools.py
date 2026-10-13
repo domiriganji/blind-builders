@@ -2,8 +2,8 @@
 version by version.
 
 Each tool has a short research note (what public sources said as of October 2026, with links) and member
-reports. A report records the tool version, the screen reader and operating system, six plain checks
-(yes, no or not tested) and an overall verdict. Anyone can read; members sign in to post. A member has
+reports. The site does not test the tools or check the reports, and the pages and the JSON say so. A report
+records the tool version, the screen reader and operating system, six plain checks (yes, no or not tested) and an overall verdict. Anyone can read; members sign in to post. A member has
 one report per tool version: posting again for the same version updates it. Members can delete their own
 reports. Nothing here needs the AI, so it works for everyone, with or without credits or an API key.
 """
@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -18,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from .. import db
-from ..web import checked_form, current_user, flash, redirect, render, require_user
+from ..web import checked_form, current_user, redirect, render, require_user
 
 router = APIRouter(prefix="/ai-tools")
 NAV = {"label": "AI tools report", "url": "/ai-tools",
@@ -54,7 +55,19 @@ CHECK_KEYS = tuple(c[0] for c in CHECKS)
 
 # Versions are short so they fit in a heading on a 320 pixel wide screen.
 TEXT_LIMITS = {"tool_version": 30, "screen_reader": 80, "screen_reader_version": 30, "os": 80}
+# How each field is named in error messages, so a message makes sense on its own in the error summary.
+TEXT_NAMES = {"tool_version": "The tool version", "screen_reader": "The screen reader name",
+              "screen_reader_version": "The screen reader version", "os": "The operating system"}
 LONG_LIMIT = 4000
+LONG_NAMES = {"workarounds": "Workarounds", "note": "Anything else"}
+# One report per version, so this is the most versions of one tool a member can report on. It stops one
+# account from filling a tool's page; a real tester deletes old reports long before reaching it.
+MAX_REPORTS_PER_TOOL = 100
+# Shown with the JSON and on the pages: what this site did and did not check.
+REPORTS_ABOUT = ("Member reports. Each one is what a member says happened with their screen reader. "
+                 "This site does not test the tools or check the reports.")
+RESEARCH_ABOUT = ("A summary of the linked public sources, written when this report was set up. "
+                  "Nobody on this site tested the tool.")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS ai_tools (
@@ -220,6 +233,14 @@ def _version_key(version: str) -> str:
     return re.sub(r"\s+", " ", version.strip().lower().removeprefix("version ").lstrip("v"))
 
 
+def _version_number(version: str) -> tuple[int, ...] | None:
+    """(2, 1, 296) for '2.1.296' or 'v2.1.296'; None when the version is not only numbers and dots."""
+    key = _version_key(version)
+    if not re.fullmatch(r"\d+(?:\.\d+)*", key):
+        return None
+    return tuple(int(part) for part in key.split("."))
+
+
 def group_by_version(reports: list[dict]) -> list[dict]:
     """Group reports (already newest first) by tool version. Groups are ordered by their newest report."""
     groups: dict[str, dict] = {}
@@ -237,11 +258,20 @@ def group_by_version(reports: list[dict]) -> list[dict]:
 
 
 def regression_notice(groups: list[dict]) -> str:
-    """A plain sentence when the most recently reported version has a larger share of 'not usable'
-    reports than the version reported before it. Empty otherwise. It only compares counts; it is not a test."""
+    """A plain sentence when the newest version has a larger share of 'not usable' reports than the version
+    before it. Empty otherwise. It only compares counts; it is not a test.
+
+    When every reported version is only numbers and dots (2.1.296), versions are compared by number, so a
+    member reporting an old version today does not make the old version look like an update. Otherwise the
+    most recently reported version counts as the newest."""
     if len(groups) < 2:
         return ""
-    new, old = groups[0], groups[1]
+    numbers = [_version_number(g["version"]) for g in groups]
+    if all(n is not None for n in numbers):
+        order = sorted(range(len(groups)), key=lambda i: numbers[i], reverse=True)
+        new, old = groups[order[0]], groups[order[1]]
+    else:
+        new, old = groups[0], groups[1]
     new_total, old_total = len(new["reports"]), len(old["reports"])
     new_bad, old_bad = new["counts"]["not_usable"], old["counts"]["not_usable"]
     if new_bad and new_bad * old_total > old_bad * new_total:
@@ -278,17 +308,35 @@ def looks_secret(text: str) -> bool:
     return False
 
 
+def _one(value) -> str:
+    """A form value as one string. A field sent twice (a faulty add-on, a crafted request) keeps its first
+    value instead of being saved as "['a', 'b']"."""
+    if isinstance(value, (list, tuple)):
+        value = value[0] if value else ""
+    return str(value or "")
+
+
 def _clean_line(value) -> str:
-    return re.sub(r"\s+", " ", str(value or "")).strip()
+    """One line of text: whitespace collapsed; control and invisible formatting characters removed, so a value
+    made only of zero-width spaces counts as empty."""
+    text = "".join(ch for ch in _one(value) if ch.isspace() or unicodedata.category(ch) not in ("Cc", "Cf"))
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _clean_text(value) -> str:
+    """Several lines of text: line endings made plain; control characters other than new lines and tabs removed."""
+    text = _one(value).replace("\r\n", "\n").replace("\r", "\n")
+    return "".join(ch for ch in text if ch in "\n\t" or unicodedata.category(ch) != "Cc").strip()
 
 
 def validate_report(form: dict) -> tuple[dict, dict]:
-    """Return (values, errors). Errors are in the order the fields appear on the form."""
+    """Return (values, errors). Errors are in the order the fields appear on the form. Each message names its
+    field or says what to enter, because the error summary shows the messages away from their fields."""
     values = {k: _clean_line(form.get(k)) for k in TEXT_LIMITS}
     for k in CHECK_KEYS + ("overall",):
-        values[k] = str(form.get(k) or "")
-    for k in ("workarounds", "note"):
-        values[k] = str(form.get(k) or "").replace("\r\n", "\n").strip()
+        values[k] = _one(form.get(k))
+    for k in LONG_NAMES:
+        values[k] = _clean_text(form.get(k))
     errors: dict[str, str] = {}
     if not values["tool_version"]:
         errors["tool_version"] = "Enter the version of the tool you used, for example 2.1.296."
@@ -298,23 +346,42 @@ def validate_report(form: dict) -> tuple[dict, dict]:
         errors["os"] = "Enter your operating system, for example Windows 11."
     for k, limit in TEXT_LIMITS.items():
         if k not in errors and len(values[k]) > limit:
-            errors[k] = f"Use {limit} characters or fewer."
+            errors[k] = f"{TEXT_NAMES[k]} is too long. Shorten it to {limit} characters or fewer."
     for key, question, _statement, _hint in CHECKS:
         if values[key] not in ANSWER_WORDS:
             errors[key] = f"Choose yes, no or I did not test this for: {question}"
     if values["overall"] not in OVERALL_WORDS:
         errors["overall"] = "Choose your overall verdict: usable, usable with workarounds, or not usable."
-    for k, label in (("workarounds", "Workarounds"), ("note", "Your note")):
+    for k, label in LONG_NAMES.items():
         if len(values[k]) > LONG_LIMIT:
-            errors[k] = f"{label} is too long. Use {LONG_LIMIT} characters or fewer."
+            errors[k] = f"{label} is too long. Shorten it to {LONG_LIMIT} characters or fewer."
+    names = {**TEXT_NAMES, **LONG_NAMES}
     for k in ("tool_version", "screen_reader", "screen_reader_version", "os", "workarounds", "note"):
         if k not in errors and looks_secret(values[k]):
-            errors[k] = ("This looks like a password, API key or card number. Remove it: reports are public, "
-                         "and this site never asks for those.")
+            errors[k] = (f"{names[k]} looks like it has a password, API key or card number in it. Remove it: "
+                         "reports are public, and this site never asks for those.")
     return values, errors
 
 
+def summary_errors(errors: dict) -> dict:
+    """The errors keyed for the error summary. A question with choices links to its first choice, which can
+    take focus, instead of to the group around the choices, which cannot."""
+    choice_keys = set(CHECK_KEYS) | {"overall"}
+    return {(f"{k}-1" if k in choice_keys else k): message for k, message in errors.items()}
+
+
+
+
 # ----- pages ------------------------------------------------------------------------------------
+
+# After a report is published, updated or deleted, the next tool page's h1 says so. The words are kept in the
+# session, never in the address, so nobody can send a link whose heading claims something happened.
+DONE_KEY = "ai_tools_done"
+
+
+def _done(request: Request, slug: str, text: str) -> None:
+    request.session[DONE_KEY] = {"slug": slug, "text": text}
+
 
 def _tool_page(request: Request, tool: dict, *, values: dict | None = None, errors: dict | None = None,
                status_code: int = 200):
@@ -322,17 +389,22 @@ def _tool_page(request: Request, tool: dict, *, values: dict | None = None, erro
     groups = group_by_version(reports)
     recent = recent_counts(reports)
     user = current_user(request)
+    done = request.session.pop(DONE_KEY, None)
     if values is None:
-        values = {"screen_reader": (user or {}).get("screen_reader", "")}
+        values = {"screen_reader": (user or {}).get("screen_reader") or ""}
     own_versions = sorted({r["tool_version"] for r in reports if user and r["user_id"] == user["id"]})
     title = f"How {tool['name']} works with screen readers"
     if errors:
         title += ": please fix the problems"
+    elif isinstance(done, dict) and done.get("slug") == tool["slug"] and done.get("text"):
+        title = str(done["text"])
     return render(request, "ai_tools/tool.html", title=title, tool=tool, groups=groups,
-                  report_count=len(reports), recent_verdict=verdict_text(recent), summary_days=SUMMARY_DAYS,
+                  report_count=len(reports), recent_total=sum(recent.values()), recent_verdict=verdict_text(recent),
+                  summary_days=SUMMARY_DAYS,
                   regression=regression_notice(groups), research_as_of=RESEARCH_AS_OF,
+                  reports_about=REPORTS_ABOUT, research_about=RESEARCH_ABOUT,
                   checks=CHECKS, answers=ANSWERS, overall_options=OVERALL, values=values, errors=errors or {},
-                  own_versions=own_versions, status_code=status_code)
+                  summary_errors=summary_errors(errors or {}), own_versions=own_versions, status_code=status_code)
 
 
 @router.get("")
@@ -340,7 +412,8 @@ def index(request: Request):
     tools = tools_with_summary()
     recent_total = sum(sum(t["counts"].values()) for t in tools)
     return render(request, "ai_tools/index.html", title=NAV["label"], tools=tools, recent_total=recent_total,
-                  summary_days=SUMMARY_DAYS, checks=CHECKS, research_as_of=RESEARCH_AS_OF)
+                  summary_days=SUMMARY_DAYS, checks=CHECKS, research_as_of=RESEARCH_AS_OF,
+                  reports_about=REPORTS_ABOUT)
 
 
 @router.get("/{slug}/reports.json")
@@ -350,8 +423,10 @@ def reports_json(slug: str):
     recent = recent_counts(reports)
     return JSONResponse({
         "tool": {k: tool[k] for k in ("slug", "name", "vendor", "kind", "url")},
-        "research": {"as_of": RESEARCH_AS_OF, "note": tool["research_note"], "sources": tool["sources"]},
+        "research": {"as_of": RESEARCH_AS_OF, "about": RESEARCH_ABOUT, "note": tool["research_note"],
+                     "sources": tool["sources"]},
         "summary_last_90_days": recent,
+        "reports_about": REPORTS_ABOUT,
         "reports": [
             {"id": r["id"], "tool_version": r["tool_version"], "screen_reader": r["screen_reader"],
              "screen_reader_version": r["screen_reader_version"], "os": r["os"],
@@ -360,6 +435,22 @@ def reports_json(slug: str):
             for r in reports
         ],
     })
+
+
+@router.get("/{slug}/reports")
+def report_form_address(slug: str):
+    """The form's address opened directly, for example after signing in again when the session ran out
+    while the form was open: go to the form instead of a 'page not found'."""
+    tool = get_tool(slug)
+    return redirect(f"/ai-tools/{tool['slug']}#report-form-title")
+
+
+@router.get("/{slug}/reports/{report_id}/delete")
+def delete_address(slug: str, report_id: int):
+    """The delete button's address opened directly (for example after signing in again): show the tool page,
+    where the button is. Nothing is deleted without pressing the button."""
+    tool = get_tool(slug)
+    return redirect(f"/ai-tools/{tool['slug']}")
 
 
 @router.get("/{slug}")
@@ -379,19 +470,26 @@ async def add_report(request: Request, slug: str, user: dict = Depends(require_u
         mine = conn.execute("SELECT id, tool_version FROM ai_tool_reports WHERE tool_id = ? AND user_id = ?",
                             (tool["id"], user["id"])).fetchall()
         existing = next((r["id"] for r in mine if _version_key(r["tool_version"]) == _version_key(values["tool_version"])), None)
-        if existing:
-            conn.execute(f"UPDATE ai_tool_reports SET {', '.join(c + ' = ?' for c in columns)}, created_at = ? WHERE id = ?",
-                         tuple(values[c] for c in columns) + (db.now(), existing))
-            report_id = existing
-            message = f"Your report for version {values['tool_version']} is updated. Thank you."
+        if existing is None and len(mine) >= MAX_REPORTS_PER_TOOL:
+            too_many = {"tool_version": f"You have reported {len(mine)} versions of {tool['name']}, the most one member "
+                                        "can. Delete one of your older reports on this page, then publish this one."}
         else:
-            cur = conn.execute(
-                f"INSERT INTO ai_tool_reports (tool_id, user_id, {', '.join(columns)}, created_at)"
-                f" VALUES (?, ?, {', '.join('?' for _ in columns)}, ?)",
-                (tool["id"], user["id"]) + tuple(values[c] for c in columns) + (db.now(),))
-            report_id = cur.lastrowid
-            message = f"Your report for version {values['tool_version']} is published. Thank you."
-    flash(request, message, "success")
+            too_many = None
+            if existing:
+                conn.execute(f"UPDATE ai_tool_reports SET {', '.join(c + ' = ?' for c in columns)}, created_at = ? WHERE id = ?",
+                             tuple(values[c] for c in columns) + (db.now(), existing))
+                report_id = existing
+                text = f"Your report on {tool['name']} version {values['tool_version']} is updated"
+            else:
+                cur = conn.execute(
+                    f"INSERT INTO ai_tool_reports (tool_id, user_id, {', '.join(columns)}, created_at)"
+                    f" VALUES (?, ?, {', '.join('?' for _ in columns)}, ?)",
+                    (tool["id"], user["id"]) + tuple(values[c] for c in columns) + (db.now(),))
+                report_id = cur.lastrowid
+                text = f"Your report on {tool['name']} version {values['tool_version']} is published"
+    if too_many:
+        return _tool_page(request, tool, values=values, errors=too_many, status_code=400)
+    _done(request, tool["slug"], text)
     return redirect(f"/ai-tools/{tool['slug']}#report-{report_id}")
 
 
@@ -405,5 +503,5 @@ async def delete_report(request: Request, slug: str, report_id: int, user: dict 
         if row is None or row["user_id"] != user["id"]:
             raise HTTPException(status_code=404, detail="We could not find that report among yours.")
         conn.execute("DELETE FROM ai_tool_reports WHERE id = ?", (report_id,))
-    flash(request, f"Your report for version {row['tool_version']} is deleted.", "success")
+    _done(request, tool["slug"], f"Your report on {tool['name']} version {row['tool_version']} is deleted")
     return redirect(f"/ai-tools/{tool['slug']}")

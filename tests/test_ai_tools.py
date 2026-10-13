@@ -160,7 +160,8 @@ def test_member_reports_and_it_appears_everywhere(user_client):
     assert r.status_code == 303 and r.headers["location"].startswith("/ai-tools/claude-code#report-")
     page = user_client.get("/ai-tools/claude-code")
     assert "is published" in page.text
-    assert "<h2>Version 2.1.296: 1 report</h2>" in page.text
+    assert "<h2>Member reports: 1</h2>" in page.text
+    assert "<h3>Version 2.1.296: 1 report</h3>" in page.text
     assert "You can tell when it has finished: yes" in page.text
     assert "You can review what it changed: no" in page.text
     assert "What you type is spoken: not tested" in page.text
@@ -192,7 +193,8 @@ def test_every_check_is_required(user_client):
     assert "please fix the problems" in r.text
     assert "There are 7 problems" in r.text
     for key in ai_tools.CHECK_KEYS + ("overall",):
-        assert f'href="#field-{key}"' in r.text
+        # The summary links to the first choice, which can take focus; the group itself cannot.
+        assert f'href="#field-{key}-1"' in r.text and f'id="field-{key}-1"' in r.text
         assert f'id="error-{key}"' in r.text
     assert 'value="2.1.296"' in r.text  # what they typed is kept
     assert len(re.findall(r"<h1[ >]", r.text)) == 1
@@ -205,7 +207,7 @@ def test_text_fields_validated(user_client):
              dict(GOOD_REPORT, tool_version="  ", screen_reader="", os="", turn_end="maybe", overall="great",
                   screen_reader_version="x" * 61, note="n" * 4001))
     assert r.status_code == 400
-    for key in ("tool_version", "screen_reader", "os", "turn_end", "overall", "screen_reader_version", "note"):
+    for key in ("tool_version", "screen_reader", "os", "turn_end-1", "overall-1", "screen_reader_version", "note"):
         assert f'href="#field-{key}"' in r.text, key
 
 
@@ -297,7 +299,7 @@ def test_reports_grouped_by_version_newest_first(client):
     insert_report("codex-cli", uid, "not_usable", days_ago=1, version="0.154.0")
     insert_report("codex-cli", uid, "usable", days_ago=12, version="0.153.0")
     page = client.get("/ai-tools/codex-cli")
-    headings = re.findall(r"<h2>(Version [^<]+)</h2>", page.text)
+    headings = re.findall(r"<h3>(Version [^<]+)</h3>", page.text)
     assert headings == ["Version 0.154.0: 2 reports", "Version 0.153.0: 2 reports"]
     assert "Most recently reported version: 0.154.0" in page.text
     assert "Members report more problems with version 0.154.0 than with version 0.153.0" in page.text
@@ -366,3 +368,174 @@ def test_index_links_every_tool_page_and_each_passes_checks(user_client):
         assert page.status_code == 200, slug
         assert not check_html(page.text).errors, slug
         assert len(re.findall(r"<h1[ >]", page.text)) == 1
+
+
+# ----- audit regressions ------------------------------------------------------------------------------
+
+def h1(page_text):
+    return re.sub(r"\s+", " ", re.search(r"<h1>(.*?)</h1>", page_text, re.S).group(1)).strip()
+
+
+def title(page_text):
+    return re.search(r"<title>(.*?) – ", page_text, re.S).group(1).strip()
+
+
+def test_h1_says_what_just_happened(user_client):
+    report(user_client)
+    page = user_client.get("/ai-tools/claude-code")
+    assert h1(page.text) == "Your report on Claude Code (terminal) version 2.1.296 is published"
+    assert title(page.text) == h1(page.text)
+    # Only the page right after the action says so; reading it again shows the usual heading.
+    assert h1(user_client.get("/ai-tools/claude-code").text) == "How Claude Code (terminal) works with screen readers"
+    report(user_client, overall="usable")
+    assert h1(user_client.get("/ai-tools/claude-code").text) == \
+        "Your report on Claude Code (terminal) version 2.1.296 is updated"
+    with db.session() as conn:
+        rid = conn.execute("SELECT id FROM ai_tool_reports").fetchone()["id"]
+    post(user_client, f"/ai-tools/claude-code/reports/{rid}/delete", follow_redirects=False)
+    page = user_client.get("/ai-tools/claude-code")
+    assert h1(page.text) == "Your report on Claude Code (terminal) version 2.1.296 is deleted"
+    assert not check_html(page.text).errors
+
+
+def test_done_heading_belongs_to_its_tool_and_not_to_the_address(user_client):
+    report(user_client)
+    # Another tool's page does not take over the message, and the address cannot set it.
+    assert h1(user_client.get("/ai-tools/cursor?done=Your+report+is+published").text) == \
+        "How Cursor works with screen readers"
+    assert h1(user_client.get("/ai-tools/claude-code?text=hacked").text) == \
+        "How Claude Code (terminal) works with screen readers"
+
+
+def test_error_messages_name_their_field(user_client):
+    r = post(user_client, "/ai-tools/claude-code/reports",
+             dict(GOOD_REPORT, screen_reader_version="x" * 31, os="o" * 81, note="password: hunter2"))
+    assert r.status_code == 400
+    assert "The screen reader version is too long. Shorten it to 30 characters or fewer." in r.text
+    assert "The operating system is too long. Shorten it to 80 characters or fewer." in r.text
+    assert "Anything else looks like it has a password, API key or card number in it." in r.text
+    r = post(user_client, "/ai-tools/claude-code/reports", dict(GOOD_REPORT, workarounds="w" * 4001))
+    assert "Workarounds is too long. Shorten it to 4000 characters or fewer." in r.text
+
+
+def test_long_unicode_and_odd_input(user_client):
+    # Only invisible characters: treated as empty, not saved as a blank-looking version.
+    r = post(user_client, "/ai-tools/claude-code/reports", dict(GOOD_REPORT, tool_version="​​ ⁠"))
+    assert r.status_code == 400 and 'href="#field-tool_version"' in r.text
+    # A field sent twice keeps its first value instead of being saved as "['a', 'b']".
+    r = post(user_client, "/ai-tools/claude-code/reports",
+             dict(GOOD_REPORT, tool_version=["2.1.296", "9.9.9"], note="Ça marche très bien\x00 avec NVDA 日本語"), follow_redirects=False)
+    assert r.status_code == 303
+    with db.session() as conn:
+        row = conn.execute("SELECT tool_version, note FROM ai_tool_reports").fetchone()
+    assert row["tool_version"] == "2.1.296"
+    assert row["note"] == "Ça marche très bien avec NVDA 日本語"
+    page = user_client.get("/ai-tools/claude-code")
+    assert "Ça marche très bien avec NVDA 日本語" in page.text
+    # Exactly at the limits is accepted.
+    r = report(user_client, tool_version="1" * 30, note="n" * 4000)
+    assert r.status_code == 303
+
+
+def test_member_can_report_at_most_a_set_number_of_versions(user_client, monkeypatch):
+    monkeypatch.setattr(ai_tools, "MAX_REPORTS_PER_TOOL", 2)
+    assert report(user_client, tool_version="1.0").status_code == 303
+    assert report(user_client, tool_version="1.1").status_code == 303
+    r = report(user_client, tool_version="1.2")
+    assert r.status_code == 400
+    assert "You have reported 2 versions of Claude Code (terminal)" in r.text
+    assert "Delete one of your older reports" in r.text
+    # Updating a version already reported still works, and other tools are not affected.
+    assert report(user_client, tool_version="1.1", overall="usable").status_code == 303
+    assert report(user_client, slug="cursor", tool_version="1.2").status_code == 303
+
+
+def test_form_address_opened_directly_goes_to_the_form(client):
+    # For example, the session ran out while the form was open: signing in again returns to this address.
+    r = client.get("/ai-tools/claude-code/reports", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/ai-tools/claude-code#report-form-title"
+    assert client.get("/ai-tools/no-such-tool/reports").status_code == 404
+    r = report(client)
+    assert r.headers["location"] == "/login?next=%2Fai-tools%2Fclaude-code%2Freports"
+    register(client)
+    page = client.get("/ai-tools/claude-code/reports")
+    assert page.status_code == 200 and 'name="tool_version"' in page.text
+
+
+def test_delete_address_opened_directly_deletes_nothing(user_client):
+    report(user_client)
+    with db.session() as conn:
+        rid = conn.execute("SELECT id FROM ai_tool_reports").fetchone()["id"]
+    r = user_client.get(f"/ai-tools/claude-code/reports/{rid}/delete", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/ai-tools/claude-code"
+    with db.session() as conn:
+        assert conn.execute("SELECT COUNT(*) AS n FROM ai_tool_reports").fetchone()["n"] == 1
+
+
+def test_regression_notice_compares_versions_by_number():
+    def r(version, overall):
+        return {"tool_version": version, "overall": overall, "date": "2026-10-01"}
+    # Someone reports the OLD version today as not usable: that is not a problem after an update.
+    groups = ai_tools.group_by_version([r("0.153.0", "not_usable"), r("0.154.0", "usable")])
+    assert groups[0]["version"] == "0.153.0"  # still listed by most recent report
+    assert ai_tools.regression_notice(groups) == ""
+    # The newer version is worse, even though the older one was reported more recently.
+    groups = ai_tools.group_by_version([r("0.153.0", "usable"), r("0.154.0", "not_usable")])
+    assert ai_tools.regression_notice(groups).startswith("Members report more problems with version 0.154.0 than "
+                                                         "with version 0.153.0")
+    # Numbers compare as numbers, not text: 2.1.10 is newer than 2.1.9.
+    groups = ai_tools.group_by_version([r("2.1.9", "usable"), r("v2.1.10", "not_usable")])
+    assert "with version v2.1.10 than with version 2.1.9" in ai_tools.regression_notice(groups)
+    # Versions that are not plain numbers fall back to the order they were reported in.
+    groups = ai_tools.group_by_version([r("nightly", "not_usable"), r("stable", "usable")])
+    assert "version nightly" in ai_tools.regression_notice(groups)
+
+
+def test_pages_and_json_say_what_was_checked(user_client):
+    report(user_client)
+    page = user_client.get("/ai-tools/claude-code")
+    assert ai_tools.REPORTS_ABOUT in page.text
+    assert "Nobody on this site tested the tool." in page.text
+    assert "Workarounds, in the member's words:" in page.text
+    assert "Note, in the member's words:" in page.text
+    assert ai_tools.REPORTS_ABOUT in user_client.get("/ai-tools").text
+    data = user_client.get("/ai-tools/claude-code/reports.json").json()
+    assert data["reports_about"] == ai_tools.REPORTS_ABOUT
+    assert data["research"]["about"] == ai_tools.RESEARCH_ABOUT
+
+
+def test_tool_page_with_only_old_reports_does_not_say_no_reports_yet(user_client):
+    insert_report("lovable", user_id(), "usable", days_ago=120, version="1.0")
+    page = user_client.get("/ai-tools/lovable")
+    assert "No member reports in the last 90 days. Older reports are below." in page.text
+    assert "No reports yet" not in page.text and "No member reports yet" not in page.text
+    assert "<h3>Version 1.0: 1 report</h3>" in page.text
+    assert "No member reports yet." in user_client.get("/ai-tools/cursor").text
+
+
+def test_tool_page_link_texts_make_sense_alone(client):
+    page = client.get("/ai-tools/cursor")
+    assert ">Report how Cursor worked for you</a>" in page.text
+    assert ">Cursor reports as JSON, for other tools to use</a>" in page.text
+    index = client.get("/ai-tools")
+    assert "/reports.json" not in index.text and "<em>tool name</em>" not in index.text
+
+
+def test_seeded_facts_match_the_research():
+    notes = {t["slug"]: t["research_note"] for t in ai_tools.load_seed()}
+    # Claude Code rings a bell, so "sound cues are not shipped" was wrong; the maintainer named speech,
+    # plain-language tool names and heading rules (issue 70425, 17 August 2026).
+    assert "sound cues" not in notes["claude-code"]
+    assert "plain-language tool names" in notes["claude-code"]
+    # Copilot CLI's --screen-reader mode is from October 2025, before general availability.
+    assert "since October 2025" in notes["copilot-cli"]
+    # Issue 99332 is about the messages in a conversation, not the list of conversations.
+    assert "conversation list" not in notes["claude-desktop"]
+    # Only one VoiceOver user reported being stuck at first-run setup; the "very usable" quote is not from a
+    # user known to be blind; VS Code dictation is experimental; the AppleVis post date is unconfirmed.
+    assert notes["antigravity-cli"].count("A blind VoiceOver user") == 1
+    assert "A blind user" not in notes["gemini-cli"]
+    assert "experimental built-in offline dictation" in notes["vs-code-copilot"]
+    assert "date could not be confirmed" in notes["codex-desktop"]
+    # PR 20564 made the setting turn every animation off; detection came on 16 September 2026.
+    assert "tui.animations=false turns every animation off" in notes["codex-cli"]
