@@ -2,7 +2,7 @@
 
 A website where blind and low-vision people turn their ideas into reality with AI: websites and apps, writing and publishing, research, and tasks done on the web. Every page is built for screen readers, keyboards, voice and braille displays first, works without JavaScript, and is light enough for cheap phones on slow data.
 
-There is no phone line and no support staff. The AI does the work, and members help each other. Members use the AI with their own Claude API key, or on the site's key: with credits, or free within limits the site owner sets.
+There is no phone line and no support staff. The AI does the work, and members help each other. Members use the AI with their own API key (Claude, or another listed AI company), or on the site's keys: with credits, or free within limits the site owner sets. Claude is the default; the site owner and members can choose another provider and model.
 
 ## What you can do
 
@@ -73,6 +73,25 @@ Start it with `uvicorn studio.app:get_app --factory --host 0.0.0.0 --port 8000`.
 
 Members who connect their own key choose their own model on their key page. Limits never apply to them.
 
+### Choosing the AI provider and model
+
+Claude is the default, and nothing changes until you choose otherwise. In AI settings for your key you can also:
+
+- **save a key from another provider** that speaks the OpenAI-compatible API: OpenAI, Google Gemini, OpenRouter (many companies' models with one key), DeepSeek, Mistral, Groq, xAI (Grok), or another compatible provider at an address you type. The key is kept the same way as the Claude key: the provider checks it first, it is encrypted, only its last 4 characters are shown, and saving or removing it needs your password;
+- **make it the main AI** for members on your keys, with a model from the provider's own live list (new models appear by themselves; you can also type a model name);
+- **set its prices** in US dollars per million tokens in and out. They are required, because your limits and members' credits are worked out from them. For OpenRouter they are filled in from its list; for the others, copy them from the provider's price page;
+- **choose who looks at pictures of built pages**: Claude (recommended), or the main model if you checked that it can look at pictures.
+
+Payment mode and limits cover whatever runs on your keys, Claude or not. Each usage row records the provider and model.
+
+**Web search uses Claude.** The OpenAI-compatible API has no common way to search the web, so the steps that search the live web always use Claude: Research, Do this for me, Find before you build, and finding publishing venues in Write. Keep your Claude key saved for them. Without one, those steps are not available to members on your keys, and they are told so plainly; nothing is charged.
+
+**Members' own keys.** On their key page, members can connect a key from Claude or from one of the listed providers (never an address they type), choose its model from the provider's live list or type one, and give prices if they want to see costs (otherwise the usage page says the cost is not known). With a key from another provider, web search steps use the site's Claude key the site's way (free or with credits) if the site has one, and otherwise are not available.
+
+**Your own address.** "Another compatible provider" must be an https address with no user name, password, query or fragment, and its name must lead only to public internet addresses (never this server or a private network). It is checked when you save it and again before each request. The site never follows a redirect.
+
+**Addresses can change.** The listed providers' addresses are set in `studio/providers.py` (the `PRESETS` list). Companies sometimes move them: if a provider stops answering, check its documentation and update the list.
+
 ## Tests
 
 ```
@@ -84,7 +103,7 @@ The tests include real-browser checks: Playwright drives Chromium, runs axe-core
 
 ## Known limits
 
-- **The AI was tested with a stand-in.** Every AI feature is tested against a fake Claude that returns fixed answers, and the request format follows Anthropic's documentation, but this code has not yet been run against the real Claude API. Try each section once with a real key before inviting members.
+- **The AI was tested with a stand-in.** Every AI feature is tested against a fake Claude that returns fixed answers, and the request format follows Anthropic's documentation, but this code has not yet been run against the real Claude API. The same goes for the other providers: their requests follow the OpenAI-compatible Chat Completions format and are tested against a stand-in. Try each section once with a real key before inviting members.
 - **Not yet tested by blind people.** The site passes automated checks (axe-core, keyboard order, no JavaScript, 400 percent zoom) and browser tests that find every control by its spoken name. That is not the same as people using NVDA, JAWS, VoiceOver and TalkBack. Testing with blind members is the most important next step; Peer checks and Ask the community are there for that feedback.
 - **Build makes web pages and web apps.** It writes HTML, CSS and JavaScript, which phones can install from the browser. It does not make native app-store apps, servers, databases, sign-ins or payments inside what members build. The guide "apps-on-your-phone" explains the route to app stores.
 - **Do this for me never logs in or submits.** It finds, explains and prepares; the member does the last step on the real website.

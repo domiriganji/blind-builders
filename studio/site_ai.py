@@ -1,9 +1,14 @@
-"""The site owner's AI settings: the site's own Claude API key, the model members use with it, who pays, and
-spending limits.
+"""The site owner's AI settings: the site's own Claude API key, the model members use with it, the main AI
+(Claude, or another provider with its own key, model and prices), who looks at pictures, who pays, and spending
+limits.
 
 - The key is saved from the owner's AI settings page, encrypted with the site's secret key, and never shown
   again (only its last 4 characters). Without one, the ANTHROPIC_API_KEY setting is used, if the server has it.
 - Members who connect their own key choose their own model; everyone else uses the owner's choice.
+- The main AI is Claude unless the owner chooses another provider (studio/providers.py). Its key is kept like the
+  Claude key, its model comes from the provider's own list (or is typed), and its prices are required, so the
+  limits and credits below work the same for it. Web search steps always use the Claude key; pictures of built
+  pages use Claude unless the owner chooses the main model for them.
 - Who pays for AI on the site's key: members, with credits (the default), or the owner, free for members.
 - Limits cover all AI work on the site's key, whoever pays: the most the key may spend in a month, and the most
   each member may use in a month. Amounts are what Anthropic charges the owner, in US cents; 0 means no limit.
@@ -14,7 +19,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from . import credits, db
+from . import credits, db, providers
 from .security import decrypt_secret, encrypt_secret
 
 # The models the owner (and members with their own key) can choose. Prices are from ai.PRICES.
@@ -34,6 +39,11 @@ PAY_MODES = [
     ("credits", "Members pay with credits they buy, or that you give them"),
     ("free", "Free for members, within the limits below: you pay Anthropic"),
 ]
+
+# The main AI for members on the site's keys.
+MAIN_CLAUDE, MAIN_OTHER = "anthropic", "other"
+# Who looks at pictures of built pages when the main AI is not Claude.
+VISION_CLAUDE, VISION_MAIN = "claude", "main"
 
 # The tables (site_settings, ai_spend_holds) are in db.CORE_SCHEMA, because studio.ai uses them.
 
@@ -113,6 +123,94 @@ def key_last4(settings) -> str:
     if source == "environment":
         return (settings.anthropic_api_key or "")[-4:]
     return ""
+
+
+# ----- another provider's key, model and prices -----------------------------------------------------
+
+OTHER_SETTINGS = ("other_provider", "other_base", "other_name", "other_key_enc", "other_key_last4", "other_saved_at",
+                  "other_model", "other_price_in", "other_price_out")
+
+
+def other_provider() -> providers.Provider | None:
+    """The other provider the owner saved a key for (a preset, or their own compatible provider), or None."""
+    provider_id = get("other_provider")
+    if not provider_id or provider_id == providers.ANTHROPIC:
+        return None
+    return providers.resolved(provider_id, base_url=get("other_base"), name=get("other_name"))
+
+
+def save_other_key(settings, provider: providers.Provider, key: str, by_user_id: int) -> None:
+    """Save the key for another provider. A different provider than before starts with no model or prices, and
+    the main AI goes back to Claude until the owner chooses its model."""
+    if get("other_provider") != provider.id or get("other_base") != (provider.base_url if provider.id == providers.CUSTOM else ""):
+        delete("other_model", "other_price_in", "other_price_out")
+        if main_choice() == MAIN_OTHER:
+            save({"main_ai": MAIN_CLAUDE, "vision": VISION_CLAUDE}, by_user_id)
+    save({"other_provider": provider.id,
+          "other_base": provider.base_url if provider.id == providers.CUSTOM else "",
+          "other_name": provider.name if provider.id == providers.CUSTOM else "",
+          "other_key_enc": encrypt_secret(settings.secret_key, key), "other_key_last4": key[-4:],
+          "other_saved_at": db.now()}, by_user_id)
+
+
+def remove_other_key() -> None:
+    """Remove the other provider entirely; the main AI and pictures go back to Claude."""
+    delete(*OTHER_SETTINGS)
+    delete("main_ai", "vision")
+
+
+def other_key(settings) -> str | None:
+    enc = get("other_key_enc")
+    return (decrypt_secret(settings.secret_key, enc) or None) if enc else None
+
+
+def other_key_unreadable(settings) -> bool:
+    enc = get("other_key_enc")
+    return bool(enc) and not decrypt_secret(settings.secret_key, enc)
+
+
+def other_model() -> str:
+    return get("other_model")
+
+
+def other_prices() -> tuple[float, float] | None:
+    """US dollars per million tokens (input, output) the owner set for the other provider's model."""
+    price_in, price_out = providers.parse_price(get("other_price_in")), providers.parse_price(get("other_price_out"))
+    if price_in is None or price_out is None:
+        return None
+    return price_in, price_out
+
+
+def other_ready(settings) -> bool:
+    """The other provider can answer on the site's key: a readable key, a model and its prices."""
+    return bool(other_provider() and other_key(settings) and other_model() and other_prices())
+
+
+def main_choice() -> str:
+    return MAIN_OTHER if get("main_ai") == MAIN_OTHER else MAIN_CLAUDE
+
+
+def main_is_claude() -> bool:
+    return main_choice() == MAIN_CLAUDE
+
+
+def vision_choice() -> str:
+    return VISION_MAIN if get("vision") == VISION_MAIN else VISION_CLAUDE
+
+
+def site_ai_ready(settings) -> bool:
+    """The site's keys can do members' everyday AI work: the main AI is set up."""
+    if main_is_claude():
+        return site_key(settings) is not None
+    return other_ready(settings)
+
+
+def main_label(settings) -> str:
+    """The main AI on the site's keys, in plain words: "Claude Opus 5.5" or "OpenAI: model-name"."""
+    provider = other_provider()
+    if not main_is_claude() and provider is not None:
+        return f"{provider.name}: {other_model()}"
+    return model_name(site_model(settings))
 
 
 # ----- model and who pays -----------------------------------------------------------------------

@@ -146,6 +146,15 @@ def init(feature_schemas: list[str]) -> None:
         ensure_column(conn, "users", "own_model", "TEXT NOT NULL DEFAULT ''")
         # What Anthropic charged for the call, without the credits markup (site_ai limits count this).
         ensure_column(conn, "ai_usage", "raw_cents", "INTEGER NOT NULL DEFAULT 0")
+        # 0 when nobody gave prices for the model (a member's own key from another provider): cost not known.
+        ensure_column(conn, "ai_usage", "cost_known", "INTEGER NOT NULL DEFAULT 1")
+        # The provider of a member's own key (studio/providers.py). Existing keys are Claude keys.
+        ensure_column(conn, "users", "own_provider", "TEXT NOT NULL DEFAULT 'anthropic'")
+        # Optional prices a member gave for their own non-Claude model, in US dollars per million tokens.
+        ensure_column(conn, "users", "own_price_in", "TEXT NOT NULL DEFAULT ''")
+        ensure_column(conn, "users", "own_price_out", "TEXT NOT NULL DEFAULT ''")
+        # 'main' when a member said their own non-Claude model can look at pictures; '' sends pictures to Claude.
+        ensure_column(conn, "users", "own_vision", "TEXT NOT NULL DEFAULT ''")
         for schema in feature_schemas:
             if schema:
                 conn.executescript(schema)

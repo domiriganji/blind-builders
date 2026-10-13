@@ -1,16 +1,18 @@
 {% extends "base.html" %}
-{% from "_macros.html" import csrf_input, error_summary, field, radios %}
+{% from "_macros.html" import csrf_input, error_summary, field, radios, select %}
 {% block content %}
 <h1>{{ title }}</h1>
-<p>These settings are for the Claude API key that you, the site owner, pay for. Members who connect their own key use their own key and their own choice of model, and these limits never apply to them.</p>
+<p>These settings are for the AI keys that you, the site owner, pay for: your Claude API key and, if you choose, a key from another AI provider. Members who connect their own key use their own key and their own choice of model, and these limits never apply to them.</p>
+{% if not main_is_claude %}<p>Members' everyday AI work on your keys uses <strong>{{ main_label }}</strong>{% if not main_ready %}, but it is not ready: see Main AI for members on your key{% endif %}. Web search steps use Claude{% if not key_source %}, and no Claude key is saved, so for members on your keys those steps are not available{% endif %}.</p>{% endif %}
 {{ error_summary(key_errors) }}
 <h2>Your Claude API key</h2>
+<p>Claude does the steps that search the live web: Research, Do this for me, Find before you build, and finding publishing venues in Write. Other providers have no common way to search the web, so these steps need this key even when another provider is the main AI. Claude also looks at pictures of built pages, unless you choose the main model for that.</p>
 {% if key_source == 'page' %}
 <p>A key ending in <strong>{{ key_last4 }}</strong> is saved{% if key_saved_at %}, since {{ key_saved_at }}{% endif %}. Members' AI work on the site's key uses it.</p>
 {% elif key_source == 'environment' %}
 <p>The key from the server's ANTHROPIC_API_KEY setting is in use. It ends in <strong>{{ key_last4 }}</strong>. A key saved here takes its place.</p>
 {% else %}
-<p>No key is saved yet. Until there is one, members can use the AI only with their own key.</p>
+<p>No key is saved yet. {% if main_is_claude or not main_ready %}Until there is one, members can use the AI only with their own key.{% else %}Until there is one, web search steps{% if vision_main %} {% else %} and the look at pictures of built pages {% endif %}work only for members with their own Claude key.{% endif %}</p>
 {% endif %}
 {% if key_unreadable %}<p>The key saved here stopped working because the site's secret key (STUDIO_SECRET_KEY) changed. Please save the key again.</p>{% endif %}
 <p>How the key is kept safe:</p>
@@ -43,14 +45,71 @@
 </form>
 {% endif %}
 
+<h2 id="other-key">Another provider's key</h2>
+{{ error_summary(other_errors) }}
+<p>You can use AI from another company for members' everyday work, if it offers the OpenAI-compatible API (a common way for AI services to take requests). Each company sets its own models and prices.</p>
+{% if other %}
+<p>A key for <strong>{{ other.name }}</strong> ending in <strong>{{ other_last4 }}</strong> is saved{% if other_saved_at %}, since {{ other_saved_at }}{% endif %}.{% if other.id == 'custom' %} Its address is {{ other.base_url }}.{% endif %}</p>
+{% if other_unreadable %}<p>This key stopped working because the site's secret key (STUDIO_SECRET_KEY) changed. Please save the key again.</p>{% endif %}
+{% else %}
+<p>No key for another provider is saved.</p>
+{% endif %}
+<p>The key is kept safe the same way as your Claude key: the provider checks it before it is saved, it is stored encrypted, only its last 4 characters are shown, and saving or removing it needs your password. The site sends it only to the provider's own address, never follows a request sent on to another address, and never to this server or a private network.</p>
+<h3>{{ 'Replace the key' if other else 'Save a key' }}</h3>
+<form method="post" action="/account/admin/ai/other-key" novalidate>
+  {{ csrf_input() }}
+  {{ radios('other_provider', 'Which provider the key is from', provider_options, other_values.other_provider, hint='The addresses of the listed providers are set in the site. Companies can change them; docs/DEVELOPING.md says where to update them.', error=other_errors.other_provider, required=true) }}
+  {{ field('other_name', 'Provider name, only for another compatible provider', other_values.other_name, hint='As members will read it, for example Example AI.', error=other_errors.other_name, mark_optional=false) }}
+  {{ field('other_address', 'Provider address, only for another compatible provider', other_values.other_address, type='url', hint='The address of its OpenAI-compatible API, starting with https://, for example https://api.example.com/v1. It must be a public address on the internet.', error=other_errors.other_address, extra='spellcheck="false" autocapitalize="off" autocorrect="off"', mark_optional=false) }}
+  {{ field('other_api_key', 'API key from the provider', '', type='password', required=true, autocomplete='off', hint="Create one on the provider's website, in its API keys settings.", error=other_errors.other_api_key, extra='spellcheck="false" autocapitalize="off" autocorrect="off"') }}
+  <div class="field choice js-only">
+    <input type="checkbox" id="show-other_api_key" data-shows="field-other_api_key">
+    <label for="show-other_api_key">Show the provider's key, to check what you pasted</label>
+  </div>
+  {{ field('other_password', 'Your password, to save the provider\'s key', '', type='password', required=true, autocomplete='current-password', hint='The password you sign in with.', error=other_errors.other_password) }}
+  <button type="submit" class="button button-primary">Check and save the provider's key</button>
+</form>
+{% if other %}
+<h3>Remove the provider's key</h3>
+<p>After you remove it, members' AI work on your keys uses Claude again.</p>
+<form method="post" action="/account/admin/ai/other-key/remove" novalidate>
+  {{ csrf_input() }}
+  {{ field('other_remove_password', "Your password, to remove the provider's key", '', type='password', required=true, autocomplete='current-password', hint='The password you sign in with.', error=other_errors.other_remove_password) }}
+  <button type="submit" class="button">Remove the provider's key</button>
+</form>
+{% endif %}
+
+<h2 id="main-ai">Main AI for members on your key</h2>
+{{ error_summary(main_errors) }}
+<p>The main AI does members' everyday work on your keys: building, writing, checking and answering. Web search steps always use Claude.{% if not other %} To choose another provider, first save its key under Another provider's key.{% endif %}</p>
+<form method="post" action="/account/admin/ai/main" novalidate>
+  {{ csrf_input() }}
+  {{ radios('main_ai', 'Main AI for members on your key', main_options, main_values.main_ai, error=main_errors.main_ai, required=true) }}
+  {% if other %}
+  {% if models_problem %}<p>{{ models_problem }} You can type the model name instead.</p>{% endif %}
+  {% if other_model_options %}
+  {% if model_radios %}
+  {{ radios('other_model', 'Model from ' ~ other.name ~ "'s list", other_model_options, main_values.other_model, hint='The list comes from ' ~ other.name ~ ', so new models appear by themselves.', error=main_errors.other_model) }}
+  {% else %}
+  {{ select('other_model', 'Model from ' ~ other.name ~ "'s list", [('', 'Choose a model')] + other_model_options, main_values.other_model, hint='The list comes from ' ~ other.name ~ ', so new models appear by themselves.', error=main_errors.other_model) }}
+  {% endif %}
+  {% endif %}
+  {{ field('other_model_typed', 'Or type the model name', main_values.other_model_typed, hint='Exactly as ' ~ other.name ~ ' writes it. A name typed here is used instead of the list.', error=main_errors.other_model_typed or (main_errors.other_model if not other_model_options else ''), extra='spellcheck="false" autocapitalize="off" autocorrect="off"', mark_optional=false) }}
+  {{ field('other_price_in', 'Price per million tokens in (what the AI reads), in US dollars', main_values.other_price_in, hint="Required for the main AI. Check " ~ other.name ~ "'s price page. Your limits and members' credits use these prices." ~ (' If you leave both prices empty, the prices in ' ~ other.name ~ "'s list are used." if other.lists_prices else ''), error=main_errors.other_price_in, extra='inputmode="decimal"', mark_optional=false) }}
+  {{ field('other_price_out', 'Price per million tokens out (what the AI writes), in US dollars', main_values.other_price_out, hint='A token is about three quarters of a word.', error=main_errors.other_price_out, extra='inputmode="decimal"', mark_optional=false) }}
+  {% endif %}
+  {{ radios('vision', 'Who looks at pictures of built pages', vision_options, main_values.vision, hint='After a build, an AI looks at pictures of the pages and says how they look. When Claude is the main AI, Claude always does this.', error=main_errors.vision, required=true) }}
+  <button type="submit" class="button button-primary">Save the main AI</button>
+</form>
+
 <h2>Model, payment and limits</h2>
 {{ error_summary(errors) }}
-<p>This month your key has spent <strong>{{ spent }}</strong> on members' AI work, at Anthropic's prices. Monthly limits start again on {{ renews }}.</p>
+<p>This month your keys have spent <strong>{{ spent }}</strong> on members' AI work, at the providers' prices. Monthly limits start again on {{ renews }}.</p>
 <form method="post" action="/account/admin/ai" novalidate>
   {{ csrf_input() }}
-  {{ radios('model', 'Model members use with your key', model_options, values.model, hint='A token is about three quarters of a word. Members who use their own key choose their own model.', error=errors.model) }}
+  {{ radios('model', 'Model members use with your key', model_options, values.model, hint='A token is about three quarters of a word. Members who use their own key choose their own model. When another provider is the main AI, this Claude model does the web search steps.', error=errors.model) }}
   {{ radios('pay_mode', 'Who pays for AI on your key', pay_modes, values.pay_mode, error=errors.pay_mode) }}
-  {{ field('site_month', 'Most your key may spend in a month, for the whole site, in US dollars', values.site_month, hint='What Anthropic charges you. 0 means no limit. When it is reached, members are told plainly and can still use their own key.', error=errors.site_month, extra='inputmode="decimal"', mark_optional=false) }}
+  {{ field('site_month', 'Most your key may spend in a month, for the whole site, in US dollars', values.site_month, hint='What the AI companies charge you, for all your keys together. 0 means no limit. When it is reached, members are told plainly and can still use their own key.', error=errors.site_month, extra='inputmode="decimal"', mark_optional=false) }}
   {{ field('member_month', 'Most each member may use in a month, in US dollars', values.member_month, hint='0 means no limit. When the AI is free for members, they see how much they have left.', error=errors.member_month, extra='inputmode="decimal"', mark_optional=false) }}
   <button type="submit" class="button button-primary">Save the AI settings</button>
 </form>

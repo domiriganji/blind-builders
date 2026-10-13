@@ -11,10 +11,10 @@
   <li>Credit purchases: {{ counts.paid_count }}, totalling {{ counts.paid_cents_text }}</li>
 </ul>
 <h2>AI on your key</h2>
-<p><a href="/account/admin/ai">AI settings for your key</a>: save the site's Claude API key safely, choose the model members use with it, choose who pays, and set monthly limits.</p>
+<p><a href="/account/admin/ai">AI settings for your key</a>: save the site's Claude API key safely, choose the model members use with it, choose another AI provider as the main AI if you like, choose who pays, and set monthly limits.</p>
 <h2>Give credits to a member</h2>
 {% if not site_has_key %}
-<p><strong>Note:</strong> this site has no Claude API key of its own yet, so credits cannot be spent until you save one in AI settings for your key.</p>
+<p><strong>Note:</strong> this site has no AI key of its own set up yet, so credits cannot be spent until you save one in AI settings for your key.</p>
 {% endif %}
 {{ error_summary(errors) }}
 <form method="post" action="/account/admin" novalidate>

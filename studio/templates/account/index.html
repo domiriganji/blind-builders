@@ -12,7 +12,7 @@
 <h2>Change your details</h2>
 <ul class="item-list">
   <li><a href="/account/profile">Your profile and preferences</a>: name, screen reader, device, language and how you like answers.</li>
-  <li><a href="/account/ai-key">Your Claude API key</a>: {% if user.own_api_key_enc %}see, replace or remove the key you connected, and choose its model{% else %}connect your own key so you pay Anthropic directly{% endif %}.</li>
+  <li><a href="/account/ai-key">{{ key_title }}</a>: {% if user.own_api_key_enc %}see, replace or remove the key you connected, and choose its model{% else %}connect your own key so you pay Anthropic, or another AI company, directly{% endif %}.</li>
   <li><a href="/account/credits">Your credits and AI usage</a>: what each AI task cost{% if status.can_buy or status.balance %}, your balance and your credit history{% endif %}.</li>
   {% if status.can_buy %}<li><a href="/account/credits/buy">Buy credits</a>.</li>{% endif %}
   <li><a href="/account/password">Change your password</a>.</li>

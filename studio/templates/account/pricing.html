@@ -17,6 +17,7 @@
   <li>Anthropic bills you for exactly what you use, at their prices. This site adds nothing.</li>
   <li>Your key is stored encrypted. The site only ever shows its last 4 characters.</li>
   <li>You can remove it at any time.</li>
+  <li>You can use a key from another AI company instead, such as OpenAI or Google Gemini, and choose its model. Steps that search the web need Claude: with another company's key they use the site's Claude key, the site's way, if the site has one.</li>
 </ul>
 <p>{% if user %}<a href="/account/ai-key">Connect your Claude API key</a>{% else %}<a href="/register">Create an account</a>, then connect your key on Your account{% endif %}.</p>
 
@@ -37,7 +38,7 @@
 
 <h2 id="rough-costs-title">Rough costs of typical tasks</h2>
 <p>A token is a piece of a word. 1,000 tokens is roughly 750 English words.</p>
-<p>These are <strong>estimates</strong>, worked out by this site from Anthropic's prices for the model it uses and a typical size for each task. Real costs depend on how long your idea, writing or website is. Your credits and AI usage page shows the actual cost of everything you did.</p>
+<p>These are <strong>estimates</strong>, worked out by this site from the prices for the models it uses and a typical size for each task. Real costs depend on how long your idea, writing or website is. Your credits and AI usage page shows the actual cost of everything you did.</p>
 <div class="table-scroll" role="region" aria-labelledby="rough-costs-title" tabindex="0">
 <table>
   <caption>Estimated cost per task in US dollars{% if stripe_ready %}, with your own key and with credits{% else %}, with your own key{% endif %}.</caption>
@@ -54,8 +55,14 @@
 
 <h2>Where these numbers come from</h2>
 <ul>
+{% if other_label %}
+  <li>Most steps use {{ other_label }}, at the prices the site's owner set: ${{ other_in }} per million tokens read (input) and ${{ other_out }} per million tokens written (output). Check the company's own price page for the current figures.</li>
+  <li>Steps that search the web use Claude, with the model {{ model_name }}{% if not claude_key %}. The site has no Claude key now, so these steps work only with your own Claude key{% endif %}.{% if not model_known %} Its prices are not in this site's price list, so the estimates use the prices of claude-opus-5-5.{% endif %}</li>
+  <li>Claude's prices used: ${{ in_price }} per million tokens read (input) and ${{ out_price }} per million tokens written (output), plus ${{ search_price }} per 1,000 web searches.</li>
+{% else %}
   <li>The site uses the model {{ model_name }}.{% if not model_known %} Its prices are not in this site's price list, so the estimates use the prices of claude-opus-5-5.{% endif %}</li>
   <li>Prices used: ${{ in_price }} per million tokens read (input) and ${{ out_price }} per million tokens written (output), plus ${{ search_price }} per 1,000 web searches.</li>
+{% endif %}
   <li>Anthropic sets its own prices and can change them. Check <a href="https://www.anthropic.com/pricing" rel="noopener noreferrer">Anthropic's pricing page</a> for the current figures.</li>
 </ul>
 {% endblock %}

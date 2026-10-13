@@ -20,7 +20,7 @@ STALLED_AFTER_SECONDS = jobs.STALLED_AFTER_SECONDS
 def pay_facts(settings) -> dict:
     """What a visitor needs to know about paying for the AI here, in the same words on every page."""
     from .features.account import payments_ready, typical_costs  # here: features import this module's helpers
-    free = site_ai.key_source(settings) is not None and site_ai.pay_mode() == "free"
+    free = site_ai.site_ai_ready(settings) and site_ai.pay_mode() == "free"
     limit = site_ai.member_month_limit()
     low, high = typical_costs(settings)
     return {"free": free, "free_limit": credits.format_cents(limit) if free and limit else "",

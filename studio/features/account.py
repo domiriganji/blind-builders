@@ -3,7 +3,8 @@
 - /account: who you are and how you pay for AI, summary first.
 - /account/profile: name, screen reader, device, language, blind or low vision since, answer style, code name.
 - /account/password: change your password while signed in.
-- /account/ai-key: connect or remove your own Claude API key (stored encrypted, only the last 4 shown).
+- /account/ai-key: connect or remove your own API key, from Anthropic (Claude) or another listed provider
+  (stored encrypted, only the last 4 shown), and choose its model.
 - /account/credits: balance, credit history and AI usage history.
 - /account/credits/buy: buy credits through Stripe Checkout, only when the site owner has set up payments.
 - /payments/stripe/webhook: Stripe tells the site a payment went through (signed, no CSRF, JSON).
@@ -30,7 +31,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
-from .. import credits, db, limits, site_ai
+from .. import credits, db, limits, providers, site_ai
 from ..ai import PRICES, WEB_SEARCH_DOLLARS, cost_cents
 from ..auth import PASSWORD_MAX, PASSWORD_MIN, clean_text, secret_problem
 from ..security import decrypt_secret, encrypt_secret, hash_password, verify_password
@@ -164,8 +165,34 @@ def _key_last4(settings, user: dict) -> str | None:
 
 
 def payments_ready(settings) -> bool:
-    """Credits can be bought only when Stripe is set up and the site has its own Claude key to spend them on."""
-    return bool(settings.stripe_secret_key and site_ai.site_key(settings))
+    """Credits can be bought only when Stripe is set up and the site has its own AI key to spend them on."""
+    return bool(settings.stripe_secret_key and site_ai.site_ai_ready(settings))
+
+
+def own_provider(user: dict) -> providers.Provider:
+    """The provider of the member's own key: Claude, or one of the listed providers."""
+    provider = providers.get(user.get("own_provider") or providers.ANTHROPIC)
+    if provider is None or (provider.id != providers.ANTHROPIC and provider.id not in providers.PRESET_IDS):
+        return providers.CLAUDE
+    return provider
+
+
+def key_page_title(user: dict) -> str:
+    if user.get("own_api_key_enc") and own_provider(user).id != providers.ANTHROPIC:
+        return "Your AI key"
+    return "Your Claude API key"
+
+
+def search_route(settings, user: dict) -> str:
+    """How web search steps run for a member whose own key is not Claude, as studio.ai.default_factory does:
+    'free' or 'credits' on the site's Claude key, 'buy' when credits would let them, or 'none'."""
+    if not site_ai.site_key(settings):
+        return "none"
+    if site_ai.pay_mode() == "free":
+        return "free"
+    if credits.balance(user["id"]) > 0:
+        return "credits"
+    return "buy" if settings.stripe_secret_key else "none"
 
 
 def ai_status(settings, user: dict) -> dict:
@@ -174,14 +201,23 @@ def ai_status(settings, user: dict) -> dict:
     status = {
         "balance": balance,
         "balance_text": credits.format_cents(balance),
-        "site_has_key": site_ai.key_source(settings) is not None,
+        "site_has_key": site_ai.site_ai_ready(settings),
         "can_buy": payments_ready(settings),
         "key_unreadable": False,
+        "site_ai_label": site_ai.main_label(settings),
+        "site_main_is_claude": site_ai.main_is_claude(),
     }
     if user.get("own_api_key_enc"):
         last4 = _key_last4(settings, user)
         if last4:
-            return {**status, "mode": "own_key", "last4": last4}
+            provider = own_provider(user)
+            if provider.id == providers.ANTHROPIC:
+                return {**status, "mode": "own_key", "last4": last4, "own_is_claude": True,
+                        "own_label": site_ai.model_name(site_ai.member_model(settings, user))}
+            model = (user.get("own_model") or "").strip()
+            return {**status, "mode": "own_key", "last4": last4, "own_is_claude": False,
+                    "own_provider_name": provider.name, "own_model": model,
+                    "search_route": search_route(settings, user)}
         status["key_unreadable"] = True
     if status["site_has_key"] and site_ai.pay_mode() == "free":
         left = site_ai.member_left_this_month(user["id"])
@@ -252,7 +288,7 @@ def _parse_dollars(text: str) -> int | None:
 def index(request: Request, user: dict = Depends(require_user)):
     settings = _settings(request)
     return render(request, "account/index.html", title=_done_title(request, "Your account"),
-                  status=ai_status(settings, user), sight=dict(SIGHT_ONSET), vision=dict(VISION),
+                  status=ai_status(settings, user), key_title=key_page_title(user), sight=dict(SIGHT_ONSET), vision=dict(VISION),
                   verbosity=dict(VERBOSITY))
 
 
@@ -438,16 +474,45 @@ def verify_api_key(key: str) -> bool | str:
     return True
 
 
-def _render_key(request: Request, user: dict, error: str = "", status_code: int = 200):
+MAX_MODEL_RADIOS = 20
+# Clears what belongs to the previous key's provider: its model, prices and picture choice.
+_RESET_CHOICES = "own_model = '', own_price_in = '', own_price_out = '', own_vision = ''"
+
+
+def _render_key(request: Request, user: dict, error: str = "", status_code: int = 200, *,
+                errors: dict | None = None, values: dict | None = None):
     settings = _settings(request)
-    title = error_title("Your Claude API key", [error]) if error else _done_title(request, "Your Claude API key")
+    errors = errors if errors is not None else ({"api_key": error} if error else {})
+    page_title = key_page_title(user)
+    title = error_title(page_title, errors) if errors else _done_title(request, page_title)
     site_model = site_ai.site_model(settings)
     model_options = [("", f"The site's choice, now {site_ai.model_name(site_model)}")] + [
         (model_id, f"{name}: {about}") for model_id, name, about in site_ai.MODELS]
-    return render(request, "account/ai_key.html", title=title, errors={"api_key": error} if error else {},
-                  last4=_key_last4(settings, user), has_saved=bool(user.get("own_api_key_enc")),
-                  model_options=model_options, own_model=user.get("own_model") or "",
-                  costs=typical_costs(settings), status_code=status_code)
+    last4 = _key_last4(settings, user)
+    provider = own_provider(user)
+    is_claude = provider.id == providers.ANTHROPIC
+    models, models_problem = [], ""
+    if last4 and not is_claude:
+        from .owner_ai import list_models  # here, not at the top: owner_ai imports this module
+        models, models_problem = list_models(provider, decrypt_secret(settings.secret_key, user["own_api_key_enc"]))
+    own_model = user.get("own_model") or ""
+    in_list = any(m["id"] == own_model for m in models)
+    listed = next((m for m in models if m["id"] == own_model and m.get("prices")), None)
+    price_in, price_out = user.get("own_price_in") or "", user.get("own_price_out") or ""
+    if listed and not (price_in or price_out):
+        price_in, price_out = (providers.price_text(v) for v in listed["prices"])
+    values = values or {"own_model": own_model if in_list else "", "own_model_typed": "" if in_list else own_model,
+                        "own_price_in": price_in, "own_price_out": price_out,
+                        "own_vision": user.get("own_vision") == "main", "other_provider": ""}
+    from .owner_ai import _model_choices
+    return render(request, "account/ai_key.html", title=title, errors=errors,
+                  last4=last4, has_saved=bool(user.get("own_api_key_enc")),
+                  model_options=model_options, own_model=own_model,
+                  costs=typical_costs(settings), provider=provider, is_claude=is_claude,
+                  provider_options=[(p.id, f"{p.name}: {p.about}") for p in providers.PRESETS],
+                  other_model_options=_model_choices(models), model_radios=len(models) <= MAX_MODEL_RADIOS,
+                  models_problem=models_problem, values=values, search=search_route(settings, user),
+                  status_code=status_code)
 
 
 @router.get("/account/ai-key")
@@ -468,7 +533,9 @@ async def key_save(request: Request, user: dict = Depends(require_user)):
         return _render_key(request, user, error, status_code=400)
     settings = _settings(request)
     with db.session() as conn:
-        conn.execute("UPDATE users SET own_api_key_enc = ? WHERE id = ?",
+        if own_provider(user).id != providers.ANTHROPIC:
+            conn.execute(f"UPDATE users SET {_RESET_CHOICES} WHERE id = ?", (user["id"],))
+        conn.execute("UPDATE users SET own_api_key_enc = ?, own_provider = 'anthropic' WHERE id = ?",
                      (encrypt_secret(settings.secret_key, key), user["id"]))
     _announce(request, "Your Claude API key is connected")
     flash(request, f"Your Claude API key ending in {key[-4:]} is connected. The AI now uses it, "
@@ -476,13 +543,50 @@ async def key_save(request: Request, user: dict = Depends(require_user)):
     return redirect("/account")
 
 
+@router.post("/account/ai-key/other")
+async def other_key_save(request: Request, user: dict = Depends(require_user)):
+    """A member's own key from one of the listed providers (never an address they type)."""
+    form = await checked_form(request)
+    provider_id = _clean(form, "other_provider", 40)
+    key = str(form.get("other_api_key", "")).strip()[:1000]
+    errors: dict[str, str] = {}
+    provider = providers.get(provider_id) if provider_id in providers.PRESET_IDS else None
+    if provider is None:
+        errors["other_provider"] = "Choose the company your key is from."
+    problem = providers.key_problem(key, provider.name if provider else "the company")
+    if problem:
+        errors["other_api_key"] = problem
+    if not errors:
+        try:
+            await run_in_threadpool(providers.fetch_models, provider, key)
+        except providers.ProviderError as exc:
+            errors["other_api_key"] = exc.user_message
+    if errors:
+        return _render_key(request, user, status_code=400, errors=errors,
+                           values={"other_provider": provider_id, "own_model": "", "own_model_typed": "",
+                                   "own_price_in": "", "own_price_out": "", "own_vision": False})
+    settings = _settings(request)
+    with db.session() as conn:
+        if (user.get("own_provider") or providers.ANTHROPIC) != provider.id:
+            conn.execute(f"UPDATE users SET {_RESET_CHOICES} WHERE id = ?", (user["id"],))
+        conn.execute("UPDATE users SET own_api_key_enc = ?, own_provider = ? WHERE id = ?",
+                     (encrypt_secret(settings.secret_key, key), provider.id, user["id"]))
+    _announce(request, f"Your {provider.name} key is connected")
+    flash(request, "Next, choose its model under Model for your key.", "success")
+    return redirect("/account/ai-key")
+
+
 @router.post("/account/ai-key/model")
 async def key_model(request: Request, user: dict = Depends(require_user)):
     """The model the AI uses with the member's own key."""
     form = await checked_form(request)
+    provider = own_provider(user)
+    if user.get("own_api_key_enc") and provider.id != providers.ANTHROPIC:
+        return await _other_model_save(request, user, form, provider)
     choice = _clean(form, "own_model", 40)
     if choice and choice not in site_ai.MODEL_NAMES:
-        return _render_key(request, user, "Choose one of the models in the list.", status_code=400)
+        return _render_key(request, user, "Choose one of the models in the list.", status_code=400,
+                           errors={"own_model": "Choose one of the models in the list."})
     with db.session() as conn:
         conn.execute("UPDATE users SET own_model = ? WHERE id = ?", (choice, user["id"]))
     name = site_ai.model_name(choice) if choice else "the site's choice"
@@ -491,14 +595,53 @@ async def key_model(request: Request, user: dict = Depends(require_user)):
     return redirect("/account/ai-key")
 
 
+async def _other_model_save(request: Request, user: dict, form, provider: providers.Provider):
+    values = {"own_model": str(form.get("own_model", "")).strip()[:200],
+              "own_model_typed": str(form.get("own_model_typed", "")).strip()[:200],
+              "own_price_in": str(form.get("own_price_in", "")).strip()[:20],
+              "own_price_out": str(form.get("own_price_out", "")).strip()[:20],
+              "own_vision": form.get("own_vision") == "yes", "other_provider": ""}
+    errors: dict[str, str] = {}
+    model = values["own_model_typed"] or values["own_model"]
+    problem = providers.model_problem(model)
+    if problem:
+        errors["own_model_typed" if values["own_model_typed"] else "own_model"] = problem
+    prices = {}
+    for name, word in (("own_price_in", "in"), ("own_price_out", "out")):
+        prices[name] = providers.parse_price(values[name]) if values[name] else None
+        if values[name] and prices[name] is None:
+            errors[name] = f"Enter the price per million tokens {word} in US dollars, like 2.50, or leave it empty."
+    if not errors and (prices["own_price_in"] is None) != (prices["own_price_out"] is None):
+        missing = "own_price_out" if prices["own_price_out"] is None else "own_price_in"
+        errors[missing] = "Enter both prices, or leave both empty."
+    if errors:
+        return _render_key(request, user, status_code=400, errors=errors, values=values)
+    text = {k: providers.price_text(v) if v is not None else "" for k, v in prices.items()}
+    with db.session() as conn:
+        conn.execute("UPDATE users SET own_model = ?, own_price_in = ?, own_price_out = ?, own_vision = ? WHERE id = ?",
+                     (model, text["own_price_in"], text["own_price_out"], "main" if values["own_vision"] else "",
+                      user["id"]))
+    _announce(request, "Your model choice is saved")
+    flash(request, f"With your own key, the AI now uses {provider.name}, model {model}.", "success")
+    return redirect("/account/ai-key")
+
+
 @router.post("/account/ai-key/remove")
 async def key_remove(request: Request, user: dict = Depends(require_user)):
     await checked_form(request)
+    provider = own_provider(user)
     with db.session() as conn:
-        conn.execute("UPDATE users SET own_api_key_enc = NULL WHERE id = ?", (user["id"],))
-    _announce(request, "Your Claude API key is removed")
-    flash(request, "Your Claude API key is removed from this site. To stop it working everywhere, "
-                   "delete it in the Claude Console (platform.claude.com) too.", "success")
+        conn.execute(f"UPDATE users SET own_api_key_enc = NULL, own_provider = 'anthropic', {_RESET_CHOICES}"
+                     " WHERE id = ?" if provider.id != providers.ANTHROPIC else
+                     "UPDATE users SET own_api_key_enc = NULL WHERE id = ?", (user["id"],))
+    if provider.id == providers.ANTHROPIC:
+        _announce(request, "Your Claude API key is removed")
+        flash(request, "Your Claude API key is removed from this site. To stop it working everywhere, "
+                       "delete it in the Claude Console (platform.claude.com) too.", "success")
+    else:
+        _announce(request, f"Your {provider.name} key is removed")
+        flash(request, f"Your {provider.name} key is removed from this site. To stop it working everywhere, "
+                       f"delete it on {provider.name}'s website too.", "success")
     return redirect("/account")
 
 
@@ -514,19 +657,24 @@ def credits_page(request: Request, paid: str = "", user: dict = Depends(require_
     ]
     with db.session() as conn:
         rows = conn.execute(
-            "SELECT purpose, cost_cents, paid_by, created_at FROM ai_usage WHERE user_id = ? ORDER BY id DESC LIMIT 50",
+            "SELECT purpose, model, cost_cents, cost_known, paid_by, created_at FROM ai_usage WHERE user_id = ?"
+            " ORDER BY id DESC LIMIT 50",
             (user["id"],),
         ).fetchall()
         totals = conn.execute(
-            "SELECT paid_by, COUNT(*) AS n, COALESCE(SUM(cost_cents), 0) AS cents FROM ai_usage WHERE user_id = ?"
+            "SELECT paid_by, COUNT(*) AS n, COALESCE(SUM(cost_cents), 0) AS cents, MIN(cost_known) AS all_known,"
+            " SUM(CASE WHEN model LIKE '%:%' THEN 1 ELSE 0 END) AS others FROM ai_usage WHERE user_id = ?"
             " GROUP BY paid_by", (user["id"],),
         ).fetchall()
     usage = [
         {"date": _date(r["created_at"]), "label": _purpose_label(r["purpose"]),
-         "cost": credits.format_cents(r["cost_cents"]), "paid_by": r["paid_by"]}
+         "model": providers.model_label(r["model"], site_ai.get("other_name")),
+         "cost": credits.format_cents(r["cost_cents"]) if r["cost_known"] else "cost not known for this model",
+         "paid_by": r["paid_by"]}
         for r in rows
     ]
-    by_payer = {t["paid_by"]: {"count": t["n"], "cost": credits.format_cents(t["cents"])} for t in totals}
+    by_payer = {t["paid_by"]: {"count": t["n"], "cost": credits.format_cents(t["cents"]),
+                               "all_known": bool(t["all_known"]), "others": bool(t["others"])} for t in totals}
     title = "Thank you: your payment went to Stripe" if paid == "1" else "Your credits and AI usage"
     return render(request, "account/credits.html", title=title,
                   status=ai_status(settings, user), ledger=ledger, usage=usage, by_payer=by_payer,
@@ -766,21 +914,32 @@ def pricing(request: Request):
     model = site_ai.site_model(settings)
     model_known = model in PRICES
     in_price, out_price = PRICES.get(model, PRICES["claude-opus-5-5"])
+    from ..compat_ai import compat_cost_cents  # here, not at the top: compat_ai imports studio.ai
+    other = site_ai.other_provider() if not site_ai.main_is_claude() and site_ai.other_ready(settings) else None
+    other_prices = site_ai.other_prices() if other else None
     rows = []
     for label, tin, tout, searches in ESTIMATES:
-        own = cost_cents(model, tin, tout, searches, 1.0)
-        site = cost_cents(model, tin, tout, searches, settings.credit_markup)
+        if other_prices and not searches:  # everyday steps use the main AI; web search steps always use Claude
+            own = compat_cost_cents(other_prices, tin, tout, 1.0)
+            site = compat_cost_cents(other_prices, tin, tout, settings.credit_markup)
+        else:
+            own = cost_cents(model, tin, tout, searches, 1.0)
+            site = cost_cents(model, tin, tout, searches, settings.credit_markup)
         searched = f", {searches} web searches" if searches else ""
         size = f"Typical size: {tin:,} tokens in, {tout:,} out{searched}."
         rows.append({"label": label, "size": size, "own": _estimate_text(own), "credits": _estimate_text(site)})
-    free = site_ai.key_source(settings) is not None and site_ai.pay_mode() == "free"
+    free = site_ai.site_ai_ready(settings) and site_ai.pay_mode() == "free"
     member_limit = site_ai.member_month_limit()
     return render(request, "account/pricing.html", title="How paying works", rows=rows, model=model,
                   model_name=site_ai.model_name(model), free_for_members=free,
                   free_limit=credits.format_cents(member_limit) if member_limit else "",
                   model_known=model_known, in_price=f"{in_price:.2f}", out_price=f"{out_price:.2f}",
                   search_price=f"{WEB_SEARCH_DOLLARS * 1000:.0f}", markup_percent=_markup_percent(settings),
-                  site_has_key=site_ai.key_source(settings) is not None, stripe_ready=payments_ready(settings),
+                  site_has_key=site_ai.site_ai_ready(settings), stripe_ready=payments_ready(settings),
+                  other_label=site_ai.main_label(settings) if other else "",
+                  other_in=providers.price_text(other_prices[0]) if other_prices else "",
+                  other_out=providers.price_text(other_prices[1]) if other_prices else "",
+                  claude_key=site_ai.site_key(settings) is not None,
                   signup_credits=credits.format_cents(settings.signup_credits) if settings.signup_credits > 0 else "")
 
 
@@ -832,7 +991,7 @@ def _render_admin(request: Request, values: dict, errors: dict, status_code: int
     token = values.get("grant_token") or secrets.token_urlsafe(16)
     return render(request, "account/admin.html", title=title, counts=counts, values=values, errors=errors,
                   grant_token=token,
-                  site_has_key=site_ai.key_source(_settings(request)) is not None, status_code=status_code)
+                  site_has_key=site_ai.site_ai_ready(_settings(request)), status_code=status_code)
 
 
 @router.get("/account/admin")
@@ -892,6 +1051,7 @@ def anonymise_user(user_id: int) -> None:
             "UPDATE users SET email = ?, display_name = 'Former member', password_hash = ?, own_api_key_enc = NULL,"
             " screen_reader = '', device = '', language = 'en', sight_onset = 'prefer_not', vision = 'prefer_not',"
             " verbosity = 'summary_first', show_name_on_checks = 0, show_name_on_help = 0, describe_colours = 0, own_model = '',"
+            " own_provider = 'anthropic', own_price_in = '', own_price_out = '', own_vision = '',"
             " is_admin = 0 WHERE id = ?",
             (f"deleted-{user_id}@invalid", hash_password(secrets.token_urlsafe(32)), user_id),
         )

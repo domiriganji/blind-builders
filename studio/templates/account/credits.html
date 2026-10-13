@@ -10,7 +10,7 @@
 {% if by_payer %}
 <p>AI tasks so far:
 {% if by_payer.credits %}{{ by_payer.credits.count }} paid with credits, costing {{ by_payer.credits.cost }}.{% endif %}
-{% if by_payer.own_key %}{{ by_payer.own_key.count }} on your own key, costing about {{ by_payer.own_key.cost }} at Anthropic's prices (Anthropic bills you for these).{% endif %}
+{% if by_payer.own_key and not by_payer.own_key.others %}{{ by_payer.own_key.count }} on your own key, costing about {{ by_payer.own_key.cost }} at Anthropic's prices (Anthropic bills you for these).{% elif by_payer.own_key %}{{ by_payer.own_key.count }} on your own key, costing about {{ by_payer.own_key.cost }}{% if not by_payer.own_key.all_known %} for the tasks whose cost is known{% endif %}, at the prices of each AI company (they bill you for these).{% endif %}
 </p>
 {% endif %}
 </div>
@@ -40,15 +40,15 @@
 <div class="table-scroll" role="region" aria-labelledby="ai-usage-title" tabindex="0">
 <table>
   <caption class="visually-hidden">AI usage history, newest first</caption>
-  <thead><tr><th scope="col">Date</th><th scope="col">What it was for</th><th scope="col">Cost, paid by</th></tr></thead>
+  <thead><tr><th scope="col">Date</th><th scope="col">What it was for</th><th scope="col">AI used</th><th scope="col">Cost, paid by</th></tr></thead>
   <tbody>
   {% for u in usage %}
-  <tr><td>{{ u.date }}</td><td>{{ u.label }}</td><td>{{ u.cost }}, {{ {'own_key': 'your own key', 'site': 'free, paid by the site'}.get(u.paid_by, 'credits') }}</td></tr>
+  <tr><td>{{ u.date }}</td><td>{{ u.label }}</td><td>{{ u.model }}</td><td>{{ u.cost }}, {{ {'own_key': 'your own key', 'site': 'free, paid by the site'}.get(u.paid_by, 'credits') }}</td></tr>
   {% endfor %}
   </tbody>
 </table>
 </div>
-<p class="meta">Shows the latest {{ usage|length }} AI tasks, newest first. Costs on your own key are worked out from Anthropic's prices. The amount on Anthropic's bill is the correct one.</p>
+<p class="meta">Shows the latest {{ usage|length }} AI tasks, newest first. Costs on your own key are worked out from the AI company's prices{% if by_payer.own_key and by_payer.own_key.others %}: for another company's model, from the prices you gave on the AI key page{% endif %}. The amount on the company's bill is the correct one.</p>
 {% else %}
 <p>You have not used the AI yet.</p>
 {% endif %}
