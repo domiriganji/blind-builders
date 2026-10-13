@@ -23,15 +23,25 @@ main:focus { outline: none; box-shadow: none; }
 .skip-link:focus { left: 0.5rem; top: 0.5rem; }
 .visually-hidden { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .site-header, main, .site-sections, .site-footer { max-width: 48rem; margin: 0 auto; padding: 0 1rem; }
-.site-header { border-bottom: 2px solid var(--border); padding-bottom: 0.25rem; }
-.site-name { font-weight: 700; font-size: 1.2rem; margin: 0.5rem 0 0; }
-.menu-link { margin: 0; }
-.site-header nav ul, .site-sections ul, .site-footer nav ul { list-style: none; margin: 0.25rem 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; }
+.site-header { border-bottom: 2px solid var(--border); padding-top: 0.25rem; padding-bottom: 0.25rem; }
+.site-name { font-weight: 700; font-size: 1.2rem; margin: 0; }
+/* After the site name, the header links flow like words in a line and wrap into as few rows as fit, so with
+   zoom or large text the page's heading still starts near the top of the screen. */
+.site-header .menu-link, .site-header nav, .site-header nav ul { display: inline; margin: 0; padding: 0; }
+/* The space between links is widened, rather than given a margin, so the space at the end of a row does not
+   push the last link onto a row of its own. */
+.site-header { word-spacing: 0.375rem; }
+.site-header a, .site-header button { word-spacing: normal; }
+.site-header nav ul { list-style: none; }
+.site-header nav li { display: inline-block; max-width: 100%; }
+.site-sections ul, .site-footer nav ul { list-style: none; margin: 0.25rem 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; }
 /* Links in the menus are large enough to tap, with room between rows. */
 .site-header a, .site-sections a, .site-footer nav a, .link-button { display: inline-flex; align-items: center; min-height: 44px; }
 .site-name a { min-height: 44px; }
 /* Sign out acts at once, so it sits on its own row, apart from the other links. */
-.site-header .sign-out { flex-basis: 100%; margin-top: 0.25rem; }
+.site-header .sign-out { display: block; margin-top: 0.25rem; }
+/* On a narrow screen, or zoomed in, a row of its own costs a whole line before the heading. */
+@media (max-width: 30em) { .site-header .sign-out { display: inline-block; margin-top: 0; } }
 .site-sections { border-top: 2px solid var(--border); padding-top: 0.5rem; padding-bottom: 0.5rem; }
 .site-sections:focus { outline: none; box-shadow: none; }
 .sections-title { margin-top: 0.5rem; font-size: 1.2rem; }

@@ -10,8 +10,8 @@
   {{ field('screen_reader', 'Screen reader, braille display or magnifier you use most', values.screen_reader, hint='For example NVDA with a Focus 40 braille display, VoiceOver, TalkBack, ZoomText or the screen magnifier on your phone, or none. This helps the AI and other members give advice that fits you.', error=errors.screen_reader) }}
   {{ field('device', 'Device you use most', values.device, hint='For example an Android phone, an iPhone or a Windows laptop.', error=errors.device) }}
   {{ select('language', 'Your main language', languages, values.language, hint='The site is in English. If you write to the AI in your language, it answers in your language.', error=errors.language, required=true) }}
-  {{ select('sight_onset', 'Blind or low vision since', sight_options, values.sight_onset, hint='Used only to match you with reports from people with a similar experience.', error=errors.sight_onset) }}
-  {{ select('vision', 'Which fits you best?', vision_options, values.vision, hint='Used only to match you with reports from people with a similar experience.', error=errors.vision) }}
+  {{ select('sight_onset', 'Blind or low vision since', sight_options, values.sight_onset, hint='Filled in for you when you report how a tool worked for you. It is shown with your report, so members with a similar history can compare.', error=errors.sight_onset) }}
+  {{ select('vision', 'Which fits you best?', vision_options, values.vision, hint='Saved on your profile only. The site does not use it yet.', error=errors.vision) }}
   {{ radios('verbosity', 'How you like answers', verbosity_options, values.verbosity, hint='The AI writes its answers this way for you.', error=errors.verbosity) }}
   {{ radios('describe_looks', 'When the AI tells you how something you built looks', looks_options, values.describe_looks, hint='Colour codes and font names are given only when you ask for them.', error=errors.describe_looks) }}
   {{ checkbox('show_name_on_checks', 'Show my name on peer checks instead of my code name', values.show_name_on_checks) }}

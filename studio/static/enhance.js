@@ -29,6 +29,12 @@
   Array.prototype.forEach.call(document.querySelectorAll("input[data-shows]"), function (box) {
     var fields = box.getAttribute("data-shows").split(" ").map(function (id) { return document.getElementById(id); })
       .filter(function (f) { return f; });
+    // As plain text, phones would add capitals and autocorrect what was typed, so those stay off.
+    fields.forEach(function (f) {
+      f.setAttribute("autocapitalize", "none");
+      f.setAttribute("autocorrect", "off");
+      f.setAttribute("spellcheck", "false");
+    });
     function apply(show) { fields.forEach(function (f) { f.type = show ? "text" : "password"; }); }
     box.addEventListener("change", function () { apply(box.checked); });
     if (box.form) box.form.addEventListener("submit", function () { apply(false); });

@@ -3,7 +3,9 @@
 {% block content %}
 <h1>{{ title }}</h1>
 {{ error_summary(errors) }}
-{% if has_code %}
+{% if state == 'unsaved' %}
+<p>Your recovery code was not confirmed as saved, and it can no longer be shown. Make a new one now and save it, so a forgotten password does not lock you out. The site sends no emails, so the code is the only way back in.</p>
+{% elif has_code %}
 <p>You have a recovery code. It is never shown again, so nobody using your account can read it. If you lost it, make a new one: the old one stops working.</p>
 {% else %}
 <p>A recovery code lets you set a new password if you forget yours. The site sends no emails, so without a code a forgotten password locks you out. Make one now and save it.</p>

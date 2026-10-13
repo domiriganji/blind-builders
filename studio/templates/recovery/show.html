@@ -3,7 +3,7 @@
 {% block content %}
 <h1>{{ title }}</h1>
 {% if again %}<p><strong>This is the same code as before.</strong></p>{% endif %}
-<p>If you forget your password, this code lets you set a new one. The site sends no emails, so this code is the only way back in. It stays on this page until you choose "I have saved my code", then it is never shown again.</p>
+<p>If you forget your password, this code lets you set a new one. The site sends no emails, so this code is the only way back in. It stays on this page for one hour, or until you choose "I have saved my code", then it is never shown again.</p>
 <h2>The code</h2>
 <div class="field">
   <label for="recovery-code">Your recovery code</label>
@@ -14,6 +14,7 @@
   <button type="button" class="button button-secondary js-only" data-copy="recovery-code" data-copied="copy-status">Copy the code</button>
   <a class="button button-secondary" href="/account/recovery-code.txt" download>Save the code as a text file</a>
 </div>
+<p class="meta">The text file is named "{{ file_name }}". On an iPhone it goes to Downloads in the Files app; on Android, to the Downloads folder.</p>
 <p id="copy-status" role="status" class="meta"></p>
 <h2>Save it now</h2>
 <ul>

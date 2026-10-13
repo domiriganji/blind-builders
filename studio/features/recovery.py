@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import secrets
 import time
+from datetime import datetime, timezone
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
@@ -17,7 +19,7 @@ from starlette.concurrency import run_in_threadpool
 
 from .. import db, limits
 from ..security import decrypt_secret, encrypt_secret, hash_password, verify_password
-from ..web import checked_form, current_user, end_all_sessions, error_title, redirect, render, require_user, sign_in
+from ..web import checked_form, current_user, date_words, end_all_sessions, error_title, redirect, render, require_user, sign_in
 
 router = APIRouter()
 NAV = None
@@ -39,6 +41,9 @@ TOO_MANY_TRIES = ("Several tries from your internet connection did not work, so 
 def seed() -> None:
     with db.session() as conn:
         db.ensure_column(conn, "users", "recovery_hash", "TEXT")
+        # 0 while a new code waits for the member to say "I have saved my code". Codes made before this column
+        # existed count as saved.
+        db.ensure_column(conn, "users", "recovery_saved", "INTEGER NOT NULL DEFAULT 1")
         # Wrong tries used to be kept here, by email address, for ever. They now live in the attempts table.
         conn.execute("DROP TABLE IF EXISTS recovery_attempts")
 
@@ -60,8 +65,20 @@ def spelled_out(code: str) -> str:
 def set_new_code(user_id: int) -> str:
     code = new_code()
     with db.session() as conn:
-        conn.execute("UPDATE users SET recovery_hash = ? WHERE id = ?", (hash_password(normalize(code)), user_id))
+        conn.execute("UPDATE users SET recovery_hash = ?, recovery_saved = 0 WHERE id = ?",
+                     (hash_password(normalize(code)), user_id))
     return code
+
+
+def code_state(request: Request, user: dict) -> str:
+    """Where the member's recovery code stands: 'none' (no code), 'waiting' (a new code is on its page,
+    not yet confirmed as saved), 'unsaved' (a code was made but never confirmed, and it can no longer be
+    shown) or 'saved'. Home and Your account use this, so neither says a code is saved before the member does."""
+    if not user.get("recovery_hash"):
+        return "none"
+    if _shown_code(request):
+        return "waiting"
+    return "unsaved" if user.get("recovery_saved") == 0 else "saved"
 
 
 def show_once(request: Request, code: str, heading: str, next_url: str = "/", done: str = "") -> None:
@@ -104,8 +121,9 @@ def recovery_page(request: Request, user: dict = Depends(require_user)):
         again = bool(shown.get("seen"))
         if not again:
             request.session["recovery_show"] = {**shown, "seen": True}
+        site = request.app.state.settings.site_name
         return render(request, "recovery/show.html", title=shown["heading"], code=code,
-                      spelled=spelled_out(code), again=again)
+                      spelled=spelled_out(code), again=again, file_name=_file_name(site, shown))
     return _manage_page(request, user)
 
 
@@ -116,12 +134,28 @@ def recovery_file(request: Request, user: dict = Depends(require_user)):
     if not found:
         return redirect("/account/recovery-code")
     site = request.app.state.settings.site_name
-    text = (f"Recovery code for {site}\r\n\r\n{found[1]}\r\n\r\nSpelled out: {spelled_out(found[1])}.\r\n\r\n"
+    shown, code = found
+    text = (f"Recovery code for {site}\r\n\r\n{code}\r\n\r\nSpelled out: {spelled_out(code)}.\r\n\r\n"
+            f"Made on {_made_on(shown)} for {user['email']}. A newer code replaces this one.\r\n\r\n"
             f"With your email address, this code lets you set a new password if you forget yours. "
             f"Keep it private.\r\n")
+    name = _file_name(site, shown)
+    ascii_name = "".join(ch if 32 <= ord(ch) < 127 and ch not in '"\\' else "-" for ch in name)
     return Response(text, media_type="text/plain; charset=utf-8",
-                    headers={"Content-Disposition": 'attachment; filename="recovery-code.txt"',
+                    headers={"Content-Disposition": f'attachment; filename="{ascii_name}"; '
+                                                    f"filename*=UTF-8''{quote(name)}",
                              "Cache-Control": "no-store"})
+
+
+def _made_on(shown: dict) -> str:
+    made = datetime.fromtimestamp(int(shown.get("at") or time.time()), timezone.utc)
+    return date_words(made.isoformat())
+
+
+def _file_name(site: str, shown: dict) -> str:
+    """'Blind Creators Studio recovery code, 13 October 2026.txt': the date tells several saved codes apart."""
+    clean = "".join(ch for ch in site if ch not in '/\\:*?"<>|' and ord(ch) >= 32).strip() or "Recovery"
+    return f"{clean} recovery code, {_made_on(shown)}.txt"
 
 
 @router.post("/account/recovery-code/saved")
@@ -129,6 +163,13 @@ async def code_saved(request: Request, user: dict = Depends(require_user)):
     """The member says the code is saved: it is never shown again."""
     await checked_form(request)
     shown = request.session.pop("recovery_show", None)
+    code = decrypt_secret(request.app.state.settings.secret_key, shown.get("code_enc") or "") \
+        if isinstance(shown, dict) else None
+    # Only the code that works now counts: a code made since on another device replaces this one.
+    if code and user.get("recovery_hash") and await run_in_threadpool(verify_password, normalize(code),
+                                                                      user["recovery_hash"]):
+        with db.session() as conn:
+            conn.execute("UPDATE users SET recovery_saved = 1 WHERE id = ?", (user["id"],))
     next_url = _safe_next(str(shown.get("next") or "/")) if isinstance(shown, dict) else "/account"
     done = str(shown.get("done") or "") if isinstance(shown, dict) else ""
     if done:
@@ -141,10 +182,12 @@ async def code_saved(request: Request, user: dict = Depends(require_user)):
 
 
 def _manage_page(request: Request, user: dict, errors: dict | None = None, status_code: int = 200):
-    has_code = bool(user.get("recovery_hash"))
-    title = error_title("Your recovery code" if has_code else "You have no recovery code yet", errors or {})
-    return render(request, "recovery/manage.html", title=title, has_code=has_code, errors=errors or {},
-                  status_code=status_code)
+    state = code_state(request, user)
+    titles = {"saved": "Your recovery code", "unsaved": "Your recovery code was not saved: make a new one",
+              "none": "You have no recovery code yet"}
+    title = error_title(titles.get(state, "Your recovery code"), errors or {})
+    return render(request, "recovery/manage.html", title=title, has_code=state == "saved", state=state,
+                  errors=errors or {}, status_code=status_code)
 
 
 @router.post("/account/recovery-code")

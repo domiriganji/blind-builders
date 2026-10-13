@@ -13,6 +13,10 @@
   <input type="hidden" name="next" value="{{ next }}">
   {{ field('email', 'Email address', values.email, type='email', required=true, autocomplete='email', error=errors.email) }}
   {{ field('password', 'Password', '', type='password', required=true, autocomplete='current-password', error=errors.password) }}
+  <div class="field choice js-only">
+    <input type="checkbox" id="show-password" data-shows="field-password">
+    <label for="show-password">Show my password</label>
+  </div>
   <button type="submit" class="button button-primary">Sign in</button>
 </form>
 <p>New here? <a href="/register{% if next and next != '/' %}?next={{ next|urlencode }}{% endif %}">Create an account</a>.</p>

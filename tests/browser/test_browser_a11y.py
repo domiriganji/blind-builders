@@ -74,3 +74,23 @@ def test_skip_link_is_first_and_works(live, browser):
     assert page.evaluate("document.activeElement.textContent.trim()") == "Skip to main content"
     page.keyboard.press("Enter")
     assert page.evaluate("document.activeElement.id") == "main"
+
+
+def test_heading_is_on_the_first_screen_at_400_percent_zoom(live, browser):
+    """320 by 256 pixels is a 1280 by 1024 screen at 400 percent zoom. The header links wrap in rows, so the
+    page's heading still starts on the first screen, signed out and signed in."""
+    page = new_page(browser, width=320)
+    page.set_viewport_size({"width": 320, "height": 256})
+    low = []
+    for path in ("/", "/login"):
+        page.goto(live["base"] + path)
+        top = page.evaluate("document.querySelector('h1').getBoundingClientRect().top")
+        if top > 200:
+            low.append(f"{path} ({top:.0f}px)")
+    sign_up(page, live["base"], "zoom@example.com", "Zoom")
+    for path in ("/account/recovery-code", "/", "/account"):
+        page.goto(live["base"] + path)
+        top = page.evaluate("document.querySelector('h1').getBoundingClientRect().top")
+        if top > 200:
+            low.append(f"{path} ({top:.0f}px)")
+    assert not low, f"pages whose heading starts below the first screen: {low}"

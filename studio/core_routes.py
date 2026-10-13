@@ -36,8 +36,9 @@ def home(request: Request):
     next_steps = None
     if user:
         from .features.account import ai_status
+        from .features.recovery import code_state
         if ai_status(settings, user)["mode"] == "none":
-            next_steps = {"code_saved": bool(user.get("recovery_hash"))}
+            next_steps = {"code": code_state(request, user)}
     return render(request, "home.html", title=heading if isinstance(heading, str) and heading else HOME_TITLE,
                   home_title=HOME_TITLE, pay=pay_facts(settings), next_steps=next_steps)
 
@@ -97,8 +98,8 @@ def _state(job: dict) -> str:
 
 
 def _when(text: str | None) -> str:
-    """12 October 2026, 14:03 UTC"""
-    return date_words(text, with_time=True) if text else ""
+    """12 October 2026. The clock time is already in each link's name, so it is not said twice."""
+    return date_words(text) if text else ""
 
 
 def _clock(text: str | None) -> str:
@@ -116,7 +117,8 @@ def job_list(request: Request, user: dict = Depends(require_user)):
         groups["failed" if state == "stalled" else state].append(item)
     counts = [(len(groups["working"]), "still working"), (len(groups["failed"]), "did not finish"),
               (len(groups["done"]), "done")]
-    summary = ", ".join(f"{n} {words}" for n, words in counts if n)
+    # With one group, its heading already gives the count, so the summary is left out.
+    summary = ", ".join(f"{n} {words}" for n, words in counts if n) if sum(1 for n, _ in counts if n) > 1 else ""
     return render(request, "jobs/list.html", title="Your recent work", groups=groups,
                   total=sum(n for n, _ in counts), summary=summary)
 

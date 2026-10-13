@@ -130,7 +130,10 @@ def test_profile_shows_code_name_and_current_values(user_client):
     assert h1(r.text) == "Your profile and preferences"
     assert user_row()["pseudonym"] in r.text
     assert 'value="NVDA"' in r.text
-    assert "Used only to match you with reports" in r.text
+    # Each hint says what really happens with the answer (VOICE 4.8): no matching feature is promised.
+    assert "Used only to match you with reports" not in r.text
+    assert "It is shown with your report, so members with a similar history can compare." in r.text
+    assert "Saved on your profile only. The site does not use it yet." in r.text
     assert "Blind or low vision since" in r.text and "Which fits you best?" in r.text
     assert "When your sight changed" not in r.text and "I have low vision" not in r.text
     assert "Summary first, then details" in r.text and "Full detail" in r.text
@@ -602,7 +605,19 @@ def test_pricing_is_public_and_explains_the_way_that_works(client):
     # Building a small website: 15,000 in and 20,000 out on Opus 5.5 = $0.06 + $0.40 = $0.46
     assert "about $0.46" in r.text
     assert "$4.00 per million tokens read" in r.text
+    # With no Claude key on the site, web search steps do not work with another company's key, and it says so.
+    assert "the site's way" not in r.text
+    assert ("Research, Do this for me, Find before you build and finding places to publish in Write search the web, "
+            "and only Claude can do that.") in r.text
+    assert "those steps do not work on this site now, because the site has no Claude key for them" in r.text
     assert_accessible(r)
+
+
+def test_pricing_says_who_pays_for_web_search_on_the_site_key(client, app):
+    app.state.settings.anthropic_api_key = "sk-ant-site-key"
+    r = client.get("/pricing")
+    assert "those steps run on the site's Claude key and are paid from your credits" in r.text
+    assert "so without credits those steps do not work" in r.text
 
 
 def test_pricing_with_payments_explains_both_ways(client, payments_on):

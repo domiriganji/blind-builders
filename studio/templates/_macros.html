@@ -30,7 +30,7 @@
 <div class="field{% if error %} has-error{% endif %}">
   <label for="field-{{ name }}">{{ label }}{% if not required and mark_optional %} <span class="optional">(optional)</span>{% endif %}</label>
   {{ _hint_error(name, hint, error) }}
-  <input id="field-{{ name }}" name="{{ name }}" type="{{ type }}" value="{{ (value if type == 'password' else restored(name, value)) or '' }}"{% if required %} required{% endif %}{% if autocomplete %} autocomplete="{{ autocomplete }}"{% endif %}{{ _described(name, hint, error) }} {{ extra|safe }}>
+  <input id="field-{{ name }}" name="{{ name }}" type="{{ type }}" value="{{ (value if type == 'password' else restored(name, value)) or '' }}"{% if required %} required{% endif %}{% if autocomplete %} autocomplete="{{ autocomplete }}"{% endif %}{{ _described(name, hint, error) }}{% if type == 'password' and 'autocapitalize' not in extra %} autocapitalize="none" autocorrect="off" spellcheck="false"{% endif %} {{ extra|safe }}>
 </div>
 {% endmacro %}
 

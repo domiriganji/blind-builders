@@ -76,3 +76,9 @@ def test_signed_out_pages_pass_checks(client):
         for f in check_html(r.text, name=path).errors:
             problems.append(f"{path}: {f.rule}: {f.message} {f.where}")
     assert not problems, "\n".join(problems)
+
+
+def test_accessibility_page_does_not_suggest_staff_will_answer(client):
+    page = client.get("/accessibility").text
+    assert "tell us" not in page
+    assert "say which screen reader, braille display or magnifier, browser and device you use. Members answer when they can." in page

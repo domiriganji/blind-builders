@@ -33,7 +33,7 @@
 <p><a href="/account/admin">Site owner tools</a>: give credits, see how much the site is used, and <a href="/account/admin/ai">AI settings for your key</a>.</p>
 {% endif %}
 <h2>Getting back in</h2>
-<p>{% if user.recovery_hash %}You have a recovery code for a forgotten password.{% else %}You have no recovery code yet. Without one, a forgotten password locks you out.{% endif %} <a href="/account/recovery-code">{% if user.recovery_hash %}Make a new recovery code{% else %}Make your recovery code now{% endif %}</a>.</p>
+<p>{% if recovery_state == 'waiting' %}Your new recovery code is waiting for you to save it. <a href="/account/recovery-code">Go to your recovery code</a>.{% elif recovery_state == 'unsaved' %}Your recovery code was not confirmed as saved, so make a new one now. <a href="/account/recovery-code">Make a new recovery code</a>.{% elif recovery_state == 'saved' %}You have a recovery code for a forgotten password. <a href="/account/recovery-code">Make a new recovery code</a>.{% else %}You have no recovery code yet. Without one, a forgotten password locks you out. <a href="/account/recovery-code">Make your recovery code now</a>.{% endif %}</p>
 <h2>Signing out everywhere</h2>
 <p>If you signed in on a computer or phone you no longer have, or on a shared computer, sign out on every device. You then sign in again here.</p>
 {{ post_button('/logout-everywhere', 'Sign every device out') }}

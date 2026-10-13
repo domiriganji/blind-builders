@@ -37,6 +37,7 @@ from ..auth import PASSWORD_MAX, PASSWORD_MIN, clean_text, secret_problem
 from ..security import decrypt_secret, encrypt_secret, hash_password, verify_password
 from ..web import (KEPT_FORMS_SCHEMA, checked_form, date_words, end_all_sessions, error_title, flash, redirect,
                    render, require_user, sign_in)
+from .recovery import code_state
 
 log = logging.getLogger("studio.account")
 router = APIRouter()
@@ -304,6 +305,7 @@ def _parse_dollars(text: str) -> int | None:
 def index(request: Request, user: dict = Depends(require_user)):
     settings = _settings(request)
     return render(request, "account/index.html", title=_done_title(request, "Your account"),
+                  recovery_state=code_state(request, user),
                   status=ai_status(settings, user), key_title=key_page_title(user), sight=dict(SIGHT_ONSET), vision=dict(VISION),
                   verbosity=dict(VERBOSITY))
 

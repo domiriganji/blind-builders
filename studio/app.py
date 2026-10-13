@@ -17,7 +17,7 @@ from . import ai, credits, db, jobs, site_ai
 from .auth import router as auth_router
 from .config import Settings, load_settings
 from .core_routes import router as core_router
-from .web import FormExpired, LoginRequired, flash, keep_form, redirect, render
+from .web import FormExpired, LoginRequired, current_user, flash, keep_form, redirect, render
 
 log = logging.getLogger("studio")
 
@@ -218,7 +218,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             back_url, back_label = _section_link(request.url.path)
         elif exc.status_code == 405:
             heading = "That page only works from its form"
-            if request.url.path == "/logout":
+            if request.url.path == "/logout" and not current_user(request):
+                # Opened from history or a bookmark after signing out: there is nothing to do.
+                heading = "You are signed out"
+                message = "You are already signed out. Nothing else to do here."
+                back_url, back_label = "/login", "Sign in"
+            elif request.url.path == "/logout":
                 message = "To sign out, choose the button below."
                 sign_out = True
             else:

@@ -263,6 +263,8 @@ async def login(request: Request):
             else:
                 limits.clear("login", keys[0][0])
     if errors:
+        if "password" not in errors:
+            errors["password"] = PASSWORD_CLEARED
         return render(request, "auth/login.html", title=error_title("Sign in", errors),
                       values={"email": email[:300]}, errors=errors, next=next_url, status_code=status_code,
                       reason=next_words(request, next_url), words_kept=has_kept_form(request))

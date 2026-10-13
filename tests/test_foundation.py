@@ -309,7 +309,9 @@ def test_form_errors_keep_h1_and_title_the_same(client):
     assert _h1(r.text) == _title(r.text) == "Please check 3 answers: Create your account"
     r = post(client, "/login", {"email": "nobody@example.com", "password": "whatever whatever"})
     assert r.status_code == 400
-    assert _h1(r.text) == _title(r.text) == "Please check 1 answer: Sign in"
+    # The wrong password is not kept, and the password field says its box was emptied.
+    assert _h1(r.text) == _title(r.text) == "Please check 2 answers: Sign in"
+    assert "The password box was emptied so your password is not kept on the page." in r.text
     assert a11y_check.check_html(r.text).errors == []
 
 
@@ -368,6 +370,10 @@ def test_done_job_without_result_link_is_listed_as_done(user_client):
     page = user_client.get("/jobs").text
     assert re.search(r"Quiet job \(\d\d:\d\d\): done\.", page) and "still working" not in page
     assert "<h2>Done (1)</h2>" in page
+    # The clock time is in the link name, so the rest of the line gives the date only, and with one group
+    # the count is said once, in its heading.
+    assert re.search(r"Started \d{1,2} \w+ \d{4}\.</span>", page) and " UTC.</span>" not in page
+    assert "Your latest" not in page and "Times are in UTC" in page
 
 
 def test_job_list_is_split_under_headings(user_client):
@@ -653,3 +659,32 @@ def test_first_signed_in_home_lists_next_steps_until_the_ai_is_set_up(client):
     assert "<h2>Your next steps</h2>" in r.text and "Save your recovery code: done." in r.text
     assert 'href="/account/ai-key">connect your Claude API key</a>' in r.text
     assert 'href="/learn/start-here"' in r.text and r.text.index("Your next steps") < r.text.index("What you can do")
+
+
+def test_logout_opened_by_its_address_when_signed_out_says_so(client):
+    r = client.get("/logout")
+    assert _h1(r.text) == _title(r.text) == "You are signed out"
+    assert "You are already signed out. Nothing else to do here." in r.text
+    assert "choose the button below" not in r.text and '<a href="/login">Sign in</a>' in r.text
+
+
+def test_logout_opened_by_its_address_when_signed_in_offers_the_button(user_client):
+    r = user_client.get("/logout")
+    assert "To sign out, choose the button below." in r.text
+    assert '<form method="post" action="/logout">' in r.text
+
+
+def test_password_fields_turn_off_capitals_and_autocorrect(client):
+    """Show my password makes the field plain text, where phones would add capitals and autocorrect."""
+    for path in ("/register", "/login", "/reset-password"):
+        page = client.get(path).text
+        field = re.search(r'<input id="field-password"[^>]*>', page).group(0)
+        assert 'autocapitalize="none" autocorrect="off" spellcheck="false"' in field, path
+
+
+def test_sign_in_has_show_password_and_says_the_box_was_emptied(client):
+    page = client.get("/login").text
+    assert 'data-shows="field-password"' in page and "Show my password" in page
+    r = post(client, "/login", {"email": "nobody@example.com", "password": "whatever whatever"})
+    assert 'id="error-password"' in r.text and "The password box was emptied" in r.text
+    assert 'value="nobody@example.com"' in r.text

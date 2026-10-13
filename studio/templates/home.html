@@ -5,7 +5,10 @@
 {% if next_steps %}
 <h2>Your next steps</h2>
 <ol>
-  {% if next_steps.code_saved %}<li>Save your recovery code: done.</li>{% else %}<li><a href="/account/recovery-code">Make your recovery code</a>, so a forgotten password does not lock you out.</li>{% endif %}
+  {% if next_steps.code == 'saved' %}<li>Save your recovery code: done.</li>
+  {% elif next_steps.code == 'waiting' %}<li>Save your recovery code: not done yet. <a href="/account/recovery-code">Go back to your recovery code</a> and choose "I have saved my code".</li>
+  {% elif next_steps.code == 'unsaved' %}<li>Save your recovery code: not done. Your code was not confirmed as saved, so <a href="/account/recovery-code">make a new recovery code</a> now.</li>
+  {% else %}<li><a href="/account/recovery-code">Make your recovery code</a>, so a forgotten password does not lock you out.</li>{% endif %}
   <li>Set up the AI: <a href="/account/ai-key">connect your Claude API key</a>. A typical task costs from {{ pay.cost_low }} to {{ pay.cost_high }}, paid to Anthropic. <a href="/learn/claude-api-key">Getting your Claude API key, step by step</a> goes through each step.{% if pay.can_buy %} Or <a href="/account/credits/buy">buy credits</a> from this site.{% endif %}</li>
   <li>Read <a href="/learn/start-here">Start here</a>, a short guide to the site.</li>
   <li>Try <a href="/build">Build</a>: describe a website or app in your own words.</li>

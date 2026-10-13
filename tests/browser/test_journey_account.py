@@ -201,13 +201,13 @@ def test_register_sign_out_and_sign_in(live, browser):
     assert heading(page) == "Sign in"
     assert_page_ok(page, "sign in")
     page.get_by_label("Email address").fill("journey-register@example.com")
-    page.get_by_label("Password").fill("not my password")
+    page.get_by_label("Password", exact=True).fill("not my password")
     page.get_by_role("button", name="Sign in").click()
-    assert heading(page) == "Please check 1 answer: Sign in"
+    assert heading(page) == "Please check 2 answers: Sign in"  # the password box was emptied, and says so
     assert_page_ok(page, "sign in with errors")
     follow_error(page, "The email or password is not right. Check both and try again.",
                  page.get_by_label("Email address"))
-    page.get_by_label("Password").fill(PASSWORD)
+    page.get_by_label("Password", exact=True).fill(PASSWORD)
     page.get_by_role("button", name="Sign in").click()
     assert heading(page) == "You are signed in"
     assert_page_ok(page, "home after signing in")
@@ -236,7 +236,7 @@ def test_sign_in_returns_to_the_page_asked_for(live, browser):
     assert heading(page) == "Sign in"
     expect(page.get_by_text("Sign in to see Your account. You come straight back to the page afterwards.")).to_be_visible()
     page.get_by_label("Email address").fill("journey-next@example.com")
-    page.get_by_label("Password").fill(PASSWORD)
+    page.get_by_label("Password", exact=True).fill(PASSWORD)
     page.get_by_role("button", name="Sign in").click()
     assert heading(page) == "Your credits and AI usage"
     expect(page.get_by_role("status").filter(has_text="You are signed in.")).to_be_visible()
@@ -311,7 +311,7 @@ def test_words_survive_being_signed_out_and_an_expired_form(live, browser):
     expect(page.get_by_text("You were signed out before this was saved. Sign in and your words will be put back "
                             "in the form. Nothing was saved yet.")).to_be_visible()
     page.get_by_label("Email address").fill("journey-kept@example.com")
-    page.get_by_label("Password").fill(PASSWORD)
+    page.get_by_label("Password", exact=True).fill(PASSWORD)
     page.get_by_role("button", name="Sign in").click()
     assert heading(page) == "Your profile and preferences"
     expect(page.get_by_label("Device you use most")).to_have_value("A braille display and an iPhone")
@@ -597,9 +597,9 @@ def test_delete_account_journey(live, browser):
 
     page.goto(base + "/login")
     page.get_by_label("Email address").fill("journey-delete@example.com")
-    page.get_by_label("Password").fill(PASSWORD)
+    page.get_by_label("Password", exact=True).fill(PASSWORD)
     page.get_by_role("button", name="Sign in").click()
-    assert heading(page) == "Please check 1 answer: Sign in"
+    assert heading(page) == "Please check 2 answers: Sign in"  # the password box was emptied, and says so
 
 
 # ----- job pages --------------------------------------------------------------------------------
@@ -721,3 +721,17 @@ def test_account_pages_without_javascript(live, browser, monkeypatch):
     assert heading(page) == "Your Claude API key is connected"
     page.get_by_role("button", name="Sign out").click()
     assert heading(page) == "You are signed out"
+
+
+def test_show_my_password_on_sign_in_keeps_capitals_and_autocorrect_off(live, browser):
+    page = new_page(browser)
+    page.goto(live["base"] + "/login")
+    field = page.get_by_label("Password", exact=True)
+    field.fill("correct horse battery")
+    page.get_by_label("Show my password").check()
+    expect(field).to_have_attribute("type", "text")
+    expect(field).to_have_attribute("autocapitalize", "none")
+    expect(field).to_have_attribute("autocorrect", "off")
+    expect(field).to_have_attribute("spellcheck", "false")
+    page.get_by_label("Show my password").uncheck()
+    expect(field).to_have_attribute("type", "password")

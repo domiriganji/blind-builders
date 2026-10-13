@@ -3,7 +3,7 @@
 {% block content %}
 <h1>{{ title }}</h1>
 {% if total %}
-<p>Your latest {{ 'piece of work' if total == 1 else total ~ ' pieces of work' }}: {{ summary }}. Times are in UTC, the same as London time in winter.</p>
+<p>{% if summary %}Your latest {{ total }} pieces of work: {{ summary }}. {% endif %}Times are in UTC, the same as London time in winter.</p>
 {% if groups.working %}
 <h2>Still working ({{ groups.working|length }})</h2>
 <ul class="item-list">

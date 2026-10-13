@@ -132,3 +132,52 @@ def test_site_owner_can_set_a_password(user_client, capsys):
     r = post(user_client, "/login", {"email": "amina@example.com", "password": "owner set password"})
     assert r.status_code == 200
     assert user_id() > 0
+
+
+def test_home_and_account_say_a_waiting_code_is_not_saved_yet(client, monkeypatch):
+    _sign_up(client)  # the code page is open, but "I have saved my code" is not chosen
+    home = client.get("/").text
+    assert "Save your recovery code: done." not in home
+    assert "Save your recovery code: not done yet." in home
+    assert '<a href="/account/recovery-code">Go back to your recovery code</a>' in home
+    account = client.get("/account").text
+    assert "Your new recovery code is waiting for you to save it." in account
+    assert '<a href="/account/recovery-code">Go to your recovery code</a>' in account
+    assert "You have a recovery code for a forgotten password" not in account
+    # After the hour, the code can no longer be shown, so the site says to make a new one.
+    monkeypatch.setattr(recovery, "SHOW_SECONDS", -1)
+    page = client.get("/account/recovery-code").text
+    assert "<h1>Your recovery code was not saved: make a new one</h1>" in page
+    assert "was not confirmed as saved" in page and "You have a recovery code." not in page
+    assert "Your code was not confirmed as saved" in client.get("/").text
+    assert "Your recovery code was not confirmed as saved, so make a new one now." in client.get("/account").text
+    monkeypatch.setattr(recovery, "SHOW_SECONDS", 3600)
+    post(client, "/account/recovery-code", {"password": "correct horse battery"})
+    post(client, "/account/recovery-code/saved")
+    assert "You have a recovery code for a forgotten password." in client.get("/account").text
+    assert "Save your recovery code: done." in client.get("/").text
+
+
+def test_code_page_says_how_long_the_code_stays(client):
+    page = _sign_up(client).text
+    assert "It stays on this page for one hour, or until you choose" in page
+    assert "On an iPhone it goes to Downloads in the Files app" in page
+
+
+def test_text_file_has_the_date_and_account_in_its_name_and_contents(client):
+    page = _sign_up(client).text
+    saved = client.get("/account/recovery-code.txt")
+    name = re.search(r'filename="([^"]+)"', saved.headers["content-disposition"]).group(1)
+    assert re.fullmatch(r"Blind Creators Studio recovery code, \d{1,2} \w+ \d{4}\.txt", name), name
+    assert f'"{name}"' in page.replace("&#34;", '"').replace("&quot;", '"')
+    assert re.search(r"Made on \d{1,2} \w+ \d{4} for ola@example.com\. A newer code replaces this one\.", saved.text)
+
+
+def test_confirming_an_old_code_does_not_count_once_a_newer_one_exists(client):
+    _sign_up(client)  # the first code is waiting in this session
+    with db.session() as conn:
+        uid = conn.execute("SELECT id FROM users").fetchone()[0]
+    recovery.set_new_code(uid)  # made on another device: it replaces the waiting one
+    post(client, "/account/recovery-code/saved")
+    with db.session() as conn:
+        assert conn.execute("SELECT recovery_saved FROM users").fetchone()[0] == 0

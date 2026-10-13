@@ -17,7 +17,7 @@
   <li>Anthropic bills you for exactly what you use, at their prices. This site adds nothing.</li>
   <li>Your key is stored encrypted. The site only ever shows its last 4 characters.</li>
   <li>You can remove it at any time.</li>
-  <li>You can use a key from another AI company instead, such as OpenAI or Google Gemini, and choose its model. Steps that search the web need Claude: with another company's key they use the site's Claude key, the site's way, if the site has one.</li>
+  <li>You can use a key from another AI company instead, such as OpenAI or Google Gemini, and choose its model. Research, Do this for me, Find before you build and finding places to publish in Write search the web, and only Claude can do that. {% if not claude_key %}With a key from another company, those steps do not work on this site now, because the site has no Claude key for them. Use a Claude key for them.{% elif free_for_members %}With a key from another company, those steps run on the site's Claude key, and the site's owner pays for them.{% elif stripe_ready %}With a key from another company, those steps run on the site's Claude key and are paid from your credits.{% else %}With a key from another company, those steps run on the site's Claude key and are paid from your credits. Credits are not on sale on this site yet, so without credits those steps do not work. Use a Claude key for them.{% endif %}</li>
 </ul>
 <p>{% if user %}<a href="/account/ai-key">Connect your Claude API key</a>{% else %}<a href="/register">Create an account</a>, then connect your key on Your account{% endif %}.</p>
 
