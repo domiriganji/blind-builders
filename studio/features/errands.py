@@ -25,7 +25,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from markupsafe import Markup
 
 from .. import db, jobs, sensitive
-from ..ai import AIError, AINotAvailable
+from ..ai import AIError, AINotAvailable, search_unavailable
 from ..web import checked_form, date_words, error_title, flash, get_ai, markdown, redirect, render, require_user
 
 router = APIRouter(prefix="/do")
@@ -585,6 +585,11 @@ def _start(request: Request, user: dict, errand_id: int, step: str):
     except AINotAvailable as exc:
         flash(request, exc.user_message, "error")
         return None
+    problem = search_unavailable(ai)
+    if problem:
+        # Every request ends in a web search: do not charge for a read-back of work that could never finish.
+        flash(request, problem, "error")
+        return None
     errand = _view(_row(errand_id))
     # The title names the request in the member's own words, the same name as on Do this for me, so the
     # list in "Your recent work" says which request each line is about.
@@ -750,9 +755,11 @@ async def respond(request: Request, errand_id: int, user: dict = Depends(require
     if error:
         return _errand_page(request, errand, values={"answer": text}, errors={"answer": error}, status_code=400)
     try:
-        get_ai(request, user)
+        problem = search_unavailable(get_ai(request, user))
     except AINotAvailable as exc:
-        flash(request, exc.user_message, "error")
+        problem = exc.user_message
+    if problem:
+        flash(request, problem, "error")
         return redirect(f"/do/{errand_id}")
     if text:
         _add_note(errand, text)

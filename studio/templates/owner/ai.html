@@ -8,7 +8,7 @@
 <h2>Your Claude API key</h2>
 <p>Claude does the steps that search the live web: Research, Do this for me, Find before you build, and finding publishing venues in Write. Other providers have no common way to search the web, so these steps need this key even when another provider is the main AI. Claude also looks at pictures of built pages, unless you choose the main model for that.</p>
 {% if key_source == 'page' %}
-<p>A key ending in <strong>{{ key_last4 }}</strong> is saved{% if key_saved_at %}, since {{ key_saved_at }}{% endif %}. Members' AI work on the site's key uses it.</p>
+<p>A key ending in <strong>{{ key_last4 }}</strong> is saved{% if key_saved_at %}, since {{ key_saved_at }}{% endif %}. {% if main_is_claude or not main_ready %}Members' AI work on the site's key uses it.{% else %}Web search steps{% if not vision_main %}, and looking at pictures of built pages,{% endif %} use it. Everyday work uses {{ main_label }}.{% endif %}</p>
 {% elif key_source == 'environment' %}
 <p>The key from the server's ANTHROPIC_API_KEY setting is in use. It ends in <strong>{{ key_last4 }}</strong>. A key saved here takes its place.</p>
 {% else %}
@@ -24,7 +24,7 @@
   <li>Keep the site's secret key private, and away from copies of the database: with both, the key could be read.</li>
   <li>As a second safety net, set a monthly spending limit in the Claude Console (platform.claude.com) too.</li>
 </ul>
-<h3>{{ 'Replace the key' if key_source == 'page' else 'Save a key' }}</h3>
+<h3>{{ 'Replace the Claude key' if key_source == 'page' else 'Save a Claude key' }}</h3>
 <form method="post" action="/account/admin/ai/key" novalidate>
   {{ csrf_input() }}
   {{ field('api_key', 'Claude API key', '', type='password', required=true, autocomplete='off', hint='It starts with sk-ant-. Create one in the Claude Console (platform.claude.com) under API keys.', error=key_errors.api_key, extra='spellcheck="false" autocapitalize="off" autocorrect="off"') }}
@@ -36,8 +36,12 @@
   <button type="submit" class="button button-primary">Check and save the key</button>
 </form>
 {% if key_source == 'page' %}
-<h3>Remove the key</h3>
+<h3>Remove the Claude key</h3>
+{% if main_is_claude or not main_ready %}
 <p>After you remove it, members can use the AI only with their own key, or with the server's ANTHROPIC_API_KEY setting if the server has one.</p>
+{% else %}
+<p>After you remove it, everyday work keeps using {{ main_label }}. Web search steps{% if not vision_main %}, and looking at pictures of built pages,{% endif %} then work only for members with their own Claude key, or with the server's ANTHROPIC_API_KEY setting if the server has one.</p>
+{% endif %}
 <form method="post" action="/account/admin/ai/key/remove" novalidate>
   {{ csrf_input() }}
   {{ field('remove_password', 'Your password, to remove the key', '', type='password', required=true, autocomplete='current-password', hint='The password you sign in with.', error=key_errors.remove_password) }}
@@ -55,7 +59,7 @@
 <p>No key for another provider is saved.</p>
 {% endif %}
 <p>The key is kept safe the same way as your Claude key: the provider checks it before it is saved, it is stored encrypted, only its last 4 characters are shown, and saving or removing it needs your password. The site sends it only to the provider's own address, never follows a request sent on to another address, and never to this server or a private network.</p>
-<h3>{{ 'Replace the key' if other else 'Save a key' }}</h3>
+<h3>{{ "Replace the provider's key" if other else "Save a provider's key" }}</h3>
 <form method="post" action="/account/admin/ai/other-key" novalidate>
   {{ csrf_input() }}
   {{ radios('other_provider', 'Which provider the key is from', provider_options, other_values.other_provider, hint='The addresses of the listed providers are set in the site. Companies can change them; docs/DEVELOPING.md says where to update them.', error=other_errors.other_provider, required=true) }}
@@ -86,17 +90,18 @@
   {{ csrf_input() }}
   {{ radios('main_ai', 'Main AI for members on your key', main_options, main_values.main_ai, error=main_errors.main_ai, required=true) }}
   {% if other %}
-  {% if models_problem %}<p>{{ models_problem }} You can type the model name instead.</p>{% endif %}
+  {% if models_problem %}<p>{{ models_problem }}</p>{% endif %}
   {% if other_model_options %}
   {% if model_radios %}
   {{ radios('other_model', 'Model from ' ~ other.name ~ "'s list", other_model_options, main_values.other_model, hint='The list comes from ' ~ other.name ~ ', so new models appear by themselves.', error=main_errors.other_model) }}
   {% else %}
-  {{ select('other_model', 'Model from ' ~ other.name ~ "'s list", [('', 'Choose a model')] + other_model_options, main_values.other_model, hint='The list comes from ' ~ other.name ~ ', so new models appear by themselves.', error=main_errors.other_model) }}
+  {{ select('other_model', 'Model from ' ~ other.name ~ "'s list", [('', 'Choose a model')] + other_model_options, main_values.other_model, hint='Needed when ' ~ other.name ~ ' is the main AI: choose it here, or type its name below. The list comes from ' ~ other.name ~ ', so new models appear by themselves.', error=main_errors.other_model, mark_optional=false) }}
   {% endif %}
   {% endif %}
-  {{ field('other_model_typed', 'Or type the model name', main_values.other_model_typed, hint='Exactly as ' ~ other.name ~ ' writes it. A name typed here is used instead of the list.', error=main_errors.other_model_typed or (main_errors.other_model if not other_model_options else ''), extra='spellcheck="false" autocapitalize="off" autocorrect="off"', mark_optional=false) }}
-  {{ field('other_price_in', 'Price per million tokens in (what the AI reads), in US dollars', main_values.other_price_in, hint="Required for the main AI. Check " ~ other.name ~ "'s price page. Your limits and members' credits use these prices." ~ (' If you leave both prices empty, the prices in ' ~ other.name ~ "'s list are used." if other.lists_prices else ''), error=main_errors.other_price_in, extra='inputmode="decimal"', mark_optional=false) }}
-  {{ field('other_price_out', 'Price per million tokens out (what the AI writes), in US dollars', main_values.other_price_out, hint='A token is about three quarters of a word.', error=main_errors.other_price_out, extra='inputmode="decimal"', mark_optional=false) }}
+  {{ field('other_model_typed', 'Or type the model name', main_values.other_model_typed, hint='Exactly as ' ~ other.name ~ ' writes it. A name typed here is used instead of the list.', error=main_errors.other_model_typed, extra='spellcheck="false" autocapitalize="off" autocorrect="off"', mark_optional=false) }}
+  <input type="hidden" name="prices_for" value="{{ main_values.prices_for or '' }}">
+  {{ field('other_price_in', 'Price per million tokens in (what the AI reads), in US dollars', main_values.other_price_in, hint="Needed for the main AI, above 0, from " ~ other.name ~ "'s price page. Your limits and members' credits use these prices." ~ (' For ' ~ other.name ~ ' you can leave both prices empty to use the prices in its list.' if other.lists_prices else ''), error=main_errors.other_price_in, extra='inputmode="decimal"', mark_optional=false) }}
+  {{ field('other_price_out', 'Price per million tokens out (what the AI writes), in US dollars', main_values.other_price_out, hint='Needed for the main AI, above 0. A token is about three quarters of a word.', error=main_errors.other_price_out, extra='inputmode="decimal"', mark_optional=false) }}
   {% endif %}
   {{ radios('vision', 'Who looks at pictures of built pages', vision_options, main_values.vision, hint='After a build, an AI looks at pictures of the pages and says how they look. When Claude is the main AI, Claude always does this.', error=main_errors.vision, required=true) }}
   <button type="submit" class="button button-primary">Save the main AI</button>
@@ -107,7 +112,7 @@
 <p>This month your keys have spent <strong>{{ spent }}</strong> on members' AI work, at the providers' prices. Monthly limits start again on {{ renews }}.</p>
 <form method="post" action="/account/admin/ai" novalidate>
   {{ csrf_input() }}
-  {{ radios('model', 'Model members use with your key', model_options, values.model, hint='A token is about three quarters of a word. Members who use their own key choose their own model. When another provider is the main AI, this Claude model does the web search steps.', error=errors.model) }}
+  {{ radios('model', 'Model members use with your key' if main_is_claude else 'Claude model for web search steps', model_options, values.model, hint='A token is about three quarters of a word. Members who use their own key choose their own model.' ~ (' When another provider is the main AI, this Claude model does the web search steps.' if main_is_claude else " Everyday work uses " ~ main_label ~ ", chosen under Main AI for members on your key."), error=errors.model) }}
   {{ radios('pay_mode', 'Who pays for AI on your key', pay_modes, values.pay_mode, error=errors.pay_mode) }}
   {{ field('site_month', 'Most your key may spend in a month, for the whole site, in US dollars', values.site_month, hint='What the AI companies charge you, for all your keys together. 0 means no limit. When it is reached, members are told plainly and can still use their own key.', error=errors.site_month, extra='inputmode="decimal"', mark_optional=false) }}
   {{ field('member_month', 'Most each member may use in a month, in US dollars', values.member_month, hint='0 means no limit. When the AI is free for members, they see how much they have left.', error=errors.member_month, extra='inputmode="decimal"', mark_optional=false) }}

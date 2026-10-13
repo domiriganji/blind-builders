@@ -170,11 +170,21 @@ def payments_ready(settings) -> bool:
 
 
 def own_provider(user: dict) -> providers.Provider:
-    """The provider of the member's own key: Claude, or one of the listed providers."""
-    provider = providers.get(user.get("own_provider") or providers.ANTHROPIC)
-    if provider is None or (provider.id != providers.ANTHROPIC and provider.id not in providers.PRESET_IDS):
-        return providers.CLAUDE
-    return provider
+    """The provider of the member's own key: Claude, one of the listed providers, or (see own_unlisted) one this
+    site no longer offers, named by its stored id. It is never taken for Claude."""
+    provider_id = user.get("own_provider") or providers.ANTHROPIC
+    provider = providers.get(provider_id)
+    if provider is not None and (provider.id == providers.ANTHROPIC or provider.id in providers.PRESET_IDS):
+        return provider
+    return providers.Provider(provider_id, provider.name if provider else provider_id, "", "")
+
+
+def own_unlisted(user: dict) -> bool:
+    """True when the member's saved key is from a provider this site no longer offers (removed from PRESETS).
+    studio.ai.default_factory refuses such a key, and never moves the member to the site's key instead."""
+    provider = own_provider(user)
+    return bool(user.get("own_api_key_enc")) and provider.id != providers.ANTHROPIC and (
+        provider.id not in providers.PRESET_IDS)
 
 
 def key_page_title(user: dict) -> str:
@@ -185,14 +195,15 @@ def key_page_title(user: dict) -> str:
 
 def search_route(settings, user: dict) -> str:
     """How web search steps run for a member whose own key is not Claude, as studio.ai.default_factory does:
-    'free' or 'credits' on the site's Claude key, 'buy' when credits would let them, or 'none'."""
+    'free' or 'credits' on the site's Claude key, 'buy' when credits would let them, 'no_credits' when the site's
+    Claude key is paid with credits, the member has none and none are on sale, or 'none' (no Claude key)."""
     if not site_ai.site_key(settings):
         return "none"
     if site_ai.pay_mode() == "free":
         return "free"
     if credits.balance(user["id"]) > 0:
         return "credits"
-    return "buy" if settings.stripe_secret_key else "none"
+    return "buy" if settings.stripe_secret_key else "no_credits"
 
 
 def ai_status(settings, user: dict) -> dict:
@@ -209,8 +220,11 @@ def ai_status(settings, user: dict) -> dict:
     }
     if user.get("own_api_key_enc"):
         last4 = _key_last4(settings, user)
+        provider = own_provider(user)
+        if last4 and own_unlisted(user):
+            return {**status, "mode": "own_key", "last4": last4, "own_is_claude": False, "own_unlisted": True,
+                    "own_provider_name": provider.name}
         if last4:
-            provider = own_provider(user)
             if provider.id == providers.ANTHROPIC:
                 return {**status, "mode": "own_key", "last4": last4, "own_is_claude": True,
                         "own_label": site_ai.model_name(site_ai.member_model(settings, user))}
@@ -219,6 +233,8 @@ def ai_status(settings, user: dict) -> dict:
                     "own_provider_name": provider.name, "own_model": model,
                     "search_route": search_route(settings, user)}
         status["key_unreadable"] = True
+        # Name the company the key was from, so a member who saved another company's key is not told about Claude.
+        status["unreadable_provider"] = "" if provider.id == providers.ANTHROPIC else provider.name
     if status["site_has_key"] and site_ai.pay_mode() == "free":
         left = site_ai.member_left_this_month(user["id"])
         limit = site_ai.member_month_limit()
@@ -477,10 +493,28 @@ def verify_api_key(key: str) -> bool | str:
 MAX_MODEL_RADIOS = 20
 # Clears what belongs to the previous key's provider: its model, prices and picture choice.
 _RESET_CHOICES = "own_model = '', own_price_in = '', own_price_out = '', own_vision = ''"
+# Checking a key asks the provider, so it is limited, per member and per internet address: otherwise the site
+# could be used to test lists of stolen keys, and providers might block its address for everyone.
+KEY_CHECKS_PER_HOUR = 10
+OWN_PRICE_WORDS = (("own_price_in", "in (what the AI reads)"), ("own_price_out", "out (what it writes)"))
+
+
+def _key_check_problem(request: Request, user: dict) -> str | None:
+    """A plain message if this member, or this internet address, has checked many keys in the last hour.
+    Otherwise counts this check and returns None."""
+    keys = (limits.key("key-check-member", user["id"]), limits.key("key-check-ip", limits.client_ip(request)))
+    if any(limits.count("key_check", k, HOUR) >= KEY_CHECKS_PER_HOUR for k in keys):
+        return ("Several keys were checked from here in the last hour, so checking keys is paused for an hour to "
+                "protect the site. Nothing was changed. Please try again after that.")
+    for k in keys:
+        limits.record("key_check", k, HOUR, subject=limits.key(user["email"]))
+    return None
 
 
 def _render_key(request: Request, user: dict, error: str = "", status_code: int = 200, *,
                 errors: dict | None = None, values: dict | None = None):
+    """The AI key page. It can ask the provider for its model list over the network, so async handlers call it
+    with run_in_threadpool, never on the event loop."""
     settings = _settings(request)
     errors = errors if errors is not None else ({"api_key": error} if error else {})
     page_title = key_page_title(user)
@@ -491,10 +525,14 @@ def _render_key(request: Request, user: dict, error: str = "", status_code: int 
     last4 = _key_last4(settings, user)
     provider = own_provider(user)
     is_claude = provider.id == providers.ANTHROPIC
+    unlisted = own_unlisted(user)
     models, models_problem = [], ""
-    if last4 and not is_claude:
+    if last4 and not is_claude and not unlisted:
         from .owner_ai import list_models  # here, not at the top: owner_ai imports this module
         models, models_problem = list_models(provider, decrypt_secret(settings.secret_key, user["own_api_key_enc"]))
+    if not is_claude and "own_model" in errors and not models:
+        # With no list there is no list field: the message goes on the box to type in, so its link leads there.
+        errors = {("own_model_typed" if k == "own_model" else k): v for k, v in errors.items()}
     own_model = user.get("own_model") or ""
     in_list = any(m["id"] == own_model for m in models)
     listed = next((m for m in models if m["id"] == own_model and m.get("prices")), None)
@@ -502,13 +540,13 @@ def _render_key(request: Request, user: dict, error: str = "", status_code: int 
     if listed and not (price_in or price_out):
         price_in, price_out = (providers.price_text(v) for v in listed["prices"])
     values = values or {"own_model": own_model if in_list else "", "own_model_typed": "" if in_list else own_model,
-                        "own_price_in": price_in, "own_price_out": price_out,
+                        "own_price_in": price_in, "own_price_out": price_out, "prices_for": own_model,
                         "own_vision": user.get("own_vision") == "main", "other_provider": ""}
     from .owner_ai import _model_choices
     return render(request, "account/ai_key.html", title=title, errors=errors,
                   last4=last4, has_saved=bool(user.get("own_api_key_enc")),
                   model_options=model_options, own_model=own_model,
-                  costs=typical_costs(settings), provider=provider, is_claude=is_claude,
+                  costs=typical_costs(settings), provider=provider, is_claude=is_claude, unlisted=unlisted,
                   provider_options=[(p.id, f"{p.name}: {p.about}") for p in providers.PRESETS],
                   other_model_options=_model_choices(models), model_radios=len(models) <= MAX_MODEL_RADIOS,
                   models_problem=models_problem, values=values, search=search_route(settings, user),
@@ -526,11 +564,13 @@ async def key_save(request: Request, user: dict = Depends(require_user)):
     key = str(form.get("api_key", "")).strip()
     error = check_key_format(key)
     if error is None:
+        error = _key_check_problem(request, user)
+    if error is None:
         result = await run_in_threadpool(verify_api_key, key)
         if result is not True:
             error = str(result) if result else "Anthropic did not accept this key, so it was not saved."
     if error:
-        return _render_key(request, user, error, status_code=400)
+        return await run_in_threadpool(_render_key, request, user, error, status_code=400)
     settings = _settings(request)
     with db.session() as conn:
         if own_provider(user).id != providers.ANTHROPIC:
@@ -557,14 +597,19 @@ async def other_key_save(request: Request, user: dict = Depends(require_user)):
     if problem:
         errors["other_api_key"] = problem
     if not errors:
+        problem = _key_check_problem(request, user)
+        if problem:
+            errors["other_api_key"] = problem
+    if not errors:
         try:
             await run_in_threadpool(providers.fetch_models, provider, key)
         except providers.ProviderError as exc:
             errors["other_api_key"] = exc.user_message
     if errors:
-        return _render_key(request, user, status_code=400, errors=errors,
-                           values={"other_provider": provider_id, "own_model": "", "own_model_typed": "",
-                                   "own_price_in": "", "own_price_out": "", "own_vision": False})
+        return await run_in_threadpool(
+            _render_key, request, user, status_code=400, errors=errors,
+            values={"other_provider": provider_id, "own_model": "", "own_model_typed": "", "own_price_in": "",
+                    "own_price_out": "", "prices_for": "", "own_vision": False})
     settings = _settings(request)
     with db.session() as conn:
         if (user.get("own_provider") or providers.ANTHROPIC) != provider.id:
@@ -581,12 +626,14 @@ async def key_model(request: Request, user: dict = Depends(require_user)):
     """The model the AI uses with the member's own key."""
     form = await checked_form(request)
     provider = own_provider(user)
+    if own_unlisted(user):
+        return redirect("/account/ai-key")  # the page says the company is no longer offered, with what to do
     if user.get("own_api_key_enc") and provider.id != providers.ANTHROPIC:
         return await _other_model_save(request, user, form, provider)
     choice = _clean(form, "own_model", 40)
     if choice and choice not in site_ai.MODEL_NAMES:
-        return _render_key(request, user, "Choose one of the models in the list.", status_code=400,
-                           errors={"own_model": "Choose one of the models in the list."})
+        return await run_in_threadpool(_render_key, request, user, "Choose one of the models in the list.",
+                                       status_code=400, errors={"own_model": "Choose one of the models in the list."})
     with db.session() as conn:
         conn.execute("UPDATE users SET own_model = ? WHERE id = ?", (choice, user["id"]))
     name = site_ai.model_name(choice) if choice else "the site's choice"
@@ -600,29 +647,53 @@ async def _other_model_save(request: Request, user: dict, form, provider: provid
               "own_model_typed": str(form.get("own_model_typed", "")).strip()[:200],
               "own_price_in": str(form.get("own_price_in", "")).strip()[:20],
               "own_price_out": str(form.get("own_price_out", "")).strip()[:20],
+              "prices_for": str(form.get("prices_for", "")).strip()[:200],
               "own_vision": form.get("own_vision") == "yes", "other_provider": ""}
     errors: dict[str, str] = {}
     model = values["own_model_typed"] or values["own_model"]
     problem = providers.model_problem(model)
     if problem:
         errors["own_model_typed" if values["own_model_typed"] else "own_model"] = problem
-    prices = {}
-    for name, word in (("own_price_in", "in"), ("own_price_out", "out")):
+    prices: dict[str, float | None] = {}
+    for name, word in OWN_PRICE_WORDS:
         prices[name] = providers.parse_price(values[name]) if values[name] else None
         if values[name] and prices[name] is None:
             errors[name] = f"Enter the price per million tokens {word} in US dollars, like 2.50, or leave it empty."
     if not errors and (prices["own_price_in"] is None) != (prices["own_price_out"] is None):
         missing = "own_price_out" if prices["own_price_out"] is None else "own_price_in"
         errors[missing] = "Enter both prices, or leave both empty."
+    note = ""
+    if not errors:
+        # Prices the form showed for another model, sent back unchanged with a new model.
+        stored = (user.get("own_price_in") or "", user.get("own_price_out") or "")
+        prices_for = values["prices_for"] or (user.get("own_model") or "")
+        carried = bool(prices_for and model != prices_for and any(stored) and all(
+            prices[n] is not None and providers.price_text(prices[n]) == old
+            for (n, _), old in zip(OWN_PRICE_WORDS, stored)))
+        if carried:
+            from .owner_ai import list_models  # here, not at the top: owner_ai imports this module
+            key = decrypt_secret(_settings(request).secret_key, user["own_api_key_enc"])
+            models, _ = await run_in_threadpool(list_models, provider, key)
+            listed = next((m for m in models if m["id"] == model and m.get("prices")), None)
+            if listed:
+                prices = {"own_price_in": listed["prices"][0], "own_price_out": listed["prices"][1]}
+                note = (f" The prices you had were for {prices_for}, so the prices in {provider.name}'s list are used: "
+                        f"${providers.price_text(listed['prices'][0])} per million tokens in and "
+                        f"${providers.price_text(listed['prices'][1])} out.")
+            else:
+                values["prices_for"] = model  # saving again with these prices confirms them
+                errors["own_price_in"] = (f"These prices were for the model {prices_for}. Enter {provider.name}'s "
+                                          f"prices for {model}, or leave both empty. If they are the same, save again "
+                                          "as they are.")
     if errors:
-        return _render_key(request, user, status_code=400, errors=errors, values=values)
+        return await run_in_threadpool(_render_key, request, user, status_code=400, errors=errors, values=values)
     text = {k: providers.price_text(v) if v is not None else "" for k, v in prices.items()}
     with db.session() as conn:
         conn.execute("UPDATE users SET own_model = ?, own_price_in = ?, own_price_out = ?, own_vision = ? WHERE id = ?",
                      (model, text["own_price_in"], text["own_price_out"], "main" if values["own_vision"] else "",
                       user["id"]))
     _announce(request, "Your model choice is saved")
-    flash(request, f"With your own key, the AI now uses {provider.name}, model {model}.", "success")
+    flash(request, f"With your own key, the AI now uses {provider.name}, model {model}.{note}", "success")
     return redirect("/account/ai-key")
 
 
@@ -919,11 +990,12 @@ def pricing(request: Request):
     other_prices = site_ai.other_prices() if other else None
     rows = []
     for label, tin, tout, searches in ESTIMATES:
-        if other_prices and not searches:  # everyday steps use the main AI; web search steps always use Claude
-            own = compat_cost_cents(other_prices, tin, tout, 1.0)
+        # "Own key" is a member's own Claude key, so it is always at Claude's prices. Credits pay for the site's keys,
+        # where everyday steps use the main AI and web search steps always use Claude.
+        own = cost_cents(model, tin, tout, searches, 1.0)
+        if other_prices and not searches:
             site = compat_cost_cents(other_prices, tin, tout, settings.credit_markup)
         else:
-            own = cost_cents(model, tin, tout, searches, 1.0)
             site = cost_cents(model, tin, tout, searches, settings.credit_markup)
         searched = f", {searches} web searches" if searches else ""
         size = f"Typical size: {tin:,} tokens in, {tout:,} out{searched}."

@@ -37,7 +37,7 @@ MODELS = [
 MODEL_NAMES = {model_id: name for model_id, name, _ in MODELS}
 PAY_MODES = [
     ("credits", "Members pay with credits they buy, or that you give them"),
-    ("free", "Free for members, within the limits below: you pay Anthropic"),
+    ("free", "Free for members, within the limits below: you pay the AI companies"),
 ]
 
 # The main AI for members on the site's keys.
@@ -139,18 +139,22 @@ def other_provider() -> providers.Provider | None:
     return providers.resolved(provider_id, base_url=get("other_base"), name=get("other_name"))
 
 
-def save_other_key(settings, provider: providers.Provider, key: str, by_user_id: int) -> None:
+def save_other_key(settings, provider: providers.Provider, key: str, by_user_id: int) -> bool:
     """Save the key for another provider. A different provider than before starts with no model or prices, and
-    the main AI goes back to Claude until the owner chooses its model."""
+    the main AI goes back to Claude until the owner chooses its model. Returns True when that happened, so the
+    owner can be told that members' work uses Claude for now."""
+    main_reset = False
     if get("other_provider") != provider.id or get("other_base") != (provider.base_url if provider.id == providers.CUSTOM else ""):
         delete("other_model", "other_price_in", "other_price_out")
         if main_choice() == MAIN_OTHER:
             save({"main_ai": MAIN_CLAUDE, "vision": VISION_CLAUDE}, by_user_id)
+            main_reset = True
     save({"other_provider": provider.id,
           "other_base": provider.base_url if provider.id == providers.CUSTOM else "",
           "other_name": provider.name if provider.id == providers.CUSTOM else "",
           "other_key_enc": encrypt_secret(settings.secret_key, key), "other_key_last4": key[-4:],
           "other_saved_at": db.now()}, by_user_id)
+    return main_reset
 
 
 def remove_other_key() -> None:
@@ -174,9 +178,10 @@ def other_model() -> str:
 
 
 def other_prices() -> tuple[float, float] | None:
-    """US dollars per million tokens (input, output) the owner set for the other provider's model."""
+    """US dollars per million tokens (input, output) the owner set for the other provider's model. Both must be
+    above 0: with a price of 0, calls would cost nothing to the limits and credits, so the limits could not work."""
     price_in, price_out = providers.parse_price(get("other_price_in")), providers.parse_price(get("other_price_out"))
-    if price_in is None or price_out is None:
+    if price_in is None or price_out is None or price_in <= 0 or price_out <= 0:
         return None
     return price_in, price_out
 

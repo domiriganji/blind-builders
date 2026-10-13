@@ -1,17 +1,50 @@
 {% extends "base.html" %}
 {% from "_macros.html" import csrf_input, error_summary, field, post_button, radios, select, checkbox %}
 {% block content %}
+{% set other_key = last4 and not is_claude %}
 <h1>{{ title }}</h1>
-{% if last4 and is_claude %}
+{% if unlisted %}
+<p>Your saved key ending in <strong>{{ last4 }}</strong> is from {{ provider.name }}, which this site no longer offers, so the AI cannot use it and nothing is charged on it. To keep working, connect a key from one of the companies below, or a Claude API key.</p>
+{% elif last4 and is_claude %}
 <p>Your own Claude API key ending in <strong>{{ last4 }}</strong> is connected. The AI uses it for everything you do here. Anthropic bills you directly and this site charges nothing for AI.</p>
 {% elif last4 %}
 <p>Your own API key from {{ provider.name }} ending in <strong>{{ last4 }}</strong> is connected.{% if values.own_model or values.own_model_typed %} The AI uses it for everything except web search steps.{% else %} Choose its model below to start.{% endif %} {{ provider.name }} bills you directly and this site charges nothing for AI on your key.</p>
+{% elif has_saved and not is_claude %}
+<p>Your saved {{ provider.name }} key stopped working because of a change on our side, not anything you did. Please save it again under <a href="#other-company">Replace your key from {{ provider.name }}</a>.</p>
 {% elif has_saved %}
 <p>Your saved key stopped working because of a change on our side, not anything you did. Please connect your key again with the form below.</p>
 {% else %}
 <p>No key is connected yet. A Claude API key is a private code from Anthropic, the company that makes this AI. It lets this site use the AI and send the bill to you. With your own key, this site charges nothing. A typical task costs from {{ costs[0] }} to {{ costs[1] }}.</p>
 {% endif %}
 {{ error_summary(errors) }}
+
+{#- The model for a key from another company is the next step after saving it, so it comes first for those members. -#}
+{% set other_model_section %}
+{% if other_key and not unlisted %}
+<h2>Model for your key</h2>
+<form method="post" action="/account/ai-key/model" novalidate>
+  {{ csrf_input() }}
+  {% if models_problem %}<p>{{ models_problem }}</p>{% endif %}
+  {% if other_model_options %}
+  {% if model_radios %}
+  {{ radios('own_model', 'Model from ' ~ provider.name ~ "'s list", other_model_options, values.own_model, hint='The list comes from ' ~ provider.name ~ ', so new models appear by themselves.', error=errors.own_model) }}
+  {% else %}
+  {{ select('own_model', 'Model from ' ~ provider.name ~ "'s list", [('', 'Choose a model')] + other_model_options, values.own_model, hint='Choose a model here, or type its name below: the AI needs one. The list comes from ' ~ provider.name ~ ', so new models appear by themselves.', error=errors.own_model, mark_optional=false) }}
+  {% endif %}
+  {% endif %}
+  {{ field('own_model_typed', 'Or type the model name', values.own_model_typed, hint='Exactly as ' ~ provider.name ~ ' writes it. A name typed here is used instead of the list.', error=errors.own_model_typed, extra='spellcheck="false" autocapitalize="off" autocorrect="off"', mark_optional=false) }}
+  <input type="hidden" name="prices_for" value="{{ values.prices_for or '' }}">
+  <p>Prices are optional. With them, your usage page shows what each task cost. Without them, it says the cost is not known. {{ provider.name }}'s own bill is the correct one.</p>
+  {{ field('own_price_in', 'Price per million tokens in (what the AI reads), in US dollars', values.own_price_in, hint="From " ~ provider.name ~ "'s price page, for example 2.50.", error=errors.own_price_in, extra='inputmode="decimal"') }}
+  {{ field('own_price_out', 'Price per million tokens out (what the AI writes), in US dollars', values.own_price_out, hint='A token is about three quarters of a word.', error=errors.own_price_out, extra='inputmode="decimal"') }}
+  {{ checkbox('own_vision', 'My model can look at pictures: use it to look at pictures of the pages I build', values.own_vision, hint='Leave this unticked if you are not sure. Then Claude looks at the pictures, the same way as web search steps below.') }}
+  <button type="submit" class="button">Save my model choice</button>
+</form>
+{% endif %}
+{% endset %}
+
+{% if other_key %}{{ other_model_section }}{% endif %}
+
 <h2>{% if last4 and is_claude %}Replace your key{% elif last4 %}Use a Claude API key instead{% else %}Connect your key{% endif %}</h2>
 <p>To get a key, use <a href="https://platform.claude.com/" rel="noopener noreferrer">the Claude Console (platform.claude.com), which opens Anthropic's website</a>. <a href="/learn/claude-api-key">Getting your Claude API key, step by step</a> goes through each step, including how to copy the key on a phone.</p>
 <ol>
@@ -40,33 +73,14 @@
   <button type="submit" class="button">Save my model choice</button>
 </form>
 {% endif %}
-{% if last4 and not is_claude %}
-<h2>Model for your key</h2>
-<form method="post" action="/account/ai-key/model" novalidate>
-  {{ csrf_input() }}
-  {% if models_problem %}<p>{{ models_problem }} You can type the model name instead.</p>{% endif %}
-  {% if other_model_options %}
-  {% if model_radios %}
-  {{ radios('own_model', 'Model from ' ~ provider.name ~ "'s list", other_model_options, values.own_model, hint='The list comes from ' ~ provider.name ~ ', so new models appear by themselves.', error=errors.own_model) }}
-  {% else %}
-  {{ select('own_model', 'Model from ' ~ provider.name ~ "'s list", [('', 'Choose a model')] + other_model_options, values.own_model, hint='The list comes from ' ~ provider.name ~ ', so new models appear by themselves.', error=errors.own_model) }}
-  {% endif %}
-  {% endif %}
-  {{ field('own_model_typed', 'Or type the model name', values.own_model_typed, hint='Exactly as ' ~ provider.name ~ ' writes it. A name typed here is used instead of the list.', error=errors.own_model_typed or (errors.own_model if not other_model_options else ''), extra='spellcheck="false" autocapitalize="off" autocorrect="off"', mark_optional=false) }}
-  <p>Prices are optional. With them, your usage page shows what each task cost. Without them, it says the cost is not known. {{ provider.name }}'s own bill is the correct one.</p>
-  {{ field('own_price_in', 'Price per million tokens in (what the AI reads), in US dollars', values.own_price_in, hint="From " ~ provider.name ~ "'s price page, for example 2.50.", error=errors.own_price_in, extra='inputmode="decimal"') }}
-  {{ field('own_price_out', 'Price per million tokens out (what the AI writes), in US dollars', values.own_price_out, hint='A token is about three quarters of a word.', error=errors.own_price_out, extra='inputmode="decimal"') }}
-  {{ checkbox('own_vision', 'My model can look at pictures: use it to look at pictures of the pages I build', values.own_vision, hint='Leave this unticked if you are not sure. Then Claude looks at the pictures, the same way as web search steps below.') }}
-  <button type="submit" class="button">Save my model choice</button>
-</form>
-{% endif %}
 
-<h2 id="other-company">{{ 'Replace your key from ' ~ provider.name if last4 and not is_claude else 'Use a key from another AI company' }}</h2>
+<h2 id="other-company">{{ 'Replace your key from ' ~ provider.name if (last4 or has_saved) and not is_claude else 'Use a key from another AI company' }}</h2>
 <p>Instead of a Claude key, you can use a key from one of the companies below. You then choose one of its models. Your key, its model and its bill are yours.</p>
 <p>Web search steps (Research, Do this for me, Find before you build, and finding publishing venues in Write) need Claude.
 {%- if search == 'free' %} With a key from another company, those steps use the site's Claude key, free for you on this site.
 {%- elif search == 'credits' %} With a key from another company, those steps use the site's Claude key, paid with your credits.
 {%- elif search == 'buy' %} With a key from another company, those steps use the site's Claude key, paid with credits. You have none now, so to use them, buy credits.
+{%- elif search == 'no_credits' %} With a key from another company, those steps use the site's Claude key, paid with credits, and you have none. Credits are not on sale on this site yet, so to use those steps, connect a Claude API key instead.
 {%- else %} With a key from another company, those steps are not available on this site now, because the site has no Claude key for them.
 {%- endif %}</p>
 <form method="post" action="/account/ai-key/other" novalidate>

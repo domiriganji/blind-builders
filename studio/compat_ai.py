@@ -146,8 +146,33 @@ def _error_text(response: httpx.Response) -> str:
 
 
 def _param_unsupported(error: str, param: str) -> bool:
+    """The provider does not know the parameter at all (not: the value is too large, see _token_cap)."""
     return param in error and any(w in error for w in ("unsupported", "not supported", "unknown", "unrecognized",
-                                                         "not allowed", "extra", "invalid", "not permitted"))
+                                                         "not allowed", "extra input", "extra field",
+                                                         "extra_forbidden", "not permitted", "no such parameter"))
+
+
+_TOO_MANY_TOKENS = ("too large", "too big", "too high", "at most", "maximum", "valid range", "exceed",
+                    "less than or equal", "must be <=", "upper bound", "out of range")
+
+
+def _token_cap(error: str, sent: int) -> int | None:
+    """When a 400 says the longest answer asked for is more than the model allows, the most it allows (or 0 when
+    the message gives no number). None when the error is about something else."""
+    if not ("max_tokens" in error or "max_completion_tokens" in error or "max_output_tokens" in error
+            or "output tokens" in error or "completion tokens" in error):
+        return None
+    if not any(w in error for w in _TOO_MANY_TOKENS):
+        return None
+    numbers = [int(n) for n in re.findall(r"(?<![\w.])(\d{3,7})(?![\w]|\.\d)", error.replace(",", ""))]
+    allowed = [n for n in numbers if 0 < n < sent]
+    return max(allowed) if allowed else 0
+
+
+def _schema_refused(error: str) -> bool:
+    """The provider refused the json_schema answer format (so json_object is worth a try)."""
+    return any(w in error for w in ("response_format", "json_schema", "schema", "structured output",
+                                    "structured_output", "json mode"))
 
 
 def _model_missing(error: str) -> bool:
@@ -176,6 +201,8 @@ class CompatClient(BilledClient):
         self.__key = api_key  # name-mangled, and never printed
         self._token_param = provider.token_param
         self._json_mode = "json_schema"
+        # The longest answer the model allows, once the provider has said so (see _token_cap).
+        self._answer_cap: int | None = None
 
     def __repr__(self) -> str:
         return f"CompatClient(provider={self.provider!r}, model={self.model!r}, paid_by={self.paid_by!r})"
@@ -274,10 +301,15 @@ class CompatClient(BilledClient):
             chars += 2 * len(json.dumps(schema))  # once in response_format, maybe again in the system message
         return chars // 3 + images * IMAGE_MAX_TOKENS + 1000
 
+    def _answer_tokens(self, max_tokens: int) -> int:
+        """The longest answer to ask for: max_tokens, or less when the model allows less."""
+        return min(max_tokens, self._answer_cap) if self._answer_cap else max_tokens
+
     def _worst(self, messages: list[dict], max_tokens: int, schema: dict | None, markup: float) -> int:
         if self.prices is None:
             return 0
-        return compat_cost_cents(self.prices, self._input_estimate(messages, schema), max_tokens, markup)
+        return compat_cost_cents(self.prices, self._input_estimate(messages, schema), self._answer_tokens(max_tokens),
+                                 markup)
 
     def _chat(self, purpose: str, messages: list[dict], max_tokens: int, schema: dict | None) -> str:
         if self.prices is None and self.paid_by != "own_key":
@@ -308,16 +340,35 @@ class CompatClient(BilledClient):
         return text
 
     def _usage(self, data: dict, messages: list[dict], text: str) -> Usage:
+        """What the call used. Tokens a provider reports outside completion_tokens (thinking that only shows in
+        total_tokens, or reasoning_tokens reported apart) are counted as output, and a count the provider leaves
+        out is estimated at about 4 characters a token, so no call is recorded as free by mistake."""
         usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
-        try:
-            input_tokens = int(usage.get("prompt_tokens") or 0)
-            output_tokens = int(usage.get("completion_tokens") or 0)
-        except (TypeError, ValueError):
-            input_tokens = output_tokens = 0
-        if not usage:
-            # The provider did not say: count about 4 characters a token, the usual size, so the call is not free.
+
+        def count(value: Any) -> int | None:
+            if isinstance(value, bool):
+                return None
+            try:
+                number = int(value)
+            except (TypeError, ValueError):
+                return None
+            return number if number >= 0 else None
+
+        input_tokens = count(usage.get("prompt_tokens"))
+        output_tokens = count(usage.get("completion_tokens"))
+        total = count(usage.get("total_tokens"))
+        details = usage.get("completion_tokens_details")
+        reasoning = count(details.get("reasoning_tokens")) if isinstance(details, dict) else None
+        if input_tokens is None:
             input_tokens = self._input_estimate(messages, None)
+        if output_tokens is None:
             output_tokens = max(len(text) // 4, 1)
+            if reasoning:
+                output_tokens += reasoning
+        elif reasoning and reasoning > output_tokens:
+            output_tokens += reasoning  # cannot be part of completion_tokens, so it was reported apart
+        if total is not None:
+            output_tokens = max(output_tokens, total - input_tokens)
         raw = 0.0
         if self.prices is not None:
             raw = (input_tokens / 1e6 * self.prices[0] + output_tokens / 1e6 * self.prices[1]) * 100
@@ -340,22 +391,29 @@ class CompatClient(BilledClient):
     def _post(self, messages: list[dict], max_tokens: int, schema: dict | None) -> dict:
         provider = self.provider_info
         name = provider.name
-        try:
-            providers.check_before_request(provider)
-        except providers.ProviderError as exc:
-            raise AIError(f"{exc.user_message} {self._fix_address()}") from None
         swapped = fell_back = False
+        clamps = 0
         while True:
-            response = self._send(self._body(messages, max_tokens, schema))
+            sent = self._answer_tokens(max_tokens)
+            response = self._send(self._body(messages, sent, schema))
             if response.status_code in (400, 422):
                 error = _error_text(response)
+                cap = _token_cap(error, sent)
+                if cap is not None:
+                    if cap and clamps < 2:
+                        # The model allows shorter answers than this step asks for: ask for the most it allows.
+                        clamps += 1
+                        self._answer_cap = cap
+                        continue
+                    raise AIError(f"{name}'s model {self.model} cannot write answers as long as this step needs, so "
+                                  f"nothing was done. To keep working, {self._choose_another()}")
                 if not swapped and _param_unsupported(error, self._token_param):
                     swapped = True
                     self._token_param = ("max_tokens" if self._token_param == "max_completion_tokens"
                                          else "max_completion_tokens")
                     continue
                 if (schema is not None and self._json_mode == "json_schema" and not fell_back
-                        and not _model_missing(error)):
+                        and _schema_refused(error) and not _model_missing(error)):
                     fell_back = True
                     self._json_mode = "json_object"
                     continue
@@ -398,15 +456,22 @@ class CompatClient(BilledClient):
         return "Please try again later."
 
     def _send(self, body: dict) -> httpx.Response:
-        """One request, with at most MAX_RETRIES more on 429 and 5xx answers, waiting longer each time."""
-        url = f"{self.provider_info.base_url.rstrip('/')}/chat/completions"
+        """One request, with at most MAX_RETRIES more on 429 and 5xx answers, waiting longer each time. A custom
+        address is checked before every attempt, and each connection to it is pinned to a checked public address
+        (providers.PublicOnlyTransport)."""
+        provider = self.provider_info
+        url = f"{provider.base_url.rstrip('/')}/chat/completions"
         headers = {"Authorization": f"Bearer {self.__key}", "Content-Type": "application/json",
                    "Accept": "application/json"}
-        name = self.provider_info.name
+        name = provider.name
         attempt = 0
         while True:
             try:
-                with providers.http_client(CHAT_TIMEOUT) as client:
+                providers.check_before_request(provider)
+            except providers.ProviderError as exc:
+                raise AIError(f"{exc.user_message} {self._fix_address()}") from None
+            try:
+                with providers.http_client(CHAT_TIMEOUT, provider) as client:
                     response = client.post(url, headers=headers, json=body)
             except httpx.TimeoutException:
                 raise AIError(f"{name} did not answer in time, so nothing was done. Please try again in a few "

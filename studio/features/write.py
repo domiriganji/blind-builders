@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 
 from .. import db, jobs, sensitive
-from ..ai import AIError, AINotAvailable
+from ..ai import AIError, AINotAvailable, search_unavailable
 from ..web import (checked_form, current_user, date_words, error_title, flash, get_ai, markdown, nest_headings,
                    redirect, render, require_user)
 
@@ -310,9 +310,11 @@ def _running_job(user_id: int, kind: str) -> str | None:
     return row["id"] if age < JOB_FRESH_SECONDS else None
 
 
-def _start_job(request: Request, user: dict, doc: dict, kind: str, title: str, fn, *args, saved: str = ""):
+def _start_job(request: Request, user: dict, doc: dict, kind: str, title: str, fn, *args, saved: str = "",
+               searches: bool = False):
     """Start AI work for a document, or send the person to the same work if it is already running.
-    `saved` says the text was saved first ("Saved your text as version 3"), so the next page can say so."""
+    `saved` says the text was saved first ("Saved your text as version 3"), so the next page can say so.
+    `searches`: the work uses web search, so it is not started when web search is not available for this member."""
     kind = f"{kind}:{doc['id']}"
     running = _running_job(user["id"], kind)
     if running:
@@ -325,10 +327,13 @@ def _start_job(request: Request, user: dict, doc: dict, kind: str, title: str, f
         return redirect(jobs.job_url(running))
     try:
         ai = get_ai(request, user)
+        problem = search_unavailable(ai) if searches else ""
     except AINotAvailable as exc:
+        problem = exc.user_message
+    if problem:
         if saved:
             flash(request, f"{saved}.", "success")
-        flash(request, exc.user_message, "error")
+        flash(request, problem, "error")
         _say(request, f"/write/{doc['id']}", f"{doc['title']}: the AI is not available")
         return redirect(f"/write/{doc['id']}")
     if saved:
@@ -1411,7 +1416,7 @@ async def venues(request: Request, doc_id: int, user: dict = Depends(require_use
     if errors:
         return _ai_problems(request, doc, kept, errors, saved)
     return _start_job(request, user, doc, "write.venues", f"Where to publish: {doc['title']}", _venues_job, doc_id,
-                      doc["created_at"], saved=saved)
+                      doc["created_at"], saved=saved, searches=True)
 
 
 def _venues_job(ctx, ai, doc_id: int, created_at: str) -> str:

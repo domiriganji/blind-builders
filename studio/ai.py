@@ -514,6 +514,20 @@ class RoutedAI:
         return self._research.research(**kwargs)
 
 
+# A member's own key is from a provider this site no longer offers (removed from providers.PRESETS).
+UNLISTED_PROVIDER = ("Your saved key is from a company this site no longer offers, so the AI cannot use it. Nothing "
+                     "was done and nothing was charged. To keep working, choose another company or connect a Claude "
+                     "API key on Your account, on the AI key page.")
+
+
+def search_unavailable(client: Any) -> str:
+    """Why web search steps cannot run for this member's AI, or "" when they can. Sections whose work ends in a
+    web search check this before starting, so nothing is charged for steps that could never finish."""
+    if isinstance(client, RoutedAI) and client._research is None:
+        return client._research_reason
+    return ""
+
+
 # Why a step that needs Claude cannot run, for a member whose main AI is another provider.
 SEARCH_NEEDS_CLAUDE = "This step searches the live web, which on this site needs Claude."
 PICTURES_NEED_CLAUDE = "Looking at pictures of the pages is set to use Claude on this site."
@@ -550,7 +564,9 @@ def default_factory(settings) -> Callable[[dict], Any]:
                             paid_by="own_key", markup=settings.credit_markup, member_note=note)
         provider = providers.get(provider_id)
         if provider is None or provider.id not in providers.PRESET_IDS:
-            return None  # members can only use the listed providers
+            # A provider no longer in PRESETS (or never offered to members). Never fall back to the site's key
+            # here: Your account says the member uses their own key, so they must not be charged credits.
+            raise AINotAvailable(UNLISTED_PROVIDER)
         model = (user.get("own_model") or "").strip()
         if not model:
             raise AINotAvailable(f"Choose the model for your {provider.name} key first, on Your account, on the AI "

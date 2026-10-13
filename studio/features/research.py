@@ -22,7 +22,7 @@ from fastapi.responses import Response
 from markupsafe import Markup
 
 from .. import db, jobs, sensitive
-from ..ai import AIError, AINotAvailable
+from ..ai import AIError, AINotAvailable, search_unavailable
 from ..web import (checked_form, current_user, date_words, error_title, flash, form_text, get_ai, markdown, redirect,
                    render, require_user)
 
@@ -870,7 +870,10 @@ def _running_job(user_id: int, job_kind: str) -> str | None:
     return None
 
 
-def _start(request: Request, user: dict, project: dict, kind: str, title: str, fn, back: str):
+def _start(request: Request, user: dict, project: dict, kind: str, title: str, fn, back: str, *,
+           searches: bool = False):
+    """Start AI work for a project. searches: the work uses web search, so it is not started (or charged) when web
+    search is not available for this member."""
     job_kind = f"research.{kind}:{project['id']}"
     running = _running_job(user["id"], job_kind)
     if running:
@@ -879,8 +882,11 @@ def _start(request: Request, user: dict, project: dict, kind: str, title: str, f
         return redirect(jobs.job_url(running))
     try:
         ai = get_ai(request, user)
+        problem = search_unavailable(ai) if searches else ""
     except AINotAvailable as exc:
-        flash(request, exc.user_message, "error")
+        problem = exc.user_message
+    if problem:
+        flash(request, problem, "error")
         return redirect(back)
     job_id = jobs.submit(user["id"], job_kind, title, fn, ai, project["id"], project["created_at"],
                          item_ref=f"research:{project['id']}:{project['created_at']}")
@@ -892,7 +898,7 @@ async def start_prior_work(request: Request, project_id: int, user: dict = Depen
     await checked_form(request)
     project = _project(project_id, user)
     return _start(request, user, project, "prior_work", f"Finding prior work for {project['title']}",
-                  _run_prior_work, f"/research/{project_id}")
+                  _run_prior_work, f"/research/{project_id}", searches=True)
 
 
 @router.post("/{project_id}/plan")

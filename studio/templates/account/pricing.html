@@ -56,8 +56,9 @@
 <h2>Where these numbers come from</h2>
 <ul>
 {% if other_label %}
-  <li>Most steps use {{ other_label }}, at the prices the site's owner set: ${{ other_in }} per million tokens read (input) and ${{ other_out }} per million tokens written (output). Check the company's own price page for the current figures.</li>
-  <li>Steps that search the web use Claude, with the model {{ model_name }}{% if not claude_key %}. The site has no Claude key now, so these steps work only with your own Claude key{% endif %}.{% if not model_known %} Its prices are not in this site's price list, so the estimates use the prices of claude-opus-5-5.{% endif %}</li>
+  <li>The Own key column is for your own Claude API key: every step uses Claude, with the model {{ model_name }} unless you choose another.{% if not model_known %} Its prices are not in this site's price list, so the estimates use the prices of claude-opus-5-5.{% endif %}</li>
+  <li>On the site's keys{% if stripe_ready %} (the Credits column){% endif %}, most steps use {{ other_label }}, at the prices the site's owner set: ${{ other_in }} per million tokens read (input) and ${{ other_out }} per million tokens written (output). Check the company's own price page for the current figures.</li>
+  <li>Steps that search the web always use Claude, with the model {{ model_name }}{% if not claude_key %}. The site has no Claude key now, so these steps work only with your own Claude key{% endif %}.</li>
   <li>Claude's prices used: ${{ in_price }} per million tokens read (input) and ${{ out_price }} per million tokens written (output), plus ${{ search_price }} per 1,000 web searches.</li>
 {% else %}
   <li>The site uses the model {{ model_name }}.{% if not model_known %} Its prices are not in this site's price list, so the estimates use the prices of claude-opus-5-5.{% endif %}</li>

@@ -42,10 +42,10 @@
 </div>
 {% endmacro %}
 
-{% macro select(name, label, options, selected='', hint='', error='', required=false) %}
+{% macro select(name, label, options, selected='', hint='', error='', required=false, mark_optional=true) %}
 {% set selected = restored(name, selected) %}
 <div class="field{% if error %} has-error{% endif %}">
-  <label for="field-{{ name }}">{{ label }}{% if not required %} <span class="optional">(optional)</span>{% endif %}</label>
+  <label for="field-{{ name }}">{{ label }}{% if not required and mark_optional %} <span class="optional">(optional)</span>{% endif %}</label>
   {{ _hint_error(name, hint, error) }}
   <select id="field-{{ name }}" name="{{ name }}"{% if required %} required{% endif %}{{ _described(name, hint, error) }}>
   {% for value, text in options %}<option value="{{ value }}"{% if value == selected %} selected{% endif %}>{{ text }}</option>{% endfor %}

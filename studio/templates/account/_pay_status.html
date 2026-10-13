@@ -1,24 +1,28 @@
 {# How this member pays for AI. Needs `status` from account.ai_status(). #}
-{% set unreadable_note = "Your saved Claude API key stopped working because of a change on our side, not anything you did." %}
-{% if status.mode == 'own_key' and status.own_is_claude %}
+{% set key_name = (status.unreadable_provider ~ ' key') if status.unreadable_provider else 'Claude API key' %}
+{% set unreadable_note = "Your saved " ~ key_name ~ " stopped working because of a change on our side, not anything you did." %}
+{% set again_link = '/account/ai-key#other-company' if status.unreadable_provider else '/account/ai-key' %}
+{% if status.mode == 'own_key' and status.own_unlisted %}
+<p>Your saved key ending in <strong>{{ status.last4 }}</strong> is from {{ status.own_provider_name }}, which this site no longer offers, so the AI cannot use it and nothing is charged on it. <a href="/account/ai-key">Connect another key</a> to keep using the AI.</p>
+{% elif status.mode == 'own_key' and status.own_is_claude %}
 <p>You use your own Claude API key ending in <strong>{{ status.last4 }}</strong>. Anthropic bills you directly and this site charges nothing for AI.</p>
 {% elif status.mode == 'own_key' %}
 <p>You use your own API key from {{ status.own_provider_name }} ending in <strong>{{ status.last4 }}</strong>{% if status.own_model %}, with the model {{ status.own_model }}{% endif %}. {{ status.own_provider_name }} bills you directly and this site charges nothing for AI on your key.</p>
 {% if not status.own_model %}<p><a href="/account/ai-key">Choose the model for your key</a> to start using the AI.</p>{% endif %}
-<p>{% if status.search_route == 'free' %}Web search steps need Claude, so they use the site's Claude key, free for you.{% elif status.search_route == 'credits' %}Web search steps need Claude, so they use the site's Claude key, paid with your credits.{% elif status.search_route == 'buy' %}Web search steps need Claude, so they use the site's Claude key, paid with credits. To use them, <a href="/account/credits/buy">buy credits</a>.{% else %}Web search steps need Claude, and this site has no Claude key for them, so they are not available with your key.{% endif %}</p>
+<p>{% if status.search_route == 'free' %}Web search steps need Claude, so they use the site's Claude key, free for you.{% elif status.search_route == 'credits' %}Web search steps need Claude, so they use the site's Claude key, paid with your credits.{% elif status.search_route == 'buy' %}Web search steps need Claude, so they use the site's Claude key, paid with credits. To use them, <a href="/account/credits/buy">buy credits</a>.{% elif status.search_route == 'no_credits' %}Web search steps use the site's Claude key, paid with credits, and you have none. Credits are not on sale here yet. To use those steps, <a href="/account/ai-key">connect a Claude API key</a> instead.{% else %}Web search steps need Claude, and this site has no Claude key for them, so they are not available with your key.{% endif %}</p>
 {% elif status.mode == 'free' %}
 <p>On this site the AI is free for you: the site's owner pays for it.{% if not status.site_main_is_claude %} It uses {{ status.site_ai_label }}, and Claude for web search steps.{% endif %}{% if status.free_limit_text %} You have <strong>{{ status.free_left_text }}</strong> left of {{ status.free_limit_text }} this month. It starts again on {{ status.renews }}.{% endif %}</p>
-{% if status.key_unreadable %}<p>{{ unreadable_note }} For now the AI uses the site's key. <a href="/account/ai-key">Connect your Claude API key again</a>.</p>{% endif %}
+{% if status.key_unreadable %}<p>{{ unreadable_note }} For now the AI uses the site's key. <a href="{{ again_link }}">Connect your {{ key_name }} again</a>.</p>{% endif %}
 {% elif status.mode == 'credits' %}
 <p>You use credits. Balance: <strong>{{ status.balance_text }}</strong>.{% if not status.site_main_is_claude %} The site's AI is {{ status.site_ai_label }}, with Claude for web search steps.{% endif %}</p>
-{% if status.key_unreadable %}<p>{{ unreadable_note }} For now the AI uses your credits. <a href="/account/ai-key">Connect your Claude API key again</a> to stop using credits.</p>{% endif %}
+{% if status.key_unreadable %}<p>{{ unreadable_note }} For now the AI uses your credits. <a href="{{ again_link }}">Connect your {{ key_name }} again</a> to stop using credits.</p>{% endif %}
 {% elif status.can_buy %}
 <p>{% if status.key_unreadable %}{{ unreadable_note }} {% endif %}<strong>The AI is not set up for you yet.</strong> There are two ways to start:</p>
 <ol>
-  <li><a href="/account/ai-key">Connect your own Claude API key</a>. You pay Anthropic directly and this site charges nothing.</li>
+  <li>{% if status.key_unreadable %}<a href="{{ again_link }}">Connect your {{ key_name }} again</a>{% else %}<a href="/account/ai-key">Connect your own Claude API key</a>{% endif %}. You pay {{ status.unreadable_provider or 'Anthropic' }} directly and this site charges nothing.</li>
   <li><a href="/account/credits/buy">Buy credits</a> to use the site's AI. Your balance is {{ status.balance_text }}.</li>
 </ol>
 {% else %}
-<p>{% if status.key_unreadable %}{{ unreadable_note }} {% endif %}<strong>To start using the AI, connect your own Claude API key.</strong> You pay Anthropic directly, and this site charges nothing. Credits are not on sale on this site yet.</p>
-<p><a href="/account/ai-key">{{ 'Connect your Claude API key again' if status.key_unreadable else 'Connect your Claude API key' }}</a></p>
+<p>{% if status.key_unreadable %}{{ unreadable_note }} {% endif %}<strong>To start using the AI, connect your own {{ key_name if status.key_unreadable else 'Claude API key' }}.</strong> You pay {{ status.unreadable_provider or 'Anthropic' }} directly, and this site charges nothing. Credits are not on sale on this site yet.</p>
+<p><a href="{{ again_link }}">{{ ('Connect your ' ~ key_name ~ ' again') if status.key_unreadable else 'Connect your Claude API key' }}</a></p>
 {% endif %}

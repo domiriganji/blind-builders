@@ -13,7 +13,7 @@ from urllib.parse import urlencode, urlsplit
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from .. import db, jobs, sensitive
-from ..ai import AINotAvailable
+from ..ai import AINotAvailable, search_unavailable
 from ..web import (checked_form, current_user, date_words, error_title, flash, get_ai, redirect, render,
                    require_user)
 
@@ -856,8 +856,11 @@ async def ask(request: Request, user: dict = Depends(require_user)):
         return redirect(f"/find/search/{recent['id']}")
     try:
         ai = get_ai(request, user)
+        problem = search_unavailable(ai)
     except AINotAvailable as exc:
-        flash(request, exc.user_message, "error")
+        problem = exc.user_message
+    if problem:
+        flash(request, problem, "error")
         return redirect("/find/ask?" + urlencode({"need": need}))
     profile = {"screen_reader": user.get("screen_reader") or "", "device": user.get("device") or ""}
     job_id = jobs.submit(user["id"], "find.search", _job_title(need), _search_job, ai, user["id"], need, profile)
