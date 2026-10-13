@@ -1,4 +1,9 @@
-"""Peer checks: members ask other blind members to try their website or app with a real screen reader.
+"""Peer checks: members ask other blind members to try their website or app with a real screen reader,
+and sighted people (friends, family, volunteers) to check how it looks.
+
+What a blind member reads about the look of their work is always about outcomes: whether it looks
+finished, whether anything is broken or hard to read, whether a visitor would trust it. Never colour
+names or other descriptions they cannot relate to.
 
 Every check is saved in a public record. Each entry carries a fingerprint (SHA-256) that covers the
 entry, the request it belongs to and the fingerprint of the entry before it, so any later change to
@@ -20,10 +25,38 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from .. import credits, db
-from ..web import checked_form, current_user, flash, redirect, render, require_user
+from ..web import checked_form, current_user, flash, form_text, redirect, render, require_user
 
 router = APIRouter(prefix="/checks")
-NAV = {"label": 'Peer checks', "url": '/checks', "description": 'Ask other blind members to test your website or app with their screen reader, and check theirs. Every check is recorded honestly.'}
+NAV = {"label": 'Peer checks', "url": '/checks', "description": 'Ask other blind members to test your website or app with their screen reader, and sighted people to check how it looks. Every check is recorded honestly.'}
+
+# One table definition, used for new databases and when seed() rebuilds a table made before sighted checks.
+# A sighted check has no task result and three answers about the look; a screen reader check is the opposite.
+REPORTS_TABLE = """CREATE TABLE IF NOT EXISTS {table} (
+    id INTEGER PRIMARY KEY,
+    request_id INTEGER NOT NULL REFERENCES check_requests(id),
+    checker_id INTEGER NOT NULL REFERENCES users(id),
+    screen_reader TEXT NOT NULL,
+    screen_reader_version TEXT NOT NULL DEFAULT '',
+    browser TEXT NOT NULL,
+    device TEXT NOT NULL,
+    heard_first TEXT NOT NULL,
+    task_result TEXT NOT NULL CHECK (task_result IN ('completed', 'partly', 'could_not', '')),
+    problems TEXT NOT NULL DEFAULT '',
+    show_name INTEGER NOT NULL DEFAULT 0,
+    prev_hash TEXT NOT NULL DEFAULT '',
+    record_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    method TEXT NOT NULL DEFAULT 'screen_reader' CHECK (method IN ('screen_reader', 'sighted')),
+    looks_finished TEXT NOT NULL DEFAULT '' CHECK (looks_finished IN ('yes', 'no', 'not_sure', '')),
+    anything_broken TEXT NOT NULL DEFAULT '' CHECK (anything_broken IN ('yes', 'no', 'not_sure', '')),
+    would_trust TEXT NOT NULL DEFAULT '' CHECK (would_trust IN ('yes', 'no', 'not_sure', '')),
+    improve TEXT NOT NULL DEFAULT '',
+    CHECK ((method = 'screen_reader' AND task_result != '') OR (method = 'sighted' AND task_result = ''
+           AND looks_finished != '' AND anything_broken != '' AND would_trust != '')),
+    UNIQUE (request_id, checker_id)
+);
+"""
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS check_requests (
@@ -36,29 +69,15 @@ CREATE TABLE IF NOT EXISTS check_requests (
     reward_cents INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed')),
     created_at TEXT NOT NULL,
-    closed_at TEXT
+    closed_at TEXT,
+    wanted TEXT NOT NULL DEFAULT 'screen_reader' CHECK (wanted IN ('screen_reader', 'sighted', 'both'))
 );
 CREATE INDEX IF NOT EXISTS idx_check_requests_requester ON check_requests(requester_id);
 CREATE INDEX IF NOT EXISTS idx_check_requests_status ON check_requests(status);
-CREATE TABLE IF NOT EXISTS check_reports (
-    id INTEGER PRIMARY KEY,
-    request_id INTEGER NOT NULL REFERENCES check_requests(id),
-    checker_id INTEGER NOT NULL REFERENCES users(id),
-    screen_reader TEXT NOT NULL,
-    screen_reader_version TEXT NOT NULL DEFAULT '',
-    browser TEXT NOT NULL,
-    device TEXT NOT NULL,
-    heard_first TEXT NOT NULL,
-    task_result TEXT NOT NULL CHECK (task_result IN ('completed', 'partly', 'could_not')),
-    problems TEXT NOT NULL DEFAULT '',
-    show_name INTEGER NOT NULL DEFAULT 0,
-    prev_hash TEXT NOT NULL DEFAULT '',
-    record_hash TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    UNIQUE (request_id, checker_id)
-);
+""" + REPORTS_TABLE.replace("{table}", "check_reports") + """\
 CREATE INDEX IF NOT EXISTS idx_check_reports_checker ON check_reports(checker_id);
 """
+
 
 # ----- choices and limits ----------------------------------------------------------------------
 
@@ -68,8 +87,60 @@ REWARD_OPTIONS = [("0", "No reward"), ("25", "25 cents per check"), ("50", "50 c
 RESULT_OPTIONS = [("completed", "Yes, I could do it"), ("partly", "Partly"), ("could_not", "No, I could not do it")]
 RESULT_WORDS = {"completed": "Could do the task", "partly": "Could do it partly", "could_not": "Could not do the task"}
 
+# Who the member wants to check their work. Requests made before this choice existed asked screen reader users.
+WANTED_OPTIONS = [("screen_reader", "People who use screen readers"), ("sighted", "Sighted people, to check how it looks"),
+                  ("both", "Both")]
+WANTED_SENTENCE = {
+    "screen_reader": "This request asks people who use screen readers to try the task.",
+    "sighted": "This request asks sighted people to check how it looks.",
+    "both": "This request asks people who use screen readers to try the task, and sighted people to check how it looks.",
+}
+WANTED_SHORT = {"screen_reader": "Wanted: people who use screen readers.",
+                "sighted": "Wanted: sighted people, to check how it looks.",
+                "both": "Wanted: people who use screen readers, and sighted people to check how it looks."}
+
+# How one checker checked. A sighted check answers three questions about the look, in outcome words only:
+# the member who reads the record may never see the page, so nothing here names a colour or a shape.
+METHOD_OPTIONS = [("screen_reader", "With a screen reader"), ("sighted", "I am sighted and looked at how it appears")]
+ANSWER_OPTIONS = [("yes", "Yes"), ("no", "No"), ("not_sure", "Not sure")]
+ANSWER_WORDS = dict(ANSWER_OPTIONS)
+LOOK_QUESTIONS = [
+    ("looks_finished", "Does it look finished and professional?",
+     "Choose whether it looks finished and professional: yes, no or not sure."),
+    ("anything_broken", "Is anything broken, overlapping or hard to read?",
+     "Choose whether anything is broken, overlapping or hard to read: yes, no or not sure."),
+    ("would_trust", "Would you trust this page as a visitor or customer?",
+     "Choose whether you would trust this page as a visitor or customer: yes, no or not sure."),
+]
+GOOD_ANSWER = {"looks_finished": "yes", "anything_broken": "no", "would_trust": "yes"}
+# What each answer means for the member, said as an outcome. "good" and "bad" follow a count ("1 said ...");
+# "all_good" and "all_unsure" make the whole clause for n checkers who all answered the same way.
+LOOK_PHRASES = {
+    "looks_finished": {
+        "good": "said it looks finished and professional",
+        "bad": "said it does not look finished yet",
+        "all_good": lambda n: f"{_everyone(n)} said it looks finished and professional",
+        "all_unsure": lambda n: f"{_no_one(n)} sure whether it looks finished and professional"},
+    "anything_broken": {
+        "good": "found nothing broken or hard to read",
+        "bad": "found something broken, overlapping or hard to read",
+        "all_good": lambda n: {1: "they found nothing broken or hard to read",
+                               2: "neither found anything broken or hard to read"}.get(
+                                   n, f"none of the {n} found anything broken or hard to read"),
+        "all_unsure": lambda n: f"{_no_one(n)} sure whether anything is broken or hard to read"},
+    "would_trust": {
+        "good": "would trust it as a visitor or customer",
+        "bad": "would not trust it yet",
+        "all_good": lambda n: f"{_everyone(n)} would trust it as a visitor or customer",
+        "all_unsure": lambda n: f"{_no_one(n)} sure whether they would trust it as a visitor or customer"},
+}
+SIGHTED_FIELDS = ("method", "looks_finished", "anything_broken", "would_trust", "improve")
+SCREEN_READER_FIELDS = ("screen_reader", "screen_reader_version", "browser", "device", "heard_first", "task_result",
+                        "problems")
+
 LIMITS = {"title": 150, "url": 2000, "what_to_try": 4000, "screen_reader": 80, "screen_reader_version": 40,
-          "browser": 80, "device": 120, "heard_first": 4000, "problems": 8000}
+          "browser": 80, "device": 120, "heard_first": 4000, "problems": 8000, "improve": 8000}
+TEXT_CAP = 20_000  # longer than any limit above, so a too-long answer is still reported with its length
 MAX_ID = 2 ** 63 - 1  # SQLite's largest integer; a bigger number in an address cannot be a request
 
 # Screen readers people use most, and the platform a screen reader implies when it runs on only one.
@@ -122,8 +193,9 @@ def _secret_error(text: str) -> str | None:
 
 def _text(form: dict, name: str) -> str:
     """One text value from the form. A field sent twice (only a crafted form does that) counts as empty."""
-    value = form.get(name, "")
-    return value.strip() if isinstance(value, str) else ""
+    if isinstance(form.get(name, ""), list):
+        return ""
+    return form_text(form, name, TEXT_CAP).strip()
 
 
 def valid_url(url: str) -> bool:
@@ -160,6 +232,34 @@ def _cents_words(cents: int) -> str:
     return credits.format_cents(cents)
 
 
+# ----- start-up --------------------------------------------------------------------------------
+
+def seed() -> None:
+    """Bring a database made before sighted checks up to date. Safe to run on every start.
+
+    Requests gain the kind of check wanted. The reports table needs new columns and a looser rule for the
+    task result (a sighted check has none), and SQLite cannot change a rule in place, so the table is
+    copied into a new one with the same rows, ids and fingerprints, in one transaction.
+    """
+    with db.session() as conn:
+        db.ensure_column(conn, "check_requests", "wanted",
+                         "TEXT NOT NULL DEFAULT 'screen_reader' CHECK (wanted IN ('screen_reader', 'sighted', 'both'))")
+    with db.session() as conn:
+        conn.execute("PRAGMA foreign_keys = OFF")  # only takes effect outside a transaction
+        conn.execute("BEGIN IMMEDIATE")
+        columns = [row["name"] for row in conn.execute("PRAGMA table_info(check_reports)")]
+        if "method" in columns:
+            conn.execute("ROLLBACK")
+            return
+        conn.execute("DROP TABLE IF EXISTS check_reports_new")
+        conn.execute(REPORTS_TABLE.replace("{table}", "check_reports_new"))
+        names = ", ".join(columns)
+        conn.execute(f"INSERT INTO check_reports_new ({names}) SELECT {names} FROM check_reports")
+        conn.execute("DROP TABLE check_reports")
+        conn.execute("ALTER TABLE check_reports_new RENAME TO check_reports")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_check_reports_checker ON check_reports(checker_id)")
+
+
 # ----- record fingerprints ---------------------------------------------------------------------
 
 HASHED_REPORT_FIELDS = ("checker_id", "screen_reader", "screen_reader_version", "browser", "device", "heard_first",
@@ -167,8 +267,14 @@ HASHED_REPORT_FIELDS = ("checker_id", "screen_reader", "screen_reader_version", 
 
 
 def compute_hash(request_row: dict, report: dict, prev_hash: str) -> str:
-    """SHA-256 over canonical JSON (sorted keys) of the report, its request and the previous entry's hash."""
+    """SHA-256 over canonical JSON (sorted keys) of the report, its request and the previous entry's hash.
+
+    A sighted check also covers how it was checked, its three answers and its suggestion. Screen reader
+    checks hash exactly as they did before sighted checks existed, so every older record still verifies.
+    """
     payload = {k: report[k] for k in HASHED_REPORT_FIELDS}
+    if report.get("method", "screen_reader") != "screen_reader":
+        payload.update({k: report[k] for k in SIGHTED_FIELDS})
     payload["show_name"] = int(payload["show_name"])
     payload["checker_id"] = int(payload["checker_id"])
     payload.update({"request_id": int(request_row["id"]), "url": request_row["url"], "title": request_row["title"],
@@ -260,26 +366,122 @@ def _why_not_eligible(req: dict, user: dict) -> str | None:
     return None
 
 
-def _summary(reports: list[dict]) -> str:
-    n = len(reports)
-    if n == 0:
-        return "Nobody has checked this yet."
-    counts = {k: sum(1 for r in reports if r["task_result"] == k) for k in RESULT_WORDS}
+def is_sighted(report: dict) -> bool:
+    return report.get("method") == "sighted"
+
+
+def _people(n: int) -> str:
+    return "1 sighted person" if n == 1 else f"{n} sighted people"
+
+
+def _everyone(n: int) -> str:
+    return {1: "they", 2: "both"}.get(n, f"all {n}")
+
+
+def _no_one(n: int) -> str:
+    return {1: "they were not", 2: "neither was"}.get(n, f"none of the {n} was")
+
+
+def _look_clause(question: str, answers: list[str]) -> str:
+    """One question's answers from every sighted checker, as an outcome, for example
+    "both said it looks finished and professional" or "1 found something broken, overlapping or hard to read"."""
+    n = len(answers)
+    phrases = LOOK_PHRASES[question]
+    good = sum(1 for a in answers if a == GOOD_ANSWER[question])
+    unsure = sum(1 for a in answers if a == "not_sure")
+    bad = n - good - unsure
+    if good == n:
+        return phrases["all_good"](n)
+    if bad == n:
+        return f"{_everyone(n)} {phrases['bad']}"
+    if unsure == n:
+        return phrases["all_unsure"](n)
     parts = []
-    if counts["completed"]:
-        parts.append(f"{counts['completed']} could do the task")
-    if counts["partly"]:
-        parts.append(f"{counts['partly']} could do it partly")
-    if counts["could_not"]:
-        parts.append(f"{counts['could_not']} could not do it")
-    lead = "1 member checked this." if n == 1 else f"{n} members checked this."
-    return f"{lead} {', '.join(parts)}."
+    if good:
+        parts.append(f"{good} {phrases['good']}")
+    if bad:
+        parts.append(f"{bad} {phrases['bad']}")
+    if unsure:
+        parts.append(f"{unsure} {'was' if unsure == 1 else 'were'} not sure")
+    return ", ".join(parts[:-1]) + " and " + parts[-1]
+
+
+def _sentence(text: str) -> str:
+    return text[0].upper() + text[1:] + "."
+
+
+def all_good(report: dict) -> bool:
+    return all(report[q] == good for q, good in GOOD_ANSWER.items())
+
+
+def any_bad(report: dict) -> bool:
+    return any(report[q] not in (good, "not_sure") for q, good in GOOD_ANSWER.items())
+
+
+def look_summary(sighted: list[dict]) -> str:
+    """What the sighted checks say about the look, in outcome words only. Never colours or shapes."""
+    n = len(sighted)
+    clauses = {q: _look_clause(q, [r[q] for r in sighted]) for q, _, _ in LOOK_QUESTIONS}
+    first, second = clauses["looks_finished"], clauses["anything_broken"]
+    mixed = any(len({r[q] for r in sighted}) > 1 for q in ("looks_finished", "anything_broken"))
+    if mixed:  # different answers read more easily as sentences of their own
+        opening = _sentence(first) + " " + _sentence(second)
+    else:
+        opening = _sentence(f"{first}, and {second}")
+    text = f"{_people(n)} checked how it looks. {opening} {_sentence(clauses['would_trust'])} "
+    if all(all_good(r) for r in sighted):
+        text += ("Every answer was a good one: the look of this page is done well." if n > 1 else
+                 "Every answer was a good one: to them, the look of this page is done well.")
+    elif any(any_bad(r) for r in sighted):
+        text += "There is something to fix. What they would make better is below, in their own words."
+    else:
+        text += "Nobody found anything wrong, but not every answer was sure. Their own words are below."
+    return text
+
+
+def look_verdict(report: dict) -> str:
+    """A few words for one sighted check's heading."""
+    if any_bad(report):
+        return "found something to fix"
+    if not all_good(report):
+        return "found nothing wrong, not sure of everything"
+    return "looks done well"
+
+
+def _summary(req: dict, reports: list[dict]) -> list[str]:
+    """The record's summary, one paragraph for each kind of check, screen reader checks first."""
+    if not reports:
+        return ["Nobody has checked this yet."]
+    paras = []
+    screen = [r for r in reports if not is_sighted(r)]
+    sighted = [r for r in reports if is_sighted(r)]
+    wanted = req.get("wanted") or "screen_reader"
+    if screen:
+        counts = {k: sum(1 for r in screen if r["task_result"] == k) for k in RESULT_WORDS}
+        parts = []
+        if counts["completed"]:
+            parts.append(f"{counts['completed']} could do the task")
+        if counts["partly"]:
+            parts.append(f"{counts['partly']} could do it partly")
+        if counts["could_not"]:
+            parts.append(f"{counts['could_not']} could not do it")
+        lead = ("1 member checked it with a screen reader." if len(screen) == 1
+                else f"{len(screen)} members checked it with a screen reader.")
+        paras.append(f"{lead} {_sentence(', '.join(parts))}")
+    elif wanted in ("screen_reader", "both"):
+        paras.append("Nobody has checked it with a screen reader yet.")
+    if sighted:
+        paras.append(look_summary(sighted))
+    elif wanted in ("sighted", "both"):
+        paras.append("No sighted person has checked how it looks yet.")
+    return paras
 
 
 def _not_checked(reports: list[dict]) -> dict:
+    screen = [r for r in reports if not is_sighted(r)]
     readers_used: set[str] = set()
     devices_used: set[str] = set()
-    for r in reports:
+    for r in screen:
         sr = r["screen_reader"].lower()
         for name, keys, platform in KNOWN_SCREEN_READERS:
             if any(k in sr for k in keys):
@@ -290,11 +492,13 @@ def _not_checked(reports: list[dict]) -> dict:
         for name, patterns in KNOWN_DEVICES:
             if any(re.search(p, text) for p in patterns):
                 devices_used.add(name)
-    appearance = sum(1 for r in reports if APPEARANCE_WORDS.search(f"{r['problems']} {r['heard_first']}"))
+    appearance = sum(1 for r in screen if APPEARANCE_WORDS.search(f"{r['problems']} {r['heard_first']}"))
     return {
+        "screen_reader_checks": len(screen),
         "screen_readers": [name for name, _, _ in KNOWN_SCREEN_READERS if name not in readers_used],
         "devices": [name for name, _ in KNOWN_DEVICES if name not in devices_used],
         "appearance_mentions": appearance,
+        "sighted_checks": len(reports) - len(screen),
     }
 
 
@@ -327,27 +531,36 @@ def index(request: Request):
     return render(request, "checks/index.html", title="Peer checks", queue=queue, mine=mine,
                   mine_open=[r for r in mine if r["status"] == "open"],
                   mine_closed=[r for r in mine if r["status"] != "open"],
-                  done_by_me=done_by_me, recent=recent, money=_cents_words)
+                  done_by_me=done_by_me, recent=recent, money=_cents_words, wanted_short=WANTED_SHORT)
+
+
+def _radio_errors(errors: dict) -> dict:
+    """The error summary links to a radio group's first answer, which can take focus; the group cannot."""
+    radio_groups = {"task_result", "method", "wanted", *GOOD_ANSWER}
+    return {(f"{k}-1" if k in radio_groups else k): v for k, v in errors.items()}
 
 
 def _new_form(request: Request, user: dict, values: dict, errors: dict, status_code: int = 200):
     title = "Ask for a check: please fix the problems" if errors else "Ask for a check"
     return render(request, "checks/new.html", title=title, values=values, errors=errors,
-                  count_options=COUNT_OPTIONS, reward_options=REWARD_OPTIONS,
-                  balance=credits.format_cents(credits.balance(user["id"])), status_code=status_code)
+                  summary_errors=_radio_errors(errors), count_options=COUNT_OPTIONS, reward_options=REWARD_OPTIONS,
+                  wanted_options=WANTED_OPTIONS, balance=credits.format_cents(credits.balance(user["id"])),
+                  status_code=status_code)
 
 
 @router.get("/new")
-def new_form(request: Request, url: str = "", title: str = "", user: dict = Depends(require_user)):
+def new_form(request: Request, url: str = "", title: str = "", kind: str = "",
+             user: dict = Depends(require_user)):
     values = {"title": title.strip()[:LIMITS["title"]], "url": url.strip()[:LIMITS["url"]], "what_to_try": "",
-              "max_checks": "3", "reward_cents": "0"}
+              "max_checks": "3", "reward_cents": "0",
+              "wanted": kind if kind in WANTED_SENTENCE else "both"}
     return _new_form(request, user, values, {})
 
 
 @router.post("/new")
 async def create_request(request: Request, user: dict = Depends(require_user)):
     form = await checked_form(request)
-    values = {k: _text(form, k) for k in ("title", "url", "what_to_try", "max_checks", "reward_cents")}
+    values = {k: _text(form, k) for k in ("title", "url", "what_to_try", "max_checks", "reward_cents", "wanted")}
     errors: dict[str, str] = {}
     if not values["title"]:
         errors["title"] = "Enter a short name for what you want checked."
@@ -364,6 +577,8 @@ async def create_request(request: Request, user: dict = Depends(require_user)):
     for name in ("title", "what_to_try"):
         if name not in errors and (problem := _secret_error(values[name])):
             errors[name] = problem
+    if values["wanted"] not in WANTED_SENTENCE:
+        errors["wanted"] = "Choose who should check it: people who use screen readers, sighted people, or both."
     if values["max_checks"] not in {v for v, _ in COUNT_OPTIONS}:
         errors["max_checks"] = "Choose how many checks you want, from 1 to 5."
     if values["reward_cents"] not in {v for v, _ in REWARD_OPTIONS}:
@@ -379,8 +594,9 @@ async def create_request(request: Request, user: dict = Depends(require_user)):
         conn.execute("BEGIN IMMEDIATE")
         same = conn.execute(
             "SELECT id FROM check_requests WHERE requester_id = ? AND status = 'open' AND title = ? AND url = ?"
-            " AND what_to_try = ? AND max_checks = ? AND reward_cents = ? ORDER BY id DESC LIMIT 1",
-            (user["id"], values["title"], values["url"], values["what_to_try"], max_checks, reward)).fetchone()
+            " AND what_to_try = ? AND max_checks = ? AND reward_cents = ? AND wanted = ? ORDER BY id DESC LIMIT 1",
+            (user["id"], values["title"], values["url"], values["what_to_try"], max_checks, reward,
+             values["wanted"])).fetchone()
         have = _balance_in(conn, user["id"])
         if same:
             duplicate = same["id"]  # the same form sent twice, for example after a double press
@@ -389,8 +605,9 @@ async def create_request(request: Request, user: dict = Depends(require_user)):
         else:
             cur = conn.execute(
                 "INSERT INTO check_requests (requester_id, title, url, what_to_try, max_checks, reward_cents, status,"
-                " created_at) VALUES (?, ?, ?, ?, ?, ?, 'open', ?)",
-                (user["id"], values["title"], values["url"], values["what_to_try"], max_checks, reward, db.now()))
+                " created_at, wanted) VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?)",
+                (user["id"], values["title"], values["url"], values["what_to_try"], max_checks, reward, db.now(),
+                 values["wanted"]))
             request_id = cur.lastrowid
             if total > 0:
                 _ledger(conn, user["id"], -total, f"Held for peer checks: {values['title']}", f"check:{request_id}")
@@ -424,7 +641,9 @@ def request_page(request: Request, request_id: int, user: dict = Depends(require
     return render(request, "checks/request.html", title=title, req=req, eligible=reason is None, reason=reason,
                   is_owner=is_owner, not_done_cents=req["reward_cents"] * not_done,
                   not_done=credits.format_cents(req["reward_cents"] * not_done),
-                  paid=credits.format_cents(req["reward_cents"] * req["done"]), money=_cents_words)
+                  paid=credits.format_cents(req["reward_cents"] * req["done"]), money=_cents_words,
+                  wanted_sentence=WANTED_SENTENCE[req["wanted"]],
+                  share_url=f"{request.app.state.settings.base_url.rstrip('/')}/checks/{req['id']}")
 
 
 @router.post("/{request_id}/close")
@@ -460,11 +679,10 @@ def _report_form(request: Request, req: dict, values: dict, errors: dict, status
     title = f"Check this: {req['title']}"
     if errors:
         title += ": please fix the problems"
-    # The error summary links to the first answer, which can take focus; the group around them cannot.
-    summary_errors = {("task_result-1" if k == "task_result" else k): v for k, v in errors.items()}
     return render(request, "checks/report.html", title=title, req=req, values=values, errors=errors,
-                  summary_errors=summary_errors, result_options=RESULT_OPTIONS, money=_cents_words,
-                  status_code=status_code)
+                  summary_errors=_radio_errors(errors), result_options=RESULT_OPTIONS, money=_cents_words,
+                  method_options=METHOD_OPTIONS, answer_options=ANSWER_OPTIONS, look_questions=LOOK_QUESTIONS,
+                  wanted_sentence=WANTED_SENTENCE[req["wanted"]], status_code=status_code)
 
 
 def _refuse(request: Request, req: dict, reason: str):
@@ -485,8 +703,41 @@ def report_form(request: Request, request_id: int, user: dict = Depends(require_
         return _refuse(request, req, reason)
     values = {"screen_reader": user.get("screen_reader", ""), "screen_reader_version": "", "browser": "",
               "device": user.get("device", ""), "heard_first": "", "task_result": "", "problems": "",
+              "method": "" if req["wanted"] == "both" else req["wanted"],
+              "looks_finished": "", "anything_broken": "", "would_trust": "", "improve": "",
               "show_name": bool(user.get("show_name_on_checks"))}
     return _report_form(request, req, values, {})
+
+
+def _check_errors(values: dict) -> dict[str, str]:
+    """Validation for the way this member checked. The other set of fields is not looked at, or saved."""
+    errors: dict[str, str] = {}
+    if values["method"] == "screen_reader":
+        required = {"screen_reader": "Enter the screen reader you used, for example NVDA or TalkBack.",
+                    "browser": "Enter the browser you used, or the app's name if you tested an app.",
+                    "device": "Enter the device you used, for example an Android phone or a Windows laptop.",
+                    "heard_first": "Type what you heard first when the page opened. A few words from memory are enough."}
+        for name, message in required.items():
+            if not values[name]:
+                errors[name] = message
+        if values["task_result"] not in RESULT_WORDS:
+            errors["task_result"] = "Choose whether you could do the task: yes, partly or no."
+        texts = ("screen_reader", "screen_reader_version", "browser", "device", "heard_first", "problems")
+    elif values["method"] == "sighted":
+        for name, _, message in LOOK_QUESTIONS:
+            if values[name] not in ANSWER_WORDS:
+                errors[name] = message
+        texts = ("improve",)
+    else:
+        return {"method": "Choose how you checked it: with a screen reader, or as a sighted person looking at "
+                          "how it appears."}
+    for name in texts:
+        if name not in errors and len(values[name]) > LIMITS[name]:
+            errors[name] = (f"This is {len(values[name])} characters long. "
+                            f"Shorten it to {LIMITS[name]} characters or fewer.")
+        if name not in errors and (problem := _secret_error(values[name])):
+            errors[name] = problem
+    return errors
 
 
 @router.post("/{request_id}/report")
@@ -497,30 +748,19 @@ async def save_report(request: Request, request_id: int, user: dict = Depends(re
         return _already_saved(request, request_id)
     if reason := _why_not_eligible(req, user):
         return _refuse(request, req, reason)
-    values: dict = {k: _text(form, k) for k in
-                    ("screen_reader", "screen_reader_version", "browser", "device", "heard_first", "task_result", "problems")}
+    values: dict = {k: _text(form, k) for k in SCREEN_READER_FIELDS + SIGHTED_FIELDS}
     values["show_name"] = form.get("show_name") == "yes"
-    errors: dict[str, str] = {}
-    required = {"screen_reader": "Enter the screen reader you used, for example NVDA or TalkBack.",
-                "browser": "Enter the browser you used, or the app's name if you tested an app.",
-                "device": "Enter the device you used, for example an Android phone or a Windows laptop.",
-                "heard_first": "Type what you heard first when the page opened. A few words from memory are enough."}
-    for name, message in required.items():
-        if not values[name]:
-            errors[name] = message
-    if values["task_result"] not in RESULT_WORDS:
-        errors["task_result"] = "Choose whether you could do the task: yes, partly or no."
-    for name, limit in LIMITS.items():
-        if name in values and name not in errors and len(values[name]) > limit:
-            errors[name] = f"This is {len(values[name])} characters long. Shorten it to {limit} characters or fewer."
-    for name in ("screen_reader", "screen_reader_version", "browser", "device", "heard_first", "problems"):
-        if name not in errors and (problem := _secret_error(values[name])):
-            errors[name] = problem
+    if req["wanted"] != "both":
+        values["method"] = req["wanted"]  # this request asked for one kind of check only
+    errors = _check_errors(values)
     if errors:
         return _report_form(request, req, values, errors, status_code=400)
 
-    report = {**{k: values[k] for k in values if k != "show_name"}, "checker_id": user["id"],
-              "show_name": 1 if values["show_name"] else 0, "created_at": db.now()}
+    # Only the fields for the way they checked are saved; the others are stored empty.
+    keep = SCREEN_READER_FIELDS if values["method"] == "screen_reader" else SIGHTED_FIELDS
+    report = {k: (values[k] if k in keep else "") for k in SCREEN_READER_FIELDS + SIGHTED_FIELDS}
+    report.update({"method": values["method"], "checker_id": user["id"],
+                   "show_name": 1 if values["show_name"] else 0, "created_at": db.now()})
     refusal = already = None
     with db.session() as conn:
         # One writer at a time, so the chain, the count and the reward stay consistent. The reward is
@@ -541,11 +781,13 @@ async def save_report(request: Request, request_id: int, user: dict = Depends(re
             record_hash = compute_hash(fresh, report, prev_hash)
             conn.execute(
                 "INSERT INTO check_reports (request_id, checker_id, screen_reader, screen_reader_version, browser, device,"
-                " heard_first, task_result, problems, show_name, prev_hash, record_hash, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " heard_first, task_result, problems, show_name, prev_hash, record_hash, created_at, method,"
+                " looks_finished, anything_broken, would_trust, improve)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (request_id, user["id"], report["screen_reader"], report["screen_reader_version"], report["browser"],
                  report["device"], report["heard_first"], report["task_result"], report["problems"],
-                 report["show_name"], prev_hash, record_hash, report["created_at"]))
+                 report["show_name"], prev_hash, record_hash, report["created_at"], report["method"],
+                 report["looks_finished"], report["anything_broken"], report["would_trust"], report["improve"]))
             if fresh["reward_cents"] > 0:
                 _ledger(conn, user["id"], fresh["reward_cents"], f"Peer check reward: {fresh['title']}",
                         f"check:{request_id}")
@@ -568,14 +810,18 @@ def record_page(request: Request, request_id: int, sent: str = ""):
     req = _get_request(request_id)
     reports = _reports(request_id)
     problems = verify_chain(req, reports)
+    for r in reports:
+        if is_sighted(r):
+            r["verdict"] = look_verdict(r)
     user = current_user(request)
     if sent and user and any(r["checker_id"] == user["id"] for r in reports):
         title = f"Your check is saved in the record: {req['title']}"  # just after sending: say what happened
     else:
         title = f"Check record: {req['title']}"
     return render(request, "checks/record.html", title=title, req=req, reports=reports,
-                  summary=_summary(reports), chain_problems=problems, not_checked=_not_checked(reports),
-                  result_words=RESULT_WORDS)
+                  summary=_summary(req, reports), chain_problems=problems, not_checked=_not_checked(reports),
+                  result_words=RESULT_WORDS, answer_words=ANSWER_WORDS, look_questions=LOOK_QUESTIONS,
+                  wanted_sentence=WANTED_SENTENCE[req["wanted"]])
 
 
 def forget_user(user_id: int) -> None:
