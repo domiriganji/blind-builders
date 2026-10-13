@@ -18,6 +18,7 @@ On this page:
 - [Tests](#tests)
 - [Known limits](#known-limits)
 - [How this was decided](#how-this-was-decided)
+- [Licence](#licence)
 
 ## What you can do
 
@@ -177,3 +178,9 @@ The product came out of research and a multi-agent conference, kept in `docs/`:
 - `docs/conference/`: the full transcript of rounds 1 to 5, the judge scores and the plans the panel wrote. The panel's eight ideas became the sections of this website; the parts the organizers did not want (a phone line, a shop, grant funding) were left out.
 
 Developers: read `docs/DEVELOPING.md` first.
+
+## Licence
+
+**The code** is free software under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0). You can use it, change it and share it, for free or for money. If you run a changed version as a website for other people, you must offer them your changed code under the same licence. This keeps every copy of Blind Builders open, so improvements come back to blind and low-vision makers.
+
+**The writing** is under [Creative Commons Attribution 4.0](docs/LICENSE.md) (CC BY 4.0): the voice guide, the guides for members, the research and conference write-ups, and the screenshots. You can reuse it in your own projects, as long as you credit Blind Builders. Words and work by other people, quoted in `docs/research/` and `docs/conference/`, stay under their authors' rights.
