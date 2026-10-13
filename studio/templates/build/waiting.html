@@ -2,8 +2,8 @@
 {% from "_macros.html" import csrf_input, error_summary, textarea %}
 {% block content %}
 <h1>{{ title }}</h1>
-{% if project.status == 'understanding' %}
-<p>The AI is reading your idea. When it is done, this page shows what it understood. You can follow it in <a href="/jobs">Your recent work</a>. If nothing has happened after a few minutes, ask again below.</p>
+{% if busy %}
+<p>The AI is reading your idea. When it is done, this page shows what it understood. You can follow it in <a href="/jobs">Your recent work</a>. If nothing has happened after ten minutes, ask again below.</p>
 {% else %}
 <p>The AI has not read your idea yet. Your idea is saved. When the AI is available, ask it to read your idea.</p>
 {% endif %}

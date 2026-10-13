@@ -19,6 +19,7 @@ import json
 import re
 import secrets
 import zipfile
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote, urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -85,6 +86,17 @@ IDEA_HINT = "Say it the way you would tell a friend: who it is for, what it shou
 MAX_TITLE = 120
 MAX_IDEA = 20_000
 MAX_REQUEST = 10_000
+MAX_CORRECTIONS_TOTAL = 50_000  # all corrections on one project together, so the AI prompt stays a sane size
+MAX_AI_TEXT = 20_000  # any single piece of text the AI writes about a build (summary, how to use, ...)
+# While the AI works on a project, a second request for the same project is refused. A job that never
+# finished (for example after a server restart) stops blocking the project after this many minutes.
+BUSY_MINUTES = 10
+BUSY_STATUSES = {"understanding", "building", "changing"}
+BUSY_MESSAGE = ("The AI is already working on this project. Wait for it to finish, then try again. "
+                "You can follow it in Your recent work.")
+# Same idea sent twice within this many seconds (for example a double press of the button): keep one.
+DUPLICATE_SECONDS = 120
+MAX_SQLITE_INT = 2 ** 63 - 1
 
 # File rules for what the AI builds.
 ALLOWED_EXTENSIONS = {"html", "css", "js", "json", "webmanifest", "svg", "txt", "md"}
@@ -269,6 +281,7 @@ def validate_files(files: object) -> dict[str, str]:
     if len(files) > MAX_FILES:
         raise BuildFilesError(f"There were {len(files)} files. The limit is {MAX_FILES}.")
     out: dict[str, str] = {}
+    lowered: set[str] = set()
     total = 0
     for item in files:
         if not isinstance(item, dict) or not isinstance(item.get("path"), str) or not isinstance(item.get("content"), str):
@@ -293,7 +306,14 @@ def validate_files(files: object) -> dict[str, str]:
                                   "dashes and underscores.")
         if path in out:
             raise BuildFilesError(f'There were two files called "{path}".')
-        size = len(content.encode("utf-8"))
+        if path.lower() in lowered:
+            # Windows and Mac treat these as the same file, so the zip would lose one of them.
+            raise BuildFilesError(f'There were two files called "{path}", differing only in capital letters.')
+        lowered.add(path.lower())
+        try:
+            size = len(content.encode("utf-8"))
+        except UnicodeEncodeError:
+            raise BuildFilesError(f'The file "{path}" contains characters that are not valid text.') from None
         if size > MAX_FILE_BYTES:
             raise BuildFilesError(f'The file "{path}" is {_size(size)}. The limit is {_size(MAX_FILE_BYTES)} per file.')
         total += size
@@ -302,7 +322,62 @@ def validate_files(files: object) -> dict[str, str]:
         raise BuildFilesError(f"All files together are {_size(total)}. The limit is {_size(MAX_TOTAL_BYTES)}.")
     if "index.html" not in out:
         raise BuildFilesError("There was no index.html, the page that opens first.")
+    for path in out:
+        if any(other.startswith(path + "/") for other in out):
+            raise BuildFilesError(f'"{path}" is used as both a file name and a folder name.')
     return out
+
+
+# ----- what the AI returns: never trust its shape ---------------------------------------------------
+
+def _text(value: object, limit: int = MAX_AI_TEXT) -> str:
+    """A piece of AI text as a clean string. Wrong types become empty; broken characters are replaced."""
+    if isinstance(value, bool) or value is None:
+        return ""
+    if isinstance(value, (int, float)):
+        value = str(value)
+    if not isinstance(value, str):
+        return ""
+    return value.encode("utf-8", "replace").decode("utf-8").strip()[:limit]
+
+
+def _texts(value: object) -> list[str]:
+    """A list of AI strings. A single string becomes a one-item list, never a list of letters."""
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, list):
+        return []
+    return [t for t in (_text(v) for v in value) if t]
+
+
+def normalize_spec(raw: object) -> dict | None:
+    """What the AI understood, in exactly the shape the pages expect. None if it is not usable at all."""
+    if not isinstance(raw, dict):
+        return None
+    pages = []
+    items = raw.get("pages")
+    if isinstance(items, dict):
+        items = [items]
+    for i, item in enumerate(items if isinstance(items, list) else [], start=1):
+        if isinstance(item, str):
+            item = {"name": item}
+        if not isinstance(item, dict):
+            continue
+        name, purpose, contents = _text(item.get("name"), 200), _text(item.get("purpose")), _texts(item.get("contents"))
+        if not (name or purpose or contents):
+            continue
+        pages.append({"name": name or f"Page {i}", "purpose": purpose, "contents": contents})
+    return {
+        "summary": _text(raw.get("summary")),
+        "audience": _text(raw.get("audience")),
+        "pages": pages,
+        "features": _texts(raw.get("features")),
+        "data_kept": _text(raw.get("data_kept")),
+        "questions": _texts(raw.get("questions")),
+        "additions_not_asked": _texts(raw.get("additions_not_asked")),
+        "not_doing": _texts(raw.get("not_doing")),
+        "suggested_title": _text(raw.get("suggested_title"), MAX_TITLE),
+    }
 
 
 def run_checks(files: dict[str, str]) -> dict:
@@ -412,13 +487,24 @@ def _display_title(project: dict) -> str:
 
 
 def _load_spec(project: dict) -> dict:
+    """The stored understanding: spec (normalized), the person's corrections, and how many the AI has read."""
     stored = {"spec": None, "corrections": [], "title_suggested": False}
     if project.get("spec_json"):
         stored.update(json.loads(project["spec_json"]))
+    stored["spec"] = normalize_spec(stored["spec"]) if stored["spec"] else None
+    # "applied": how many corrections the current spec already includes. A failed re-read leaves the
+    # newest ones unread, and the page says so. Older rows without it count every correction as read.
+    stored.setdefault("applied", len(stored["corrections"]))
     return stored
 
 
+def _valid_int(n: int) -> bool:
+    return 0 < n <= MAX_SQLITE_INT
+
+
 def _owned_project(project_id: int, user: dict) -> dict:
+    if not _valid_int(project_id):
+        raise HTTPException(status_code=404, detail="We could not find that project.")
     with db.session() as conn:
         row = conn.execute("SELECT * FROM build_projects WHERE id = ? AND user_id = ?", (project_id, user["id"])).fetchone()
     if row is None:
@@ -427,11 +513,24 @@ def _owned_project(project_id: int, user: dict) -> dict:
 
 
 def _get_version(project_id: int, number: int) -> dict:
+    if not _valid_int(number):
+        raise HTTPException(status_code=404, detail="We could not find that version.")
     with db.session() as conn:
         row = conn.execute("SELECT * FROM build_versions WHERE project_id = ? AND number = ?", (project_id, number)).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="We could not find that version.")
     return dict(row)
+
+
+def _is_busy(project: dict) -> bool:
+    """True while an AI job for this project is probably still running."""
+    if project["status"] not in BUSY_STATUSES:
+        return False
+    try:
+        since = datetime.fromisoformat(project["updated_at"])
+    except (TypeError, ValueError):
+        return False
+    return datetime.now(timezone.utc) - since < timedelta(minutes=BUSY_MINUTES)
 
 
 def _versions(project_id: int) -> list[dict]:
@@ -441,15 +540,22 @@ def _versions(project_id: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def _set_status(project_id: int, status: str) -> None:
+def _set_status(project_id: int, status: str, token: str) -> None:
+    # The share token is random and unique per project, so a job never touches a newer project that
+    # reused the id of one deleted while the job was running.
     with db.session() as conn:
-        conn.execute("UPDATE build_projects SET status = ?, updated_at = ? WHERE id = ?", (status, db.now(), project_id))
+        conn.execute("UPDATE build_projects SET status = ?, updated_at = ? WHERE id = ? AND share_token = ?",
+                     (status, db.now(), project_id, token))
 
 
-def _project_row(project_id: int) -> dict | None:
+def _project_row(project_id: int, token: str) -> dict | None:
     with db.session() as conn:
-        row = conn.execute("SELECT * FROM build_projects WHERE id = ?", (project_id,)).fetchone()
+        row = conn.execute("SELECT * FROM build_projects WHERE id = ? AND share_token = ?",
+                           (project_id, token)).fetchone()
     return dict(row) if row else None
+
+
+DELETED_MESSAGE = "This project was deleted while the AI was working on it, so nothing was saved."
 
 
 def _check_counts(checks: dict) -> tuple[int, int]:
@@ -486,7 +592,18 @@ def _preview_url(project: dict, number: int, path: str = "index.html") -> str:
 
 # ----- preview (shareable, sandboxed) ------------------------------------------------------------
 
+PREVIEW_HEADERS = {
+    "Content-Security-Policy": PREVIEW_CSP,
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+    # The preview address holds the share token: never pass it on to sites the build links to.
+    "Referrer-Policy": "no-referrer",
+}
+
+
 def _serve_preview(token: str, number: int, path: str) -> Response:
+    if not _valid_int(number) or len(token) > 100:
+        raise HTTPException(status_code=404, detail="We could not find that preview.")
     with db.session() as conn:
         row = conn.execute(
             "SELECT v.files_json FROM build_versions v JOIN build_projects p ON p.id = v.project_id"
@@ -497,7 +614,7 @@ def _serve_preview(token: str, number: int, path: str) -> Response:
     if path not in files:
         raise HTTPException(status_code=404, detail="There is no file with that name in this preview.")
     return Response(files[path].encode("utf-8"), media_type=CONTENT_TYPES.get(_ext(path), "text/plain; charset=utf-8"),
-                    headers={"Content-Security-Policy": PREVIEW_CSP, "Cache-Control": "no-store"})
+                    headers=PREVIEW_HEADERS)
 
 
 @router.get("/p/{token}/v/{number:int}/")
@@ -512,6 +629,14 @@ def preview_file(token: str, number: int, path: str):
 
 # ----- index and new project -----------------------------------------------------------------
 
+def _form_text(form: dict, name: str) -> str:
+    """One text value from a form. A repeated field counts once; anything that is not text is empty."""
+    value = form.get(name, "")
+    if isinstance(value, list):
+        value = value[0] if value else ""
+    return value.strip() if isinstance(value, str) else ""
+
+
 def _index(request: Request, *, title: str = INDEX_TITLE, values: dict | None = None,
            errors: dict | None = None, status_code: int = 200):
     user = current_user(request)
@@ -525,24 +650,44 @@ def _index(request: Request, *, title: str = INDEX_TITLE, values: dict | None = 
             p = dict(r)
             p["display_title"] = _display_title(p)
             p["kind_label"] = KIND_LABELS.get(p["kind"], "Something else")
-            p["status_label"] = STATUS_LABELS.get(p["status"], p["status"])
+            p["status_label"] = _status_label(p)
             projects.append(p)
     return render(request, "build/index.html", title=title, projects=projects, kinds=KINDS, idea_hint=IDEA_HINT,
                   values=values or {}, errors=errors or {}, status_code=status_code)
 
 
+def _status_label(project: dict) -> str:
+    if project["status"] in BUSY_STATUSES and not _is_busy(project):
+        # The job stopped without saying so (for example the server restarted). Do not claim it is working.
+        return "The AI stopped before it finished, so you can try again"
+    return STATUS_LABELS.get(project["status"], project["status"])
+
+
 @router.get("")
 def index(request: Request):
+    deleted = request.session.pop("build_deleted", None)
+    if deleted and current_user(request):
+        return _index(request, title=f"Deleted {deleted} and all its versions")
     return _index(request)
+
+
+def _seconds_since(stamp: str) -> float:
+    try:
+        return (datetime.now(timezone.utc) - datetime.fromisoformat(stamp)).total_seconds()
+    except (TypeError, ValueError):
+        return float("inf")
 
 
 @router.post("/new")
 async def new_project(request: Request, user: dict = Depends(require_user)):
     form = await checked_form(request)
-    values = {k: str(form.get(k, "")).strip() for k in ("title", "kind", "idea")}
+    values = {k: _form_text(form, k) for k in ("title", "kind", "idea")}
     errors: dict[str, str] = {}
     if len(values["title"]) > MAX_TITLE:
-        errors["title"] = f"Use a title of at most {MAX_TITLE} characters."
+        errors["title"] = (f"Your title is {len(values['title'])} characters. "
+                           f"Use a title of at most {MAX_TITLE} characters.")
+    elif looks_like_secret(values["title"]):
+        errors["title"] = SECRET_MESSAGE
     if values["kind"] not in KIND_LABELS:
         errors["kind"] = "Choose what you want to make."
     if not values["idea"]:
@@ -551,17 +696,24 @@ async def new_project(request: Request, user: dict = Depends(require_user)):
         errors["idea"] = f"Your idea is {len(values['idea'])} characters. Please keep it under {MAX_IDEA}."
     elif looks_like_secret(values["idea"]):
         errors["idea"] = SECRET_MESSAGE
-    if not errors and looks_like_secret(values["title"]):
-        errors["title"] = SECRET_MESSAGE
     if errors:
         return _index(request, title=f"{INDEX_TITLE}: please fix the problems", values=values, errors=errors,
                       status_code=400)
+    with db.session() as conn:
+        same = conn.execute(
+            "SELECT id, created_at FROM build_projects WHERE user_id = ? AND kind = ? AND idea = ?"
+            " ORDER BY id DESC LIMIT 1", (user["id"], values["kind"], values["idea"])).fetchone()
+    if same is not None and _seconds_since(same["created_at"]) < DUPLICATE_SECONDS:
+        # A double press of the button: keep one project and one AI job.
+        flash(request, "You sent this idea twice, so it is saved once. This is the project.", "info")
+        return redirect(f"/build/{same['id']}")
     now = db.now()
+    token = secrets.token_urlsafe(16)
     with db.session() as conn:
         cur = conn.execute(
             "INSERT INTO build_projects (user_id, title, kind, idea, status, spec_json, share_token, created_at, updated_at)"
             " VALUES (?, ?, ?, ?, 'new', NULL, ?, ?, ?)",
-            (user["id"], values["title"], values["kind"], values["idea"], secrets.token_urlsafe(16), now, now),
+            (user["id"], values["title"], values["kind"], values["idea"], token, now, now),
         )
         project_id = cur.lastrowid
     try:
@@ -569,19 +721,21 @@ async def new_project(request: Request, user: dict = Depends(require_user)):
     except AINotAvailable as exc:
         flash(request, f"{exc.user_message} Your idea is saved here.", "error")
         return redirect(f"/build/{project_id}")
-    _set_status(project_id, "understanding")
+    _set_status(project_id, "understanding", token)
     title = values["title"] or "your new idea"
-    job_id = jobs.submit(user["id"], "build.understand", f"Reading {title}", _understand, ai, project_id)
+    job_id = jobs.submit(user["id"], "build.understand", f"Reading {title}", _understand, ai, project_id, token)
     return redirect(jobs.job_url(job_id))
 
 
 # ----- jobs ------------------------------------------------------------------------------------
+# Each job gets the project's id and its share token, and touches the project only if both still match.
 
-def _understand(ctx, ai, project_id: int) -> str:
-    project = _project_row(project_id)
+def _understand(ctx, ai, project_id: int, token: str) -> str:
+    project = _project_row(project_id, token)
     if project is None:
-        raise AIError("This project was deleted.")
+        raise AIError(DELETED_MESSAGE)
     stored = _load_spec(project)
+    had_spec = bool(stored["spec"])
     try:
         ctx.progress("Reading your idea")
         prompt = (f"What they want to make: {KIND_LABELS.get(project['kind'], 'Something else')}\n"
@@ -594,48 +748,78 @@ def _understand(ctx, ai, project_id: int) -> str:
                        "Follow the newest when they disagree:\n" +
                        "\n".join(f"<correction>\n{c}\n</correction>" for c in stored["corrections"]) +
                        "\n\nSay back what you understand now, with the corrections applied.")
-        spec = ai.structured(system=UNDERSTAND_SYSTEM, prompt=prompt, schema=UNDERSTAND_SCHEMA,
-                             purpose="build.understand")
+        raw = ai.structured(system=UNDERSTAND_SYSTEM, prompt=prompt, schema=UNDERSTAND_SCHEMA,
+                            purpose="build.understand")
+        spec = normalize_spec(raw)
+        if spec is None or not spec["summary"]:
+            raise AIError("The AI's answer was missing its summary of your idea, so nothing was changed. "
+                          "Please try again.")
         stored["spec"] = spec
+        stored["applied"] = len(stored["corrections"])
         title = project["title"]
         if not title:
-            title = (spec.get("suggested_title") or "").strip()[:MAX_TITLE] or "Untitled project"
+            title = spec["suggested_title"] or "Untitled project"
             stored["title_suggested"] = True
         with db.session() as conn:
-            conn.execute("UPDATE build_projects SET spec_json = ?, title = ?, status = 'understood', updated_at = ?"
-                         " WHERE id = ?", (json.dumps(stored), title, db.now(), project_id))
+            cur = conn.execute("UPDATE build_projects SET spec_json = ?, title = ?, status = 'understood',"
+                               " updated_at = ? WHERE id = ? AND share_token = ?",
+                               (json.dumps(stored), title, db.now(), project_id, token))
+            if cur.rowcount == 0:
+                raise AIError(DELETED_MESSAGE)
     except BaseException:
-        _set_status(project_id, "understood" if stored["spec"] else "new")
+        _set_status(project_id, "understood" if had_spec else "new", token)
         raise
     return f"/build/{project_id}"
 
 
-def _save_version(project_id: int, files: dict[str, str], result: dict, request_text: str,
+def _files_result(result: object, nothing_saved: str) -> tuple[dict[str, str], dict]:
+    """The AI's files, checked against the site's rules, plus its other answers as clean text."""
+    if not isinstance(result, dict):
+        raise AIError(f"The AI's answer was not in the expected form, so {nothing_saved} Please try again.")
+    try:
+        files = validate_files(result.get("files"))
+    except BuildFilesError as exc:
+        raise AIError(f"The AI made files the site cannot accept, so {nothing_saved} {exc} Please try again. "
+                      "If it happens again, ask for something smaller.") from exc
+    about = {"summary": _text(result.get("summary")), "how_to_use": _text(result.get("how_to_use")),
+             "not_done": _texts(result.get("not_done"))}
+    return files, about
+
+
+def _save_version(project_id: int, token: str, files: dict[str, str], about: dict, request_text: str,
                   base: dict[str, str], base_number: int) -> int:
     checks = run_checks(files)
+    checks["not_done"] = about["not_done"]
     diff = {"base": base_number, "files": compute_diff(base, files)}
-    not_done = [str(x) for x in result.get("not_done") or [] if str(x).strip()]
     with db.session() as conn:
-        row = conn.execute("SELECT COALESCE(MAX(number), 0) + 1 AS n FROM build_versions WHERE project_id = ?",
-                           (project_id,)).fetchone()
-        number = row["n"]
-        checks["not_done"] = not_done
+        # Take the write lock first, so two jobs can never pick the same version number.
+        conn.execute("BEGIN IMMEDIATE")
+        if conn.execute("SELECT 1 FROM build_projects WHERE id = ? AND share_token = ?",
+                        (project_id, token)).fetchone() is None:
+            raise AIError(DELETED_MESSAGE)
+        number = conn.execute("SELECT COALESCE(MAX(number), 0) + 1 AS n FROM build_versions WHERE project_id = ?",
+                              (project_id,)).fetchone()["n"]
+        if base_number == 0 and number != 1:
+            raise AIError("This project was already built by an earlier request, so this second copy was not "
+                          "saved. Open the project to see the version that was built.")
         conn.execute(
             "INSERT INTO build_versions (project_id, number, files_json, request_text, ai_summary, how_to_use,"
             " diff_json, checks_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (project_id, number, json.dumps(files), request_text, str(result.get("summary", "")),
-             str(result.get("how_to_use", "")), json.dumps(diff), json.dumps(checks), db.now()),
+            (project_id, number, json.dumps(files), request_text, about["summary"], about["how_to_use"],
+             json.dumps(diff), json.dumps(checks), db.now()),
         )
         conn.execute("UPDATE build_projects SET status = 'ready', updated_at = ? WHERE id = ?", (db.now(), project_id))
     return number
 
 
-def _generate(ctx, ai, project_id: int, additions: list[str], notes: str) -> str:
-    project = _project_row(project_id)
+def _generate(ctx, ai, project_id: int, token: str, additions: list[str]) -> str:
+    project = _project_row(project_id, token)
     if project is None:
-        raise AIError("This project was deleted.")
+        raise AIError(DELETED_MESSAGE)
     stored = _load_spec(project)
     try:
+        if _versions(project_id):
+            raise AIError("This project is already built. To change it, use Ask for a change on the version page.")
         ctx.progress("Writing the files")
         spec = {k: v for k, v in (stored["spec"] or {}).items() if k not in ("additions_not_asked", "suggested_title")}
         prompt = (f"What to build: {KIND_LABELS.get(project['kind'], 'Something else')}\n"
@@ -648,32 +832,25 @@ def _generate(ctx, ai, project_id: int, additions: list[str], notes: str) -> str
             prompt += "Extra things the person chose to add:\n" + "\n".join(f"- {a}" for a in additions) + "\n\n"
         else:
             prompt += "The person chose no extras. Do not add things they did not ask for.\n\n"
-        all_notes = list(stored["corrections"])
-        if notes:
-            all_notes.append(notes)
-        if all_notes:
+        if stored["corrections"]:
             prompt += ("Corrections and answers from the person, oldest first:\n" +
-                       "\n".join(f"<correction>\n{c}\n</correction>" for c in all_notes) + "\n\n")
+                       "\n".join(f"<correction>\n{c}\n</correction>" for c in stored["corrections"]) + "\n\n")
         system = GENERATE_SYSTEM + ("\n\n" + PHONE_APP_RULES if project["kind"] == "phone_app" else "")
         result = ai.structured(system=system, prompt=prompt, schema=FILES_SCHEMA, purpose="build.generate",
                                max_tokens=64000)
         ctx.progress("Checking the files")
-        try:
-            files = validate_files(result.get("files"))
-        except BuildFilesError as exc:
-            raise AIError(f"The AI made files the site cannot accept, so nothing was saved. {exc} "
-                          "Please try again. If it happens again, ask for something smaller.") from exc
-        number = _save_version(project_id, files, result, "First version", {}, 0)
+        files, about = _files_result(result, "nothing was saved.")
+        number = _save_version(project_id, token, files, about, "First version", {}, 0)
     except BaseException:
-        _set_status(project_id, "understood")
+        _set_status(project_id, "ready" if _versions(project_id) else "understood", token)
         raise
     return f"/build/{project_id}/v/{number}"
 
 
-def _change(ctx, ai, project_id: int, base_number: int, request_text: str) -> str:
-    project = _project_row(project_id)
+def _change(ctx, ai, project_id: int, token: str, base_number: int, request_text: str) -> str:
+    project = _project_row(project_id, token)
     if project is None:
-        raise AIError("This project was deleted.")
+        raise AIError(DELETED_MESSAGE)
     try:
         base = json.loads(_get_version(project_id, base_number)["files_json"])
         ctx.progress("Making the change")
@@ -686,46 +863,53 @@ def _change(ctx, ai, project_id: int, base_number: int, request_text: str) -> st
         result = ai.structured(system=system, prompt=prompt, schema=FILES_SCHEMA, purpose="build.change",
                                max_tokens=64000)
         ctx.progress("Checking the files and working out what changed")
-        try:
-            files = validate_files(result.get("files"))
-        except BuildFilesError as exc:
-            raise AIError(f"The AI made files the site cannot accept, so nothing was saved and version "
-                          f"{base_number} is unchanged. {exc} Please try again.") from exc
-        number = _save_version(project_id, files, result, request_text, base, base_number)
+        files, about = _files_result(result, f"nothing was saved and version {base_number} is unchanged.")
+        number = _save_version(project_id, token, files, about, request_text, base, base_number)
     except BaseException:
-        _set_status(project_id, "ready")
+        _set_status(project_id, "ready", token)
         raise
     return f"/build/{project_id}/v/{number}"
 
 
 # ----- project page ----------------------------------------------------------------------------
 
+AI_NOT_AVAILABLE_TITLE = "the AI is not available, so nothing was sent to it"
+
+
 def _project_page(request: Request, user: dict, project: dict, *, values: dict | None = None,
-                  errors: dict | None = None, status_code: int = 200):
+                  errors: dict | None = None, status_code: int = 200, note: str = ""):
+    """The project's own page. `note` replaces the usual end of the title, to say what just happened."""
     stored = _load_spec(project)
     versions = _versions(project["id"])
     title_text = _display_title(project)
-    ctx = dict(project=project, stored=stored, spec=stored["spec"], versions=versions,
+    busy = _is_busy(project)
+    ctx = dict(project=project, stored=stored, spec=stored["spec"], versions=versions, busy=busy,
+               unread_corrections=len(stored["corrections"]) - stored["applied"],
                kind_label=KIND_LABELS.get(project["kind"], "Something else"),
-               status_label=STATUS_LABELS.get(project["status"], project["status"]),
-               values=values or {}, errors=errors or {})
+               status_label=_status_label(project), values=values or {}, errors=errors or {})
     if versions:
         latest = versions[0]
         checks = json.loads(latest["checks_json"])
         ctx.update(latest=latest, latest_check=_check_sentence(checks),
                    preview_url=_preview_url(project, latest["number"]))
-        return render(request, "build/project.html", title=f"{title_text}: your project and its versions",
-                      status_code=status_code, **ctx)
-    if stored["spec"]:
-        title = f"{title_text}: here is what I understood"
-        if errors:
-            title += ": please fix the problems"
-        return render(request, "build/understood.html", title=title, status_code=status_code, **ctx)
-    if project["status"] == "understanding":
-        title = f"{title_text}: the AI is reading your idea"
+        template = "build/project.html"
+        about = ("the AI is making a change" if busy and project["status"] == "changing"
+                 else "your project and its versions")
+    elif stored["spec"]:
+        template = "build/understood.html"
+        if busy and project["status"] == "building":
+            about = "the AI is building it"
+        elif busy and project["status"] == "understanding":
+            about = "the AI is reading your corrections"
+        else:
+            about = "here is what I understood"
     else:
-        title = f"{title_text}: the AI has not read your idea yet"
-    return render(request, "build/waiting.html", title=title, status_code=status_code, **ctx)
+        template = "build/waiting.html"
+        about = "the AI is reading your idea" if busy else "the AI has not read your idea yet"
+    title = f"{title_text}: {note or about}"
+    if errors:
+        title += ": please fix the problems"
+    return render(request, template, title=title, status_code=status_code, **ctx)
 
 
 @router.get("/{project_id:int}")
@@ -737,21 +921,30 @@ def project_page(request: Request, project_id: int, user: dict = Depends(require
 async def understand(request: Request, project_id: int, user: dict = Depends(require_user)):
     form = await checked_form(request)
     project = _owned_project(project_id, user)
-    action = str(form.get("action", "update"))
-    corrections = str(form.get("corrections", "")).strip()
+    action = "build" if _form_text(form, "action") == "build" else "update"
+    corrections = _form_text(form, "corrections")
     stored = _load_spec(project)
     if _versions(project_id):
         flash(request, "This project is already built. To change it, use Ask for a change on the version page.", "info")
         return redirect(f"/build/{project_id}")
-    errors: dict[str, str] = {}
-    if len(corrections) > MAX_REQUEST:
-        errors["corrections"] = f"Please keep this under {MAX_REQUEST} characters."
-    elif corrections and looks_like_secret(corrections):
-        errors["corrections"] = SECRET_MESSAGE
-    elif action == "update" and stored["spec"] and not corrections:
-        errors["corrections"] = "Write your corrections or answers first, or choose This is right: build it."
+    if _is_busy(project):
+        flash(request, BUSY_MESSAGE, "info")
+        return redirect(f"/build/{project_id}")
     if action == "build" and not stored["spec"]:
         return redirect(f"/build/{project_id}")
+    unread = len(stored["corrections"]) > stored["applied"]
+    errors: dict[str, str] = {}
+    if len(corrections) > MAX_REQUEST:
+        errors["corrections"] = (f"This is {len(corrections)} characters. "
+                                 f"Please keep it under {MAX_REQUEST} characters.")
+    elif corrections and looks_like_secret(corrections):
+        errors["corrections"] = SECRET_MESSAGE
+    elif corrections and sum(map(len, stored["corrections"])) + len(corrections) > MAX_CORRECTIONS_TOTAL:
+        errors["corrections"] = (f"All your corrections on this project together would be more than "
+                                 f"{MAX_CORRECTIONS_TOTAL} characters, which is the limit. Start a new project "
+                                 "and write your idea again with the corrections included.")
+    elif action == "update" and stored["spec"] and not corrections and not unread:
+        errors["corrections"] = "Write your corrections or answers first, or choose This is right: build it."
     if errors:
         return _project_page(request, user, project, values={"corrections": corrections}, errors=errors,
                              status_code=400)
@@ -759,22 +952,24 @@ async def understand(request: Request, project_id: int, user: dict = Depends(req
         ai = get_ai(request, user)
     except AINotAvailable as exc:
         flash(request, exc.user_message, "error")
-        return _project_page(request, user, project, values={"corrections": corrections})
-    if action == "build":
-        chosen = [a for i, a in enumerate(stored["spec"].get("additions_not_asked") or [])
-                  if form.get(f"add_{i}") == "yes"]
-        _set_status(project_id, "building")
-        job_id = jobs.submit(user["id"], "build.generate", f"Building {project['title']}", _generate, ai,
-                             project_id, chosen, corrections)
-        return redirect(jobs.job_url(job_id))
+        return _project_page(request, user, project, values={"corrections": corrections},
+                             note=AI_NOT_AVAILABLE_TITLE)
     if corrections:
+        # The person's words are kept with the project, whether they lead to a new read-back or the build.
         stored["corrections"].append(corrections)
         with db.session() as conn:
             conn.execute("UPDATE build_projects SET spec_json = ?, updated_at = ? WHERE id = ?",
                          (json.dumps(stored), db.now(), project_id))
-    _set_status(project_id, "understanding")
+    token = project["share_token"]
+    if action == "build":
+        chosen = [a for i, a in enumerate(stored["spec"]["additions_not_asked"]) if form.get(f"add_{i}") == "yes"]
+        _set_status(project_id, "building", token)
+        job_id = jobs.submit(user["id"], "build.generate", f"Building {_display_title(project)}", _generate, ai,
+                             project_id, token, chosen)
+        return redirect(jobs.job_url(job_id))
+    _set_status(project_id, "understanding", token)
     job_id = jobs.submit(user["id"], "build.understand", f"Reading {_display_title(project)}", _understand, ai,
-                         project_id)
+                         project_id, token)
     return redirect(jobs.job_url(job_id))
 
 
@@ -792,7 +987,7 @@ def _version_context(project: dict, version: dict) -> dict:
                                  sum(f["severity"] != "error" for f in findings)),
             "path": page["path"],
             "size": _size(page["bytes"]),
-            "passed": len(page["report"]["passed"]),
+            "passed": _plural(len(page["report"]["passed"]), "check"),
             "errors": [f for f in findings if f["severity"] == "error"],
             "warnings": [f for f in findings if f["severity"] != "error"],
         })
@@ -816,14 +1011,14 @@ def _version_context(project: dict, version: dict) -> dict:
 
 
 def _version_page(request: Request, project: dict, version: dict, *, values: dict | None = None,
-                  errors: dict | None = None, status_code: int = 200):
+                  errors: dict | None = None, status_code: int = 200, note: str = ""):
     ctx = _version_context(project, version)
     settings = request.app.state.settings
     preview = _preview_url(project, version["number"])
     title_text = _display_title(project)
     checks_link = "/checks/new?" + urlencode({"url": settings.base_url + preview,
                                               "title": f"{title_text}, version {version['number']}"})
-    title = f"{title_text}: version {version['number']} is ready"
+    title = f"{title_text}: version {version['number']} {note or 'is ready'}"
     if errors:
         title += ": please fix the problems"
     latest = _versions(project["id"])[0]["number"]
@@ -888,20 +1083,24 @@ def download_zip(request: Request, project_id: int, number: int, user: dict = De
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for path, content in sorted(files.items()):
             zf.writestr(path, content)
-    slug = re.sub(r"[^a-z0-9]+", "-", project["title"].lower()).strip("-") or "project"
+    slug = re.sub(r"[^a-z0-9]+", "-", project["title"].lower()).strip("-")[:60].strip("-") or "project"
     return Response(buffer.getvalue(), media_type="application/zip",
                     headers={"Content-Disposition": f'attachment; filename="{slug}-version-{number}.zip"'})
 
 
 async def _submit_change(request: Request, user: dict, project: dict, version: dict, request_text: str):
+    if _is_busy(project):
+        flash(request, BUSY_MESSAGE, "info")
+        return redirect(f"/build/{project['id']}")
     try:
         ai = get_ai(request, user)
     except AINotAvailable as exc:
         flash(request, exc.user_message, "error")
-        return _version_page(request, project, version, values={"request": request_text})
-    _set_status(project["id"], "changing")
-    job_id = jobs.submit(user["id"], "build.change", f"Changing {project['title']}", _change, ai, project["id"],
-                         version["number"], request_text)
+        return _version_page(request, project, version, values={"request": request_text},
+                             note=f"is unchanged: {AI_NOT_AVAILABLE_TITLE}")
+    _set_status(project["id"], "changing", project["share_token"])
+    job_id = jobs.submit(user["id"], "build.change", f"Changing {_display_title(project)}", _change, ai,
+                         project["id"], project["share_token"], version["number"], request_text)
     return redirect(jobs.job_url(job_id))
 
 
@@ -910,12 +1109,12 @@ async def ask_for_change(request: Request, project_id: int, number: int, user: d
     form = await checked_form(request)
     project = _owned_project(project_id, user)
     version = _get_version(project_id, number)
-    text = str(form.get("request", "")).strip()
+    text = _form_text(form, "request")
     error = ""
     if not text:
         error = "Describe the change you want."
     elif len(text) > MAX_REQUEST:
-        error = f"Please keep your request under {MAX_REQUEST} characters."
+        error = f"Your request is {len(text)} characters. Please keep it under {MAX_REQUEST} characters."
     elif looks_like_secret(text):
         error = SECRET_MESSAGE
     if error:
@@ -968,7 +1167,8 @@ async def delete_project(request: Request, project_id: int, user: dict = Depends
     with db.session() as conn:
         conn.execute("DELETE FROM build_versions WHERE project_id = ?", (project_id,))
         conn.execute("DELETE FROM build_projects WHERE id = ? AND user_id = ?", (project_id, user["id"]))
-    flash(request, f"Deleted {_display_title(project)} and all its versions.", "success")
+    # The next page's heading says what happened (read once, like a flash message).
+    request.session["build_deleted"] = _display_title(project)
     return redirect("/build")
 
 

@@ -499,3 +499,282 @@ def test_project_pages_link_from_index(user_client, fake_ai):
     assert f'href="/build/{project_id}"' in r.text
     r = user_client.get(f"/build/{project_id}")
     assert f'href="/build/{project_id}/v/1"' in r.text and f'href="/build/{project_id}/delete"' in r.text
+
+
+# ----- regressions found in the audit -----------------------------------------------------------
+
+class _Ctx:
+    def progress(self, text):
+        pass
+
+
+def _set_row(project_id, **fields):
+    with db.session() as conn:
+        for k, v in fields.items():
+            conn.execute(f"UPDATE build_projects SET {k} = ? WHERE id = ?", (v, project_id))
+
+
+def _minutes_ago(n):
+    from datetime import datetime, timedelta, timezone
+    return (datetime.now(timezone.utc) - timedelta(minutes=n)).replace(microsecond=0).isoformat()
+
+
+def test_ai_spec_with_missing_fields_and_wrong_types_still_renders(user_client, fake_ai):
+    fake_ai.on("build.understand", {"summary": "A quiz about rivers.", "pages": None, "features": "One quiz",
+                                    "questions": "How many questions?", "additions_not_asked": [None, 3, ""],
+                                    "not_doing": {"x": 1}, "suggested_title": 42,
+                                    "audience": ["not", "a", "string"]})
+    r = post(user_client, "/build/new", {"kind": "game", "idea": "A quiz about rivers."})
+    assert_page_ok(r)
+    assert h1(r) == "42: here is what I understood"
+    assert "<li>One quiz</li>" in r.text and "<li>O</li>" not in r.text  # a string is one item, not letters
+    assert "How many questions?" in r.text
+    assert "No pages listed." in r.text and "The AI did not say." in r.text
+    assert 'name="add_0" value="yes"' in r.text and "add_1" not in r.text  # only the one usable addition
+
+
+def test_ai_spec_pages_as_strings_get_headings(user_client, fake_ai):
+    fake_ai.on("build.understand", dict(SPEC, pages=["Menu", {"purpose": "Contact details"}, {}]))
+    r = post(user_client, "/build/new", {"title": "Kemi Kitchen", "kind": "website", "idea": "A menu."})
+    assert_page_ok(r)
+    assert "<h3>Menu</h3>" in r.text and "<h3>Page 2</h3>" in r.text and "Pages (2)" in r.text
+
+
+def test_ai_spec_without_summary_or_not_an_object_is_a_plain_error(user_client, fake_ai):
+    fake_ai.on("build.understand", ["not", "an", "object"])
+    r = post(user_client, "/build/new", {"kind": "game", "idea": "A quiz about rivers."})
+    assert "This did not finish" in r.text and "missing its summary" in r.text
+    fake_ai.on("build.understand", dict(SPEC, summary="  "))
+    r = post(user_client, "/build/1/understand", {"action": "update"})
+    assert "missing its summary" in r.text
+    with db.session() as conn:
+        assert tuple(conn.execute("SELECT status, spec_json FROM build_projects").fetchone()) == ("new", None)
+
+
+def test_ai_files_answer_with_wrong_types(user_client, fake_ai):
+    project_id, _ = start_project(user_client, fake_ai)
+    fake_ai.on("build.generate", {"files": [{"path": "index.html", "content": INDEX_V1}], "summary": None,
+                                  "how_to_use": 5, "not_done": "I guessed the colours."})
+    r = post(user_client, f"/build/{project_id}/understand", {"action": "build"})
+    assert_page_ok(r)
+    assert "<li>I guessed the colours.</li>" in r.text and "<li>I</li>" not in r.text
+    assert "None" not in re.search(r"What the AI says it built.*?How to use it", r.text, re.S).group()
+
+
+def test_ai_files_answer_that_is_not_an_object(user_client, fake_ai):
+    project_id, _ = start_project(user_client, fake_ai)
+    fake_ai.on("build.generate", "just some text")
+    r = post(user_client, f"/build/{project_id}/understand", {"action": "build"})
+    assert "This did not finish" in r.text and "not in the expected form" in r.text
+    with db.session() as conn:
+        assert conn.execute("SELECT status FROM build_projects").fetchone()[0] == "understood"
+
+
+def test_files_that_would_clash_in_a_zip_are_rejected():
+    with pytest.raises(build.BuildFilesError, match="capital letters"):
+        build.validate_files([{"path": "index.html", "content": "a"}, {"path": "Index.html", "content": "b"}])
+    with pytest.raises(build.BuildFilesError, match="both a file name and a folder"):
+        build.validate_files([{"path": "index.html", "content": "a"}, {"path": "a.html", "content": "b"},
+                              {"path": "a.html/b.css", "content": "c"}])
+    with pytest.raises(build.BuildFilesError, match="not valid text"):
+        build.validate_files([{"path": "index.html", "content": "bad \ud800 text"}])
+
+
+def test_huge_numbers_in_addresses_are_404_not_a_crash(user_client, fake_ai):
+    project_id, _ = build_v1(user_client, fake_ai)
+    token = share_token(project_id)
+    huge = "99999999999999999999"
+    for url in [f"/build/{huge}", f"/build/{project_id}/v/{huge}", f"/build/{project_id}/v/{huge}/files",
+                f"/build/{huge}/delete", f"/build/p/{token}/v/{huge}/index.html", f"/build/{project_id}/v/0"]:
+        r = user_client.get(url)
+        assert r.status_code == 404, url
+        assert "<h1>Page not found</h1>" in r.text
+
+
+def test_preview_does_not_leak_its_address_or_get_sniffed(user_client, fake_ai):
+    project_id, _ = build_v1(user_client, fake_ai)
+    p = TestClient(user_client.app).get(f"/build/p/{share_token(project_id)}/v/1/index.html")
+    assert p.headers["referrer-policy"] == "no-referrer"
+    assert p.headers["x-content-type-options"] == "nosniff"
+    assert p.headers["content-security-policy"] == PREVIEW_CSP
+
+
+def test_second_change_while_the_ai_is_working_is_refused(user_client, fake_ai):
+    project_id, _ = build_v1(user_client, fake_ai)
+    _set_row(project_id, status="changing", updated_at=_minutes_ago(1))
+    fake_ai.on("build.change", changed_files())
+    r = post(user_client, f"/build/{project_id}/v/1/change", {"request": "Small chops now cost 1500."})
+    assert "already working on this project" in r.text
+    assert h1(r) == "Kemi Kitchen: the AI is making a change"
+    assert_page_ok(r)
+    r = post(user_client, f"/build/{project_id}/v/1/fix")
+    assert "already working on this project" in r.text
+    assert calls_for(fake_ai, "build.change") == []
+    # A job that never finished stops blocking after a while, and the list does not claim it is working.
+    _set_row(project_id, status="changing", updated_at=_minutes_ago(build.BUSY_MINUTES + 1))
+    assert "The AI stopped before it finished" in user_client.get("/build").text
+    r = post(user_client, f"/build/{project_id}/v/1/change", {"request": "Small chops now cost 1500."})
+    assert str(r.url).endswith(f"/build/{project_id}/v/2")
+
+
+def test_second_build_while_building_is_refused(user_client, fake_ai):
+    project_id, _ = start_project(user_client, fake_ai)
+    _set_row(project_id, status="building", updated_at=_minutes_ago(0))
+    fake_ai.on("build.generate", GENERATED)
+    r = post(user_client, f"/build/{project_id}/understand", {"action": "build"})
+    assert "already working on this project" in r.text
+    assert h1(r) == "Kemi Kitchen: the AI is building it"
+    assert_page_ok(r)
+    assert calls_for(fake_ai, "build.generate") == []
+
+
+def test_a_second_build_job_saves_no_second_first_version(user_client, fake_ai):
+    project_id, _ = build_v1(user_client, fake_ai)
+    with pytest.raises(AIError, match="already built"):
+        build._generate(_Ctx(), fake_ai, project_id, share_token(project_id), [])
+    with pytest.raises(AIError, match="already built by an earlier request"):
+        build._save_version(project_id, share_token(project_id), {"index.html": "x"},
+                            {"summary": "", "how_to_use": "", "not_done": []}, "First version", {}, 0)
+    with db.session() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM build_versions").fetchone()[0] == 1
+        assert conn.execute("SELECT status FROM build_projects").fetchone()[0] == "ready"
+
+
+def test_double_press_of_send_my_idea_makes_one_project(user_client, fake_ai):
+    start_project(user_client, fake_ai)
+    _, r = start_project(user_client, fake_ai)
+    assert "You sent this idea twice" in r.text
+    with db.session() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM build_projects").fetchone()[0] == 1
+    assert len(calls_for(fake_ai, "build.understand")) == 1
+
+
+def test_job_for_a_deleted_project_never_touches_a_new_project_with_the_same_id(client, fake_ai):
+    register(client, "first@example.com", "First")
+    project_id, _ = build_v1(client, fake_ai)
+    old_token = share_token(project_id)
+    post(client, f"/build/{project_id}/delete")
+    post(client, "/logout")
+    register(client, "second@example.com", "Second")
+    new_id, _ = start_project(client, fake_ai, title="Second project")
+    assert new_id == project_id  # SQLite reuses the id of the deleted newest row
+    files = {"index.html": INDEX_V1}
+    with pytest.raises(AIError, match="deleted while the AI was working"):
+        build._save_version(project_id, old_token, files, {"summary": "", "how_to_use": "", "not_done": []},
+                            "x", files, 1)
+    with pytest.raises(AIError, match="deleted while the AI was working"):
+        build._understand(_Ctx(), fake_ai, project_id, old_token)
+    with pytest.raises(AIError, match="deleted while the AI was working"):
+        build._change(_Ctx(), fake_ai, project_id, old_token, 1, "x")
+    build._set_status(project_id, "building", old_token)
+    with db.session() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM build_versions").fetchone()[0] == 0
+        row = conn.execute("SELECT title, status FROM build_projects WHERE id = ?", (project_id,)).fetchone()
+        assert tuple(row) == ("Second project", "understood")
+
+
+def test_corrections_sent_with_build_are_kept_with_the_project(user_client, fake_ai):
+    project_id, _ = start_project(user_client, fake_ai)
+    fake_ai.on("build.generate", GENERATED)
+    post(user_client, f"/build/{project_id}/understand", {"action": "build", "corrections": "Use naira."})
+    assert "Use naira." in calls_for(fake_ai, "build.generate")[0]["prompt"]
+    r = user_client.get(f"/build/{project_id}")
+    assert "What you added or corrected" in r.text and "Use naira." in r.text
+
+
+def test_failed_reread_keeps_the_correction_and_can_be_retried(user_client, fake_ai):
+    project_id, _ = start_project(user_client, fake_ai)
+    fake_ai.on("build.understand", AIError("The AI is busy right now (rate limit)."))
+    r = post(user_client, f"/build/{project_id}/understand", {"action": "update", "corrections": "Prices in naira."})
+    assert "This did not finish" in r.text
+    r = user_client.get(f"/build/{project_id}")
+    assert_page_ok(r)
+    assert "has not read your newest correction yet" in r.text and "Prices in naira." in r.text
+    fake_ai.on("build.understand", SPEC_2)
+    r = post(user_client, f"/build/{project_id}/understand", {"action": "update", "corrections": ""})
+    assert r.status_code == 200 and "A menu website in naira" in r.text
+    assert "Prices in naira." in calls_for(fake_ai, "build.understand")[-1]["prompt"]
+    assert "has not read your newest" not in r.text
+
+
+def test_corrections_have_a_total_size_limit(user_client, fake_ai, monkeypatch):
+    monkeypatch.setattr(build, "MAX_CORRECTIONS_TOTAL", 30)
+    project_id, _ = start_project(user_client, fake_ai)
+    post(user_client, f"/build/{project_id}/understand", {"action": "update", "corrections": "a" * 20})
+    r = post(user_client, f"/build/{project_id}/understand", {"action": "update", "corrections": "b" * 20})
+    assert r.status_code == 400 and "Start a new project" in r.text
+    assert len(calls_for(fake_ai, "build.understand")) == 2
+
+
+def test_waiting_page_errors_say_please_fix(no_ai_app):
+    client = TestClient(no_ai_app)
+    register(client)
+    post(client, "/build/new", {"title": "Rivers quiz", "kind": "game", "idea": "A quiz about rivers."})
+    r = post(client, "/build/1/understand", {"action": "update", "corrections": "x" * (build.MAX_REQUEST + 1)})
+    assert r.status_code == 400
+    assert h1(r) == "Rivers quiz: the AI has not read your idea yet: please fix the problems"
+    assert 'href="#field-corrections"' in r.text
+
+
+def test_no_ai_headings_say_nothing_was_sent(no_ai_app):
+    client = TestClient(no_ai_app)
+    register(client)
+    post(client, "/build/new", {"title": "Rivers quiz", "kind": "game", "idea": "A quiz about rivers."})
+    r = post(client, "/build/1/understand", {"action": "update", "corrections": "Ten questions."})
+    assert_page_ok(r)
+    assert h1(r) == "Rivers quiz: the AI is not available, so nothing was sent to it"
+
+
+def test_no_ai_on_a_version_page_says_nothing_was_sent(user_client, fake_ai):
+    from studio.ai import AINotAvailable
+    project_id, _ = build_v1(user_client, fake_ai)
+
+    def no_ai(user):
+        raise AINotAvailable("To use the AI, connect your own Claude API key on your account page.")
+
+    user_client.app.state.ai_factory = no_ai
+    r = post(user_client, f"/build/{project_id}/v/1/change", {"request": "Bigger text."})
+    assert_page_ok(r)
+    assert h1(r) == "Kemi Kitchen: version 1 is unchanged: the AI is not available, so nothing was sent to it"
+    assert "Bigger text." in r.text and "connect your own Claude API key" in r.text
+
+
+def test_delete_heading_says_what_happened_once(user_client, fake_ai):
+    project_id, _ = build_v1(user_client, fake_ai)
+    r = post(user_client, f"/build/{project_id}/delete")
+    assert_page_ok(r)
+    assert h1(r) == "Deleted Kemi Kitchen and all its versions"
+    assert h1(user_client.get("/build")) == "Build a website, app, tool or game"
+
+
+def test_older_version_warns_that_changes_start_from_it(user_client, fake_ai):
+    project_id, _ = build_v1(user_client, fake_ai)
+    fake_ai.on("build.change", changed_files())
+    post(user_client, f"/build/{project_id}/v/1/change", {"request": "Small chops now cost 1500."})
+    r = user_client.get(f"/build/{project_id}/v/1")
+    assert_page_ok(r)
+    assert "This is an older version" in r.text and "will not include what changed in versions after 1" in r.text
+    assert "This is an older version" not in user_client.get(f"/build/{project_id}/v/2").text
+
+
+def test_version_page_wording(user_client, fake_ai):
+    project_id, r = build_v1(user_client, fake_ai)
+    assert "Passed 1 checks" not in r.text
+    assert re.search(r"Passed \d+ checks?\.", r.text)
+    assert "Open the preview of version 1" in r.text
+    assert "previews of every version of this project" in r.text
+    assert "Open the preview of version 1" in user_client.get(f"/build/{project_id}").text
+
+
+def test_zip_name_stays_short_and_plain(user_client, fake_ai):
+    project_id, _ = build_v1(user_client, fake_ai, title="Ébène " + "very long title " * 7)
+    z = user_client.get(f"/build/{project_id}/v/1/download.zip")
+    name = re.search(r'filename="([^"]+)"', z.headers["content-disposition"]).group(1)
+    assert name.endswith("-version-1.zip") and len(name) <= 80 and name.isascii()
+    assert not name.startswith("-") and "--" not in name
+
+
+def test_secret_in_title_is_refused_even_when_the_idea_is_empty(user_client, fake_ai):
+    r = post(user_client, "/build/new", {"title": "my password is hunter2", "kind": "website", "idea": ""})
+    assert r.status_code == 400
+    assert 'href="#field-title"' in r.text and 'href="#field-idea"' in r.text
