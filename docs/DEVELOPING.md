@@ -134,6 +134,6 @@ Each section has tests for: the main journey with `fake_ai`; validation errors; 
 
 Sections link to each other with plain URLs and query parameters, never by importing each other's code:
 
-- `/checks/new?url=<absolute URL>&title=<title>` opens the Peer checks request form pre-filled.
+- `/checks/new?url=<absolute URL>&title=<title>&kind=screen_reader|sighted|both` opens the Peer checks request form pre-filled (`kind` says who should check; the default is both).
 - `/find/ask?need=<text>` opens the Find form pre-filled.
 - `/help/ask?title=<text>` opens the Ask the community form pre-filled.

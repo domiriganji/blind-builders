@@ -31,6 +31,7 @@ PRICES = {
     "claude-opus-4-8": (5.0, 25.0),
 }
 WEB_SEARCH_DOLLARS = 0.01  # per search
+IMAGE_MAX_TOKENS = 1_600  # Claude scales large images down; one image costs at most about this many input tokens
 WEB_SEARCH_TOOL = {"type": "web_search_20260209", "name": "web_search"}
 WEB_FETCH_TOOL = {"type": "web_fetch_20260209", "name": "web_fetch"}
 
@@ -93,7 +94,7 @@ class AIClient:
 
     # ----- public API -------------------------------------------------------------------------
 
-    def structured(self, *, system: str, prompt: str, schema: dict, purpose: str,
+    def structured(self, *, system: str, prompt: str | list[dict], schema: dict, purpose: str,
                    effort: str = "medium", max_tokens: int = 32000) -> dict:
         """Ask for JSON that matches `schema` (a JSON Schema object with additionalProperties false)."""
         message = self._call(
@@ -148,9 +149,21 @@ class AIClient:
 
     def _worst_case_cents(self, kwargs: dict) -> int:
         """The most a call can cost: the longest answer allowed, the input (about 3 characters a token, which
-        overestimates), and every web search and page fetch allowed, each reading about 10,000 tokens."""
-        chars = len(str(kwargs.get("system", ""))) + len(json.dumps(kwargs.get("messages", []), default=str))
-        input_tokens = chars // 3 + 1000
+        overestimates; each image counts as the most an image can cost, about 1,600 tokens, however large its
+        data), and every web search and page fetch allowed, each reading about 10,000 tokens."""
+        chars = len(str(kwargs.get("system", "")))
+        images = 0
+        for message in kwargs.get("messages", []):
+            content = message.get("content") if isinstance(message, dict) else None
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "image":
+                        images += 1
+                    else:
+                        chars += len(json.dumps(block, default=str))
+            else:
+                chars += len(json.dumps(content, default=str))
+        input_tokens = chars // 3 + images * IMAGE_MAX_TOKENS + 1000
         searches = 0
         for tool in kwargs.get("tools") or []:
             uses = int(tool.get("max_uses", 0) or 0)

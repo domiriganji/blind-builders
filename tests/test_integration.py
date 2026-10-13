@@ -173,3 +173,17 @@ def test_form_text_takes_the_first_value_and_limits_length():
     assert form_text({"a": ["one", "two"]}, "a") == "one"
     assert form_text({"a": "x" * 50}, "a", 10) == "x" * 10
     assert form_text({}, "missing") == ""
+
+
+def test_credit_hold_counts_images_by_their_real_cost():
+    from studio.ai import AIClient, IMAGE_MAX_TOKENS
+    client = AIClient(api_key="x", model="claude-opus-5-5", user_id=1, paid_by="credits", markup=1.0, sdk_client=object())
+    big_png = "A" * 300_000  # about 225 KB of base64 picture data
+    with_images = {"system": "s", "max_tokens": 1000, "messages": [{"role": "user", "content": [
+        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": big_png}}] * 6 + [
+        {"type": "text", "text": "Review the design."}]}]}
+    text_only = {"system": "s", "max_tokens": 1000, "messages": [{"role": "user", "content": "Review the design."}]}
+    extra = client._worst_case_cents(with_images) - client._worst_case_cents(text_only)
+    # six images cost at most 6 * 1,600 input tokens: about 4 cents on Opus 5.5, not dollars
+    assert 0 < extra <= 5
+    assert IMAGE_MAX_TOKENS == 1_600
