@@ -153,7 +153,7 @@ def _made_on(shown: dict) -> str:
 
 
 def _file_name(site: str, shown: dict) -> str:
-    """'Blind Creators Studio recovery code, 13 October 2026.txt': the date tells several saved codes apart."""
+    """'Blind Builders recovery code, 13 October 2026.txt': the date tells several saved codes apart."""
     clean = "".join(ch for ch in site if ch not in '/\\:*?"<>|' and ord(ch) >= 32).strip() or "Recovery"
     return f"{clean} recovery code, {_made_on(shown)}.txt"
 

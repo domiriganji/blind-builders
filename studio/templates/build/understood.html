@@ -53,9 +53,8 @@
 {% else %}
 <p>Only the ones you tick are built. None are ticked to start with.</p>
 {% for a in spec.additions_not_asked %}
-  {#- Words kept after being signed out (web.keep_form) hold exactly the ticks the member had made. -#}
-  {% set kept_tick = restored('add_' ~ loop.index0, '') %}
-  {{ checkbox('add_' ~ loop.index0, a, checked=((kept_tick == 'yes') if kept_reason else (a in ticked))) }}
+  {#- After being signed out, the checkbox macro gives back exactly the ticks the member had made (web.keep_form). -#}
+  {{ checkbox('add_' ~ loop.index0, a, checked=(a in ticked)) }}
 {% endfor %}
 {% endif %}
 {% else %}<p>None.</p>{% endif %}
@@ -65,8 +64,6 @@
 <h2>Correct me or tell me to build</h2>
   {{ textarea('corrections', 'Corrections and answers', values.corrections, hint='Say what I got wrong and answer my questions. Leave it empty if everything is right. If you write something and choose the button "This is right: build it", the AI builds with your words at once. To check its new read-back first, choose "Send my corrections and read it back again".', error=errors.corrections, rows=6) }}
   {% if spec.additions_not_asked %}<p>Your ticks are kept either way.</p>{% endif %}
-  {#- The button pressed is not the member's words: never offered back to copy after being signed out. -#}
-  {% set _ = restored('action', '') %}
   <div class="actions">
     <button type="submit" name="action" value="update" class="button button-secondary">Send my corrections and read it back again</button>
     <button type="submit" name="action" value="build" class="button button-primary">This is right: build it</button>

@@ -16,7 +16,9 @@ def _bool(name: str, default: bool = False) -> bool:
 
 @dataclass
 class Settings:
-    site_name: str = "Blind Creators Studio"
+    site_name: str = "Blind Builders"
+    # Shown once, where a member first meets the site: under the home page's h1 and on About. Never in titles.
+    site_tagline: str = "Free to build. For blind and low-vision makers."
     secret_key: str = ""
     secret_key_is_random: bool = False
     db_path: Path = Path("data/studio.db")
@@ -54,7 +56,8 @@ def load_settings() -> Settings:
         secret = secrets.token_urlsafe(48)
         random_secret = True
     return Settings(
-        site_name=os.environ.get("STUDIO_SITE_NAME", "Blind Creators Studio"),
+        site_name=os.environ.get("STUDIO_SITE_NAME", "Blind Builders"),
+        site_tagline=os.environ.get("STUDIO_SITE_TAGLINE", "Free to build. For blind and low-vision makers."),
         secret_key=secret,
         secret_key_is_random=random_secret,
         db_path=Path(os.environ.get("STUDIO_DB_PATH", "data/studio.db")),

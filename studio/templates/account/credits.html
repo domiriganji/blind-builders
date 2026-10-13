@@ -5,7 +5,7 @@
 <p>Your credits are added here as soon as Stripe confirms the payment, usually within a minute. Reload this page to see them, or come back later. If they have not arrived after an hour, ask in <a href="/help">Ask the community</a>.</p>
 {% endif %}
 <div class="panel">
-<p>Credit balance: <strong>{{ status.balance_text }}</strong>.</p>
+{% if status.balance > 0 or status.can_buy %}<p>Credit balance: <strong>{{ status.balance_text }}</strong>.</p>{% endif %}
 {% include "account/_pay_status.html" %}
 {% if by_payer %}
 <p>AI tasks so far:

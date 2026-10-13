@@ -5,12 +5,37 @@
    - "Copy the code" copies the recovery code and says whether it worked.
    - Each prepared answer box (textarea[data-copy-name]) gets a Copy button after it, and one status message
      says whether the copy worked.
-   - On the Write document page, leaving with changes in "Your text" that were not sent asks first. Sending a
-     form never asks.
+   - On the Write document page, leaving with changes that are not saved asks first. On a page whose parts each
+     have their own Save button (data-save-parts), leaving with changes asks first, and saving one part says which
+     other parts had changes that were not saved. Sending a form never asks.
    - On a job page: check every few seconds, say the step when it changes, and when the work ends play short
      taps (rhythm, not pitch) and move focus to a link: the result, or what to do next. */
 (function () {
   document.documentElement.className += " js";
+  // Saving one part of a page with several Save buttons: say which other parts had changes that were not saved.
+  // The names were stored as the form was sent (see "Pages whose parts each have their own Save button").
+  var notSaved = null;
+  try {
+    notSaved = JSON.parse(window.sessionStorage.getItem("studio-not-saved") || "null");
+    window.sessionStorage.removeItem("studio-not-saved");
+  } catch (e) {}
+  if (notSaved && notSaved.path === window.location.pathname && notSaved.parts && notSaved.parts.length) {
+    var mainEl = document.getElementById("main");
+    var box = mainEl && mainEl.querySelector(".messages");
+    if (!box && mainEl) {
+      box = document.createElement("div");
+      box.className = "messages";
+      var top = mainEl.querySelector("h1");
+      mainEl.insertBefore(box, top ? top.nextSibling : mainEl.firstChild);
+    }
+    if (box) {
+      var note = document.createElement("p");
+      note.className = "message message-info";
+      note.textContent = "Not saved: your changes under " + notSaved.parts.join(", and under ") +
+        ". Make them again there, then choose that part's own Save button.";
+      box.appendChild(note);
+    }
+  }
   var summary = document.querySelector(".error-summary");
   if (summary) {
     // Focus moving here makes a screen reader read the summary, so it is no longer also an alert:
@@ -92,9 +117,14 @@
       seen.setAttribute("aria-hidden", "true");
       box.parentNode.insertBefore(seen, box.nextSibling);
       box.parentNode.insertBefore(button, seen);
+      var copyNote = box.getAttribute("data-copy-note");
       function copied() {
+        // Only the latest copy says "Copied", so an older word beside another button does not mislead.
+        Array.prototype.forEach.call(document.querySelectorAll(".copy-result"), function (other) {
+          if (other !== seen) other.textContent = "";
+        });
         seen.textContent = "Copied";
-        sayCopy("Copied: " + name);
+        sayCopy("Copied: " + name + (copyNote ? ". " + copyNote : ""));
       }
       function byHand() {
         var ok = false;
@@ -103,6 +133,9 @@
           button.focus();
           copied();
         } else {
+          Array.prototype.forEach.call(document.querySelectorAll(".copy-result"), function (other) {
+            if (other !== seen) other.textContent = "";
+          });
           seen.textContent = "Could not copy";
           sayCopy("Could not copy. Select the text in the box and copy it.");
         }
@@ -117,16 +150,70 @@
     });
   }
 
-  // On the Write document page, ask before leaving with changes to "Your text" that were not sent.
-  var body = document.querySelector('form[action^="/write/"] textarea#field-body');
-  if (body) {
-    var atLoad = body.value;
-    var sending = false;
+  // Ask before leaving a page with changes that are not saved. Sending a form never asks.
+  var leaveChecks = [];
+  var sending = false;
+  var norm = function (v) { return (v || "").replace(/\r\n?/g, "\n").trim(); };
+  // The Write document page: every field of the document form is compared with what the site has stored
+  // (data-saved-*), so words put back after a sign-out, or a changed title or goal, count as not saved.
+  var guard = document.querySelector("form[data-leave-guard]");
+  if (guard) {
+    leaveChecks.push(function () {
+      return ["title", "body", "target", "goal", "instructions", "notes"].some(function (k) {
+        var el = guard.elements[k];
+        return el && guard.hasAttribute("data-saved-" + k) && norm(el.value) !== norm(guard.getAttribute("data-saved-" + k));
+      });
+    });
+  }
+  // Pages whose parts each have their own Save button, such as the owner's AI settings.
+  if (document.querySelector("[data-save-parts]")) {
+    var changedForm = function (form) {
+      return Array.prototype.some.call(form.elements, function (el) {
+        if (!el.name || el.name === "csrf_token") return false;
+        if (el.type === "checkbox" || el.type === "radio") return el.checked !== el.defaultChecked;
+        if (el.tagName === "SELECT") {
+          return Array.prototype.some.call(el.options, function (o) { return o.selected !== o.defaultSelected; });
+        }
+        if (el.type === "hidden" || el.type === "submit" || el.type === "button") return false;
+        return norm(el.value) !== norm(el.defaultValue);
+      });
+    };
+    var partName = function (form) {
+      var el = form;
+      while (el) {
+        el = el.previousElementSibling;
+        if (el && el.tagName === "H2") return el.textContent.trim();
+      }
+      return "";
+    };
+    var partForms = Array.prototype.filter.call(document.querySelectorAll("main form"), function (f) {
+      return partName(f);
+    });
+    partForms.forEach(function (form) {
+      form.addEventListener("submit", function () {
+        var parts = [];
+        partForms.forEach(function (other) {
+          var name = partName(other);
+          if (other !== form && changedForm(other) && parts.indexOf(name) < 0 && name !== partName(form)) parts.push(name);
+        });
+        try {
+          if (parts.length) {
+            window.sessionStorage.setItem("studio-not-saved",
+              JSON.stringify({ path: window.location.pathname, parts: parts }));
+          } else {
+            window.sessionStorage.removeItem("studio-not-saved");
+          }
+        } catch (e) {}
+      });
+    });
+    leaveChecks.push(function () { return partForms.some(changedForm); });
+  }
+  if (leaveChecks.length) {
     Array.prototype.forEach.call(document.forms, function (form) {
       form.addEventListener("submit", function () { sending = true; });
     });
     window.addEventListener("beforeunload", function (event) {
-      if (sending || body.value === atLoad) return;
+      if (sending || !leaveChecks.some(function (changed) { return changed(); })) return;
       event.preventDefault();
       event.returnValue = "";
       return "";
@@ -178,16 +265,35 @@
     a.textContent = text;
     return a;
   }
+  // When the work ends, the working details (time, step, the taps choice) are replaced. The status message
+  // says only the news that is not in a link; the links come after it, outside it, so focus moving to one
+  // reads it once.
   function ended() {
-    if (check && check.parentNode) check.parentNode.removeChild(check);
+    ["job-check", "job-leave", "job-sound-choice"].forEach(function (name) {
+      var el = document.getElementById(name);
+      if (el && el.parentNode) el.parentNode.removeChild(el);
+    });
+    var working = document.getElementById("job-working");
+    if (working) working.textContent = "";
+    live.textContent = "";
+    return working;
+  }
+  function after(node, ref) {
+    ref.parentNode.insertBefore(node, ref.nextSibling);
+    return node;
+  }
+  function para(child) {
+    var p = document.createElement("p");
+    if (typeof child === "string") p.textContent = child; else p.appendChild(child);
+    return p;
   }
   function finished(j) {
-    ended();
+    var working = ended();
     taps([0, 0.2, 0.4], 0.08);
     setHeading("Done: " + j.title);
+    if (working && j.elapsed) working.appendChild(para("Finished after " + j.elapsed + "."));
     var a = link(j.result_url || "/jobs", "Done. Open the result: " + j.title);
-    live.textContent = "";
-    live.appendChild(a);
+    after(para(a), live);
     a.focus();
   }
   function stopped(j) {
@@ -195,24 +301,24 @@
     taps([0, 0.6], 0.3);  // two long taps: a different pattern from "done"
     var stalled = j.state === "stalled";
     setHeading((stalled ? "This seems to have stopped: " : "This did not finish: ") + j.title);
-    live.textContent = "";
-    var p = document.createElement("p");
-    p.textContent = stalled
+    live.textContent = stalled
       ? "This started " + j.elapsed + " ago and has not finished, so it has most likely stopped. Please try again."
       : j.error;
-    live.appendChild(p);
+    var last = live;
+    if (j.member_words) {
+      last = after(para("Your request, in your words:"), last);
+      var words = document.createElement("blockquote");
+      words.className = "member-words";
+      words.textContent = j.member_words;
+      last = after(words, last);
+    }
     var first = null;
     if (j.back_url) {
-      var back = link(j.back_url, "Go back and try again");
-      var pb = document.createElement("p");
-      pb.appendChild(back);
-      live.appendChild(pb);
-      first = back;
+      first = link(j.back_url, "Go back and try again");
+      last = after(para(first), last);
     }
     var all = link("/jobs", "See all your recent work");
-    var pa = document.createElement("p");
-    pa.appendChild(all);
-    live.appendChild(pa);
+    after(para(all), last);
     (first || all).focus();
   }
   function couldNotCheck() {

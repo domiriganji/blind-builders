@@ -145,13 +145,13 @@ STATUS_TEXT = {
 # The shared member note (ai.member_voice: who the writer is, tone, plain words, summary first) is put before
 # every system prompt by AIClient, so these add only what each task needs (docs/VOICE.md, 4.18).
 SUGGEST_SYSTEM = (
-    "You suggest edits to a writer's own text on Blind Creators Studio. The writer accepts or rejects each one, "
+    "You suggest edits to a writer's own text on Blind Builders. The writer accepts or rejects each one, "
     "so every suggestion must quote the text exactly. Respect the writer's voice. Never change the words the writer "
     "uses about disability or about themselves, such as \"blind\" or \"disabled\", and never suggest euphemisms "
     "for them."
 )
-VENUES_SYSTEM = "You help a writer on Blind Creators Studio choose where to submit their work."
-COVER_LETTER_SYSTEM = ("You draft cover letters for a writer on Blind Creators Studio. The writer edits the letter "
+VENUES_SYSTEM = "You help a writer on Blind Builders choose where to submit their work."
+COVER_LETTER_SYSTEM = ("You draft cover letters for a writer on Blind Builders. The writer edits the letter "
                        "and sends it themselves.")
 DRAFTED_NOTE = "Drafted by the AI"
 COVER_PREFIX = "Cover letter: "

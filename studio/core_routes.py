@@ -146,6 +146,7 @@ def job_json(job_id: str, user: dict = Depends(require_user)):
     data["result_url"] = _local_path(job["result_url"]) or ("/jobs" if job["status"] == "done" else "")
     data["back_url"] = _local_path(job.get("back_url")) or ""
     data["elapsed"] = _elapsed_words(_seconds_since(job["created_at"]))
+    data["member_words"] = job.get("member_words") or ""
     if data["state"] == "failed" and not data["error"]:
         data["error"] = jobs.FAILED_MESSAGE
     return JSONResponse(data)

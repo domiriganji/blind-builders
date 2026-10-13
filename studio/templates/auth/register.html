@@ -12,7 +12,7 @@
   {{ csrf_input() }}
   <input type="hidden" name="next" value="{{ next }}">
   {{ field('email', 'Email address', values.email, type='email', required=true, autocomplete='email', error=errors.email) }}
-  {{ field('display_name', 'Your name', values.display_name, required=true, autocomplete='name', hint='Only you see this unless you choose to share it. Other members see a code name such as Member 5A3C. You can change this later on your profile page.', error=errors.display_name) }}
+  {{ field('display_name', 'Your name', values.display_name, required=true, autocomplete='name', hint='Only you see this unless you choose to share it. Other members see a code name such as Member 5A3C. You can change this later in Your profile.', error=errors.display_name) }}
   {{ field('password', 'Password', '', type='password', required=true, autocomplete='new-password', hint='At least 10 characters. A few words in a row are easy to remember and hard to guess.', error=errors.password) }}
   <div class="field choice js-only">
     <input type="checkbox" id="show-password" data-shows="field-password">

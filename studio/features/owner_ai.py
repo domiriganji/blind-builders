@@ -261,8 +261,8 @@ async def remove_key(request: Request, user: dict = Depends(require_user)):
         return await run_in_threadpool(_render, request, user, key_errors={"remove_password": problem}, status_code=400)
     site_ai.remove_key()
     account._announce(request, "The site's Claude API key is removed")
-    flash(request, "The key is removed from this site. To stop it working everywhere, delete it in the Anthropic "
-                   "Console too.", "success")
+    flash(request, "The key is removed from this site. To stop it working everywhere, delete it in the Claude "
+                   "Console (platform.claude.com) too.", "success")
     return redirect(PAGE)
 
 

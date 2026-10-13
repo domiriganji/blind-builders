@@ -81,7 +81,7 @@ def test_index_lists_every_tool_in_pages(client):
     assert r.status_code == 200
     pages = (len(SEED) + find.PAGE_SIZE - 1) // find.PAGE_SIZE
     assert f"<h1>Find before you build: page 1 of {pages}</h1>" in r.text
-    assert f"<title>Find before you build: page 1 of {pages}, Blind Creators Studio</title>" in r.text
+    assert f"<title>Find before you build: page 1 of {pages}, Blind Builders</title>" in r.text
     assert f"All tools in the directory ({len(SEED)})" in r.text
     assert f"Next page (2 of {pages})" in r.text and "Page 1 of" in r.text
     assert r.text.count('<h3><a href="/find/tool/') == find.PAGE_SIZE

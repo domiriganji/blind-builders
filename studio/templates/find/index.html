@@ -44,7 +44,7 @@
 {% if searching %}<p><a href="/find">Show all tools</a></p>{% endif %}
 
 <h2 id="ask-title">Ask the AI to search the web</h2>
-<p>If the directory does not have what you need, the AI can search the web for tools that already exist. It tells you what it found and where. It uses the AI, paid from your own Claude API key or your credits.</p>
+<p>If the directory does not have what you need, the AI can search the web for tools that already exist. It tells you what it found and where. It uses {{ ai_pays().what }}.</p>
 {% if user %}
 <form method="post" action="/find/ask" novalidate>
   {{ csrf_input() }}

@@ -70,7 +70,7 @@
 <p>The AI has not described this data yet. Once you upload a file or save notes, it can describe patterns and suggest analyses.{% if not (stats or (notes and notes.body.strip())) %} <a href="#field-notes">Go to your notes and data file</a>.{% endif %}</p>
 {% endif %}
 {% if stats or (notes and notes.body.strip()) %}
-<p>The AI reads your saved notes and the facts computed by the site. This uses your Claude API key or your credits.</p>
+<p>The AI reads your saved notes and the facts computed by the site. It uses {{ ai_pays().what }}.</p>
 <div class="actions">
   {{ post_button('/research/' ~ project.id ~ '/data/describe', 'Ask the AI to describe the data again' if interpretation_html else 'Ask the AI to describe patterns') }}
 </div>

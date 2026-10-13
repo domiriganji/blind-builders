@@ -7,6 +7,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import re
 import threading
 import time
 
@@ -630,6 +631,11 @@ def test_job_pages_with_javascript(live, browser):
     result = page.get_by_role("link", name="Done. Open the result: Summarise my notes")
     expect(result).to_be_focused(timeout=20_000)
     assert page.evaluate("window.__taps") == 3
+    # The link is outside the status message, so it is read once; the working details are replaced.
+    expect(page.get_by_role("status").get_by_role("link")).to_have_count(0)
+    expect(page.get_by_text(re.compile(r"^Finished after \d+ seconds?\.$"))).to_be_visible()
+    expect(page.get_by_text("Current step:")).to_have_count(0)
+    expect(page.get_by_label("Play three short taps when it is done")).to_have_count(0)
     # The heading and the title say it is done, and "Check again" is gone.
     assert heading(page) == "Done: Summarise my notes" and page.title().startswith("Done: Summarise my notes")
     expect(page.get_by_role("link", name="Check again")).to_have_count(0)

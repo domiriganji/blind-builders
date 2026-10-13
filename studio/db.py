@@ -136,6 +136,8 @@ def init(feature_schemas: list[str]) -> None:
         ensure_column(conn, "jobs", "dedupe_key", "TEXT NOT NULL DEFAULT ''")
         # The private item a job is about (see jobs.forget_item), so deleting the item removes its jobs.
         ensure_column(conn, "jobs", "item_ref", "TEXT NOT NULL DEFAULT ''")
+        # The member's own request, shown on the job page if the job does not finish (jobs.submit).
+        ensure_column(conn, "jobs", "member_words", "TEXT NOT NULL DEFAULT ''")
         # Raised to sign a member out on every device (see web.end_all_sessions).
         ensure_column(conn, "users", "session_epoch", "INTEGER NOT NULL DEFAULT 0")
         # Help is public, so it shows the code name unless the member chooses their name.

@@ -1,5 +1,6 @@
 {# Form helpers. Every field gets a visible label, an optional hint and an error, all linked with aria-describedby.
-   restored(name, value) gives back a member's words kept from a form that could not be sent (web.keep_form). #}
+   restored(name, value) gives back a member's words kept from a form that could not be sent (web.keep_form), and
+   restored_tick(name, checked) a checkbox's tick. #}
 {% macro csrf_input() %}<input type="hidden" name="csrf_token" value="{{ csrf_value() }}">{% endmacro %}
 
 {% macro error_summary(errors) %}
@@ -58,9 +59,11 @@
 <fieldset class="field{% if error %} has-error{% endif %}" id="field-{{ name }}" tabindex="-1"{{ _described(name, hint, error) }}>
   <legend>{{ legend }}</legend>
   {{ _hint_error(name, hint, error) }}
-  {#- The hint and error are tied to each radio button too: moving into the group with Tab or arrows often skips the fieldset's own description. -#}
+  {#- Moving into the group with Tab or arrows often skips the fieldset's own description, so the hint is tied to
+      the first radio button too, and the error to every one. The hint is not on the others, so arrowing through
+      the group does not read it again at each choice. -#}
   {% for value, text in options %}
-  <div class="choice"><input type="radio" id="field-{{ name }}-{{ loop.index }}" name="{{ name }}" value="{{ value }}"{% if value == selected %} checked{% endif %}{% if required %} required{% endif %}{{ _described(name, hint, error) }}><label for="field-{{ name }}-{{ loop.index }}">{{ text }}</label></div>
+  <div class="choice"><input type="radio" id="field-{{ name }}-{{ loop.index }}" name="{{ name }}" value="{{ value }}"{% if value == selected %} checked{% endif %}{% if required %} required{% endif %}{{ _described(name, hint if loop.first else '', error) }}><label for="field-{{ name }}-{{ loop.index }}">{{ text }}</label></div>
   {% endfor %}
 </fieldset>
 {% endmacro %}
@@ -68,7 +71,7 @@
 {% macro checkbox(name, label, checked=false, hint='', error='') %}
 <div class="field choice{% if error %} has-error{% endif %}">
   {% if error %}<p class="field-error" id="error-{{ name }}"><span class="visually-hidden">Please check: </span>{{ error }}</p>{% endif %}
-  <input type="checkbox" id="field-{{ name }}" name="{{ name }}" value="yes"{% if checked %} checked{% endif %}{{ _described(name, hint, error) }}>
+  <input type="checkbox" id="field-{{ name }}" name="{{ name }}" value="yes"{% if restored_tick(name, checked) %} checked{% endif %}{{ _described(name, hint, error) }}>
   <label for="field-{{ name }}">{{ label }}</label>
   {% if hint %}<p class="hint" id="hint-{{ name }}">{{ hint }}</p>{% endif %}
 </div>

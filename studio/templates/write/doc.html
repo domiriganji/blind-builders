@@ -40,7 +40,7 @@
 <section aria-labelledby="suggest-title">
 <h2 id="suggest-title">Get suggestions from the AI</h2>
 <p>Your text is saved first. The AI then suggests changes, each with your words, the suggested words and a reason. Nothing changes until you accept it.</p>
-<p>It uses your credits or your own Claude API key, and usually takes one to three minutes. You can leave the page while it works.</p>
+{% set pays = ai_pays() %}<p>Each AI step on this page uses {{ pays.what }}. It usually takes one to three minutes. You can leave the page while it works.</p>
   {{ select('goal', 'What should the AI look for?', goals, values.goal, required=true, error=errors.goal) }}
   {{ textarea('instructions', 'Anything else the AI should know', values.instructions, rows=3, error=errors.instructions, hint='For example: keep British spelling, or the readers are teachers.') }}
   <button type="submit" class="button button-secondary" formaction="/write/{{ doc.id }}/suggest">Save and get suggestions</button>
@@ -72,7 +72,7 @@
 <section aria-labelledby="publish-title">
 <h2 id="publish-title">Find where to publish</h2>
 <p>Your text is saved first. The AI then searches the web for journals, magazines or preprint servers that suit it. It looks for their submission rules, any fees, and anything published about how well their submission systems work with screen readers. It lists its sources. The site does not check what it finds.</p>
-<p>It uses your credits or your own Claude API key, and usually takes one to three minutes. You can leave the page while it works.</p>
+<p>It usually takes one to three minutes. You can leave the page while it works.</p>
   <button type="submit" class="button button-secondary" formaction="/write/{{ doc.id }}/venues">Save and search the web for places to publish</button>
 {% if research %}
 <h3>Earlier searches</h3>
@@ -91,7 +91,7 @@
 {% else %}
 <p>The AI drafts a letter to the editor of the publication you name in "Publication you are aiming for". <a href="#field-target">Go to the publication field</a>. Your text is saved first, and the letter becomes a new document.</p>
 {% endif %}
-<p>It uses your credits or your own Claude API key, and usually takes one to three minutes. You can leave the page while it works.</p>
+<p>It usually takes one to three minutes. You can leave the page while it works.</p>
   {{ textarea('notes', 'Anything the letter should mention', values.notes, rows=3, error=errors.notes, hint='For example: your name, your role, or why you wrote this.') }}
   <button type="submit" class="button button-secondary" formaction="/write/{{ doc.id }}/cover-letter">Save and draft a cover letter{% if doc.target %} for {{ doc.target }}{% endif %}</button>
 {% if letters %}

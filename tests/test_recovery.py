@@ -168,7 +168,7 @@ def test_text_file_has_the_date_and_account_in_its_name_and_contents(client):
     page = _sign_up(client).text
     saved = client.get("/account/recovery-code.txt")
     name = re.search(r'filename="([^"]+)"', saved.headers["content-disposition"]).group(1)
-    assert re.fullmatch(r"Blind Creators Studio recovery code, \d{1,2} \w+ \d{4}\.txt", name), name
+    assert re.fullmatch(r"Blind Builders recovery code, \d{1,2} \w+ \d{4}\.txt", name), name
     assert f'"{name}"' in page.replace("&#34;", '"').replace("&quot;", '"')
     assert re.search(r"Made on \d{1,2} \w+ \d{4} for ola@example.com\. A newer code replaces this one\.", saved.text)
 

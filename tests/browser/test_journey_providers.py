@@ -42,19 +42,19 @@ def test_owner_chooses_another_main_ai(live, browser, models):
     assert heading(page) == "AI settings for your key"
     assert_page_ok(page, "owner AI settings")
 
-    page.get_by_role("group", name="Which provider the key is from").get_by_label("OpenRouter: ").check()
-    key = page.get_by_label("API key from the provider")
+    page.get_by_role("group", name="Which company the key is from").get_by_label("OpenRouter: ").check()
+    key = page.get_by_label("API key from the company")
     key.fill("sk-other-not-the-right-one-1234")
-    page.get_by_label("Your password, to save the provider's key").fill(PASSWORD)
-    page.get_by_role("button", name="Check and save the provider's key").click()
+    page.get_by_label("Your password, to save the company's key").fill(PASSWORD)
+    page.get_by_role("button", name="Check and save the company's key").click()
     assert heading(page) == "Please check 1 answer: AI settings for your key"
     assert_page_ok(page, "owner AI settings with errors")
     follow_error(page, "OpenRouter did not accept this key, so it was not saved.", key)
 
-    page.get_by_role("group", name="Which provider the key is from").get_by_label("OpenRouter: ").check()
+    page.get_by_role("group", name="Which company the key is from").get_by_label("OpenRouter: ").check()
     key.fill(OTHER_KEY)
-    page.get_by_label("Your password, to save the provider's key").fill(PASSWORD)
-    page.get_by_role("button", name="Check and save the provider's key").click()
+    page.get_by_label("Your password, to save the company's key").fill(PASSWORD)
+    page.get_by_role("button", name="Check and save the company's key").click()
     assert heading(page) == "The key for OpenRouter is saved"
     assert_page_ok(page, "owner AI settings after saving the key")
     assert OTHER_KEY not in page.content()

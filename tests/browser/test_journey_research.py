@@ -156,7 +156,7 @@ def test_research_journey_end_to_end(live, browser):
     # The next stage is the main action; running this stage again is a separate button that names its stage.
     assert page.get_by_role("button", name="Next: write the study plan").is_visible()
     assert page.get_by_role("heading", name="Run this stage again", level=3).is_visible()
-    assert page.get_by_role("button", name="Search for prior work again (uses your key or credits)").is_visible()
+    assert page.get_by_role("button", name="Search for prior work again (uses your key)").is_visible()
 
     page.get_by_role("link", name=f"Back to {TITLE}").click()
     pages.check(TITLE)
@@ -240,7 +240,7 @@ def test_research_journey_end_to_end(live, browser):
 
     # Running a stage again keeps the earlier version, which can be read, downloaded and made current.
     fake.on("research.draft", "# Second\n## Abstract\nOnly [1].\n")
-    page.get_by_role("button", name="Write the draft paper again (uses your key or credits)").click()
+    page.get_by_role("button", name="Write the draft paper again (uses your key)").click()
     pages.check(f"Draft paper is ready: {TITLE}")
     versions = page.get_by_role("heading", name="Earlier versions", level=2)
     assert versions.is_visible()

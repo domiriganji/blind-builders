@@ -10,7 +10,7 @@
 <ul>
   <li>Your email address, name, password and preferences are removed.</li>
   <li>Your Claude API key is removed from this site. To stop it working everywhere, delete it in the Claude Console (platform.claude.com) too.</li>
-  <li>Any credits left on your account are lost.</li>
+  {% if credits_left %}<li>The credits left on your account, {{ credits_left }}, are lost.</li>{% endif %}
   <li>What you posted for the community, such as answers and peer checks, stays so others can still use it. It shows only your code name, {{ user.pseudonym }}, never your name or email.</li>
   <li>Your private work is permanently deleted: projects in Build, documents in Write and publish, requests in Do this for me, research projects and your web searches in Find.</li>
   <li>Records of credits, payments and AI usage stay, without your name, so the site's money records stay correct.</li>

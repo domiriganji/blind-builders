@@ -35,8 +35,8 @@ from .. import compat_ai, credits, db, limits, providers, site_ai
 from ..ai import PRICES, WEB_SEARCH_DOLLARS, cost_cents
 from ..auth import PASSWORD_MAX, PASSWORD_MIN, clean_text, secret_problem
 from ..security import decrypt_secret, encrypt_secret, hash_password, verify_password
-from ..web import (KEPT_FORMS_SCHEMA, checked_form, date_words, end_all_sessions, error_title, flash, redirect,
-                   render, require_user, sign_in)
+from ..web import (KEPT_FORMS_SCHEMA, checked_form, current_user, date_words, end_all_sessions, error_title, flash,
+                   redirect, render, require_user, sign_in)
 from .recovery import code_state
 
 log = logging.getLogger("studio.account")
@@ -245,6 +245,34 @@ def ai_status(settings, user: dict) -> dict:
     if status["site_has_key"] and balance > 0:
         return {**status, "mode": "credits"}
     return {**status, "mode": "none"}
+
+
+def pay_words(settings, user: dict | None) -> dict:
+    """One shared way to say what pays for an AI step, for pages that start one: `what` completes "It uses ...",
+    and `short` goes in brackets on a button, or is empty when no short words would be true for every step.
+    It follows ai_status, so a member is never told about credits they cannot have or buy."""
+    free = site_ai.site_ai_ready(settings) and site_ai.pay_mode() == "free"
+    can_buy = payments_ready(settings)
+    if user is None:
+        if free:
+            return {"what": "the site's AI, free for members on this site", "short": "free on this site"}
+        if can_buy:
+            return {"what": "your own Claude API key or your credits", "short": "uses your key or credits"}
+        return {"what": "your Claude API key", "short": "uses your key"}
+    status = ai_status(settings, user)
+    if status["mode"] == "own_key":
+        if status.get("own_is_claude"):
+            return {"what": "your Claude API key", "short": "uses your key"}
+        # Everyday steps use the member's own key; steps that search the web use Claude (Your account says how).
+        return {"what": f"your key from {status.get('own_provider_name') or 'another company'}, and Claude for "
+                        "steps that search the web, as Your account explains", "short": ""}
+    if status["mode"] == "free":
+        return {"what": "the site's AI, free for members on this site", "short": "free on this site"}
+    if status["mode"] == "credits":
+        return {"what": "your credits", "short": "uses your credits"}
+    if can_buy:
+        return {"what": "your own Claude API key or your credits", "short": "uses your key or credits"}
+    return {"what": "your Claude API key", "short": "uses your key"}
 
 
 def _purpose_label(purpose: str) -> str:
@@ -1044,7 +1072,10 @@ def site_counts() -> dict:
         return {
             "members": one("SELECT COUNT(*) FROM users WHERE email NOT LIKE 'deleted-%@invalid'"),
             "deleted": one("SELECT COUNT(*) FROM users WHERE email LIKE 'deleted-%@invalid'"),
-            "with_key": one("SELECT COUNT(*) FROM users WHERE own_api_key_enc IS NOT NULL"),
+            "with_claude_key": one("SELECT COUNT(*) FROM users WHERE own_api_key_enc IS NOT NULL"
+                                   " AND COALESCE(own_provider, 'anthropic') = 'anthropic'"),
+            "with_other_key": one("SELECT COUNT(*) FROM users WHERE own_api_key_enc IS NOT NULL"
+                                  " AND COALESCE(own_provider, 'anthropic') != 'anthropic'"),
             "jobs": one("SELECT COUNT(*) FROM jobs"),
             "jobs_failed": one("SELECT COUNT(*) FROM jobs WHERE status = 'failed'"),
             "ai_calls": one("SELECT COUNT(*) FROM ai_usage"),
@@ -1155,8 +1186,10 @@ def _render_delete(request: Request, errors: dict, status_code: int = 200, faile
         title = "Your account is not deleted yet"
     else:
         title = error_title("Delete your account", errors)
+    user = current_user(request)
+    left = credits.balance(user["id"]) if user else 0  # credits are mentioned only when there are some to lose
     return render(request, "account/delete.html", title=title, errors=errors, failed=failed,
-                  status_code=status_code)
+                  credits_left=credits.format_cents(left) if left > 0 else "", status_code=status_code)
 
 
 @router.get("/account/delete")

@@ -1,4 +1,6 @@
-# Blind Creators Studio
+# Blind Builders
+
+Free to build. For blind and low-vision makers.
 
 A website where blind and low-vision people turn their ideas into reality with AI: websites and apps, writing and publishing, research, and tasks done on the web. Every page is built for screen readers, keyboards, voice and braille displays first, works without JavaScript, and is light enough for cheap phones on slow data.
 
@@ -52,6 +54,8 @@ Any host that runs Python works (a small virtual server, Render, Railway, Fly.io
 |---|---|
 | `STUDIO_SECRET_KEY` | Required. Long random text. Keep it the same forever: it signs sign-ins and encrypts saved API keys (members' and the site's). Keep it apart from copies of the database. |
 | `STUDIO_BASE_URL` | Your public address, for example `https://studio.example.org`. |
+| `STUDIO_SITE_NAME` | Optional. Default `Blind Builders`. It ends every page title, after a comma. |
+| `STUDIO_SITE_TAGLINE` | Optional. Default "Free to build. For blind and low-vision makers." Shown once, under the home page's main heading and on About, never in page titles. |
 | `ANTHROPIC_API_KEY` | Optional. The site's own Claude key. You can instead save it on the site, in Your account, Site owner tools, AI settings for your key; a key saved there takes the place of this one. Without either, members use their own keys. |
 | `STUDIO_MODEL` | Optional. Default `claude-opus-5-5`. The model chosen in AI settings for your key takes its place. |
 | `STUDIO_CREDIT_MARKUP` | Optional. Default `1.25`: credits cost the AI price plus 25 percent. |

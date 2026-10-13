@@ -94,10 +94,10 @@ def test_create_project_and_see_stages(user_client):
     assert_accessible(r)
     # Right after saving, the h1 (and title) says what happened; on any later visit it is the project's name.
     assert h1(r) == "Project saved: Exams and screen readers"
-    assert "<title>Project saved: Exams and screen readers, Blind Creators Studio</title>" in r.text
+    assert "<title>Project saved: Exams and screen readers, Blind Builders</title>" in r.text
     r = user_client.get(f"/research/{pid}")
     assert h1(r) == "Exams and screen readers"
-    assert "<title>Exams and screen readers, Blind Creators Studio</title>" in r.text
+    assert "<title>Exams and screen readers, Blind Builders</title>" in r.text
     # The question comes first, before the stages.
     assert r.text.index("Do blind students finish exams faster") < r.text.index("1. Prior work")
     for heading in ["1. Prior work", "2. Study plan", "3. Notes and data", "4. Draft paper"]:
@@ -923,12 +923,12 @@ def test_rerun_buttons_are_apart_and_say_which_stage(user_client, fake_ai):
     # The next stage is the main action on the stage page; running this one again sits under its own heading.
     assert 'class="button button-primary">Next: write the study plan</button>' in r.text
     after = r.text.split("<h3>Run this stage again</h3>")[1]
-    assert "Search for prior work again (uses your key or credits)</button>" in after
+    assert "Search for prior work again (uses your key)</button>" in after
     r = user_client.get(f"/research/{pid}")
     stage = r.text.split("<h2>1. Prior work</h2>")[1].split("<h2>")[0]
     assert "Read the prior work</a>" in stage and "<button" not in stage
     rerun = r.text.split("<h2>Run a stage again</h2>")[1].split("<h2>")[0]
-    assert "Search for prior work again (uses your key or credits)</button>" in rerun
+    assert "Search for prior work again (uses your key)</button>" in rerun
     assert "Write the study plan again" not in rerun  # not done yet, so nothing to run again
     r = post(user_client, f"/research/{pid}/plan")
     assert f'class="button button-primary" href="/research/{pid}/data">Next: add notes and data</a>' in r.text

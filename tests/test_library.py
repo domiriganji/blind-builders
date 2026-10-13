@@ -248,7 +248,7 @@ def test_error_pages_h1_counts_the_answers_to_check(user_client):
         r = post(user_client, url, data)
         assert r.status_code == 400, url
         h1 = re.search(r"<h1>(.*?)</h1>", r.text).group(1)
-        assert re.match(r"Please check \d+ answers?: ", h1) and f"<title>{h1}, Blind Creators Studio</title>" in r.text, url
+        assert re.match(r"Please check \d+ answers?: ", h1) and f"<title>{h1}, Blind Builders</title>" in r.text, url
         assert "please fix" not in r.text.lower() and "Error: " not in r.text, url
 
 
@@ -330,7 +330,7 @@ def test_after_each_action_the_title_says_what_happened_and_the_page_opens_at_th
         r = post(user_client, url, data, follow_redirects=False)
         assert r.status_code == 303 and r.headers["location"] == f"/library/tool/{tid}", url
         page = user_client.get(r.headers["location"]).text
-        assert f"<h1>{expected}</h1>" in page and f"<title>{expected}, Blind Creators Studio</title>" in page, url
+        assert f"<h1>{expected}</h1>" in page and f"<title>{expected}, Blind Builders</title>" in page, url
     pid = _problems(tid)[0]["id"]
     r = post(user_client, f"/library/tool/{tid}/problem/{pid}/resolve", follow_redirects=False)
     assert r.headers["location"] == f"/library/tool/{tid}"

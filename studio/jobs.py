@@ -79,7 +79,8 @@ class JobContext:
 
 
 def submit(user_id: int, kind: str, title: str, fn: Callable[..., str], *args: Any,
-           back_url: str = "", dedupe_key: str = "", item_ref: str = "", **kwargs: Any) -> str:
+           back_url: str = "", dedupe_key: str = "", item_ref: str = "", member_words: str = "",
+           **kwargs: Any) -> str:
     """Run fn(ctx, *args, **kwargs) in the background. fn returns the URL of the result page.
 
     back_url: where "Go back and try again" leads if the job fails (a site path).
@@ -88,6 +89,8 @@ def submit(user_id: int, kind: str, title: str, fn: Callable[..., str], *args: A
     "build.generate:<project id>".
     item_ref: the private item the job is about (for example "errands:<id>:<created_at>"). Job titles quote
     the member's words, so deleting the item calls forget_item() to remove its jobs from Your recent work.
+    member_words: the member's own request, when the job is about words they wrote. If the job does not finish,
+    its page shows them, so they are not lost.
     Raises TooManyJobs if the member already has MAX_ACTIVE_PER_MEMBER jobs waiting or running.
     """
     job_id = uuid.uuid4().hex
@@ -104,9 +107,9 @@ def submit(user_id: int, kind: str, title: str, fn: Callable[..., str], *args: A
         if active >= MAX_ACTIVE_PER_MEMBER:
             raise TooManyJobs()
         conn.execute(
-            "INSERT INTO jobs (id, user_id, kind, title, status, created_at, back_url, dedupe_key, item_ref)"
-            " VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?)",
-            (job_id, user_id, kind, title[:200], db.now(), safe_back, dedupe_key, item_ref),
+            "INSERT INTO jobs (id, user_id, kind, title, status, created_at, back_url, dedupe_key, item_ref,"
+            " member_words) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?)",
+            (job_id, user_id, kind, title[:200], db.now(), safe_back, dedupe_key, item_ref, member_words[:20_000]),
         )
     if _inline or _executor is None:
         _run(job_id, user_id, fn, args, kwargs)

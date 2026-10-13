@@ -1,4 +1,4 @@
-# Developing Blind Creators Studio
+# Developing Blind Builders
 
 A website where blind and low-vision people build their ideas with AI. Python 3.13, FastAPI, Jinja2 templates rendered on the server, SQLite. No front-end framework. Every page must work without JavaScript.
 
@@ -47,12 +47,12 @@ Templates go in `studio/templates/<section>/`. Tests go in `tests/test_<section>
 
 | File | What it gives you |
 |---|---|
-| `studio/web.py` | `render(request, template, title=..., **ctx)`, `checked_form(request)`, `require_user`, `current_user`, `flash`, `redirect`, `get_ai(request, user)`, `error_title(title, errors)`, `date_words(iso, with_time=False)`, `keep_form(request, form, page_path, reason)` and the `kept_forms` table (see "Keeping a member's words"), the `restored(name, value)` template global, the `markdown`, `nest_headings`, `shift_headings` and `date_words` template filters |
+| `studio/web.py` | `render(request, template, title=..., **ctx)`, `checked_form(request)`, `require_user`, `current_user`, `flash`, `redirect`, `get_ai(request, user)`, `error_title(title, errors)`, `date_words(iso, with_time=False)`, `keep_form(request, form, page_path, reason)` and the `kept_forms` table (see "Keeping a member's words"), the `restored(name, value)` and `restored_tick(name, checked)` template globals, the `ai_pays()` template global (what pays for an AI step, see "Using the AI"), the `markdown`, `nest_headings`, `shift_headings` and `date_words` template filters |
 | `studio/site_ai.py` | The owner's AI settings: `site_key(settings)`, `site_model(settings)`, `member_model(settings, user)`, the main AI (`main_choice()`, `other_provider()`, `other_model()`, `other_prices()`, `vision_choice()`, `site_ai_ready(settings)`), `pay_mode()`, monthly limits with `reserve` and `release` (used by the AI clients, not by sections) |
 | `studio/ai.py` | `AIClient.structured / text / research`, `RoutedAI`, `member_voice(user)`, `AIError`, `AINotAvailable`, `AIRefused`, `ResearchResult`, `Source` |
 | `studio/providers.py` | The AI providers: `PRESETS` (the OpenAI-compatible providers ready to choose), the address checks, `fetch_models` and `cached_models` (each provider's live model list) |
 | `studio/compat_ai.py` | `CompatClient`, the AI on an OpenAI-compatible provider, with the same three methods |
-| `studio/jobs.py` | `submit(user_id, kind, title, fn, *args, back_url="", dedupe_key="", item_ref="")`, `job_url(job_id)`, `JobContext.progress(text)`, `forget_item(conn, user_id, item_ref)`, `still_wanted(conn, ctx)` |
+| `studio/jobs.py` | `submit(user_id, kind, title, fn, *args, back_url="", dedupe_key="", item_ref="", member_words="")`, `job_url(job_id)`, `JobContext.progress(text)`, `forget_item(conn, user_id, item_ref)`, `still_wanted(conn, ctx)` |
 | `studio/sensitive.py` | `find_secret(text)`: a plain message if the text holds a password, PIN, one-time code, API key or card number. `SECRET_MESSAGE`: the one refusal wording (docs/VOICE.md, 4.9). `PUBLIC_SUFFIX`: " Everyone can read this page.", added to `SECRET_MESSAGE` where the text would be public |
 | `studio/db.py` | `with db.session() as conn:` and `db.now()` |
 | `studio/credits.py` | `balance`, `add`, `history`, `format_cents` |
@@ -67,7 +67,7 @@ Do not edit these files from a section. If a section needs a change in a shared 
 
 1. **One h1 that says where you are or what just happened.** Pass the same words as `title=` to `render`, for example `title="Cake shop: version 2 is ready"`. Screen readers announce the title first. After an action, the outcome goes in the next page's h1 and title, not only in a flash message (see "After an action").
 2. **Headings in order** (h1, then h2, then h3). People move by headings. Put the summary first, details after.
-3. **Forms use the macros** from `_macros.html` (pass `mark_optional=false` for a field that is optional but central, so it is not announced as "optional"): `csrf_input`, `error_summary`, `field`, `textarea`, `select`, `radios`, `checkbox`, `post_button`, `sources_list`. Import them with `{% from "_macros.html" import ... %}`. Every field gets a visible label. Hints and errors are linked automatically. `radios(name, legend, options, selected, hint=..., error=..., required=true)` marks each choice `required`, for a question that must be answered. A field you write by hand instead of with a macro takes its value through `restored(name, value)`, as the macros do, so a member's kept words come back in it (see "Keeping a member's words").
+3. **Forms use the macros** from `_macros.html` (pass `mark_optional=false` for a field that is optional but central, so it is not announced as "optional"): `csrf_input`, `error_summary`, `field`, `textarea`, `select`, `radios`, `checkbox`, `post_button`, `sources_list`. Import them with `{% from "_macros.html" import ... %}`. Every field gets a visible label. Hints and errors are linked automatically. `radios(name, legend, options, selected, hint=..., error=..., required=true)` marks each choice `required`, for a question that must be answered. A field you write by hand instead of with a macro takes its value through `restored(name, value)` (a checkbox through `restored_tick(name, checked)`), as the macros do, so a member's kept words come back in it (see "Keeping a member's words").
 4. **Every POST handler** starts with `form = await checked_form(request)`, which checks the CSRF token. Read values with `form_text(form, name, limit)`: a field sent twice arrives as a list, and every value needs a length limit. After success, `redirect()` (303) to a page. On a validation error, re-render the form with `status_code=400`, `errors={field: message}` and `title=error_title(title, errors)` (from `studio/web.py`), which gives "Please check 1 answer: Sign in".
 5. **No JavaScript required.** No streaming text. No auto-refresh. No content that changes while someone is reading. `static/enhance.js` is the only script.
 6. **Buttons are `<button>`, links are `<a>`.** Link text makes sense on its own ("Open the preview", never "click here").
@@ -88,9 +88,9 @@ Use `flash()` for extra detail under the heading, not instead of it.
 
 ### Keeping a member's words
 
-A member's words are never lost because a form could not be sent. When a form is sent after the member was signed out (`LoginRequired`), or after its CSRF token stopped matching (`FormExpired`), `studio/app.py` calls `web.keep_form(request, form, page_path, reason)`. That stores the text fields for at most two hours in the `kept_forms` table (its schema is `web.KEPT_FORMS_SCHEMA`), keyed by a random token in the session. The next time the member opens that page, `render()` puts the words back once, through the `restored()` template global that the form macros call, and the page says why. Words no field took are shown under the form to copy.
+A member's words are never lost because a form could not be sent. When a form is sent after the member was signed out (`LoginRequired`), or after its CSRF token stopped matching (`FormExpired`), `studio/app.py` calls `web.keep_form(request, form, page_path, reason)`. That stores the text fields and ticked boxes for at most two hours in the `kept_forms` table (its schema is `web.KEPT_FORMS_SCHEMA`), keyed by a random token in the session. The next time the member opens that page, `render()` puts the words back once, through the `restored()` template global that the form macros call, and the page says why. Words no field took are shown under the form to copy.
 
-- Passwords, API keys, codes, card numbers, the CSRF token and anything `find_secret` flags are never kept.
+- Passwords, API keys, codes, card numbers, the CSRF token, the submit button's value (`name="action"`) and anything `find_secret` flags are never kept.
 - Words sent from another website are never kept or shown, so no site can put text in a member's forms.
 - Words kept for one member are never shown to a different member who signs in on the same browser. Deleting an account deletes its rows in `kept_forms`.
 - A section needs nothing for this beyond using `checked_form`, `require_user` and the form macros (or `restored()` in a hand-written field). The GET address of each form's page must show the form, so the words have somewhere to come back to.
@@ -128,9 +128,11 @@ def _understand(ctx, ai, thing_id):          # runs in the background
     return f"/thing/{thing_id}"               # the job page sends the person here when done
 ```
 
+- Say what pays for an AI step with the shared words, never your own: `It uses {{ ai_pays().what }}.` once per page, and `ai_pays().short` in brackets on a button (it can be empty). They come from `account.pay_words(settings, user)`, so a member is never offered credits they cannot have.
 - `purpose` is a unique string per kind of call, `<section>.<step>`. Tests register fake answers by purpose.
 - Pass `back_url=` (the page to return to if the job fails) and, for anything that costs money, a specific `dedupe_key=` (for example `f"build.generate:{project_id}"`) so a double click does not run and charge twice.
 - Ids of deleted rows are reused. A job is given the item's id and something unique to it (its `created_at` or a random token) and checks both, with the owner (`ctx.user_id`), in the same transaction as its final write. A job that saves new private work also checks `jobs.still_wanted(conn, ctx)`.
+- When a job is about words the member wrote (a change request, for example), pass `member_words=` too: if the job does not finish, its page shows them under "Your request, in your words".
 - Job titles quote the member's words. Pass `item_ref=` (for example `f"errands:{id}:{created_at}"`) and call `jobs.forget_item(conn, user_id, item_ref)` when the item is deleted.
 - Show member or AI Markdown with `|markdown|nest_headings(3)` (or the level under your section heading), so its headings never skip a level or pose as the page's own. Pictures in Markdown become labelled links; the site shows no images from member or AI text.
 - `structured()` schemas must be JSON Schema objects with `"additionalProperties": false` and every property listed in `"required"` (a requirement of structured outputs). Use strings, numbers, booleans, arrays and nested objects.

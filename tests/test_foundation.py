@@ -297,12 +297,27 @@ def test_sign_in_with_backslash_next_stays_on_site(client):
 def test_page_title_is_the_page_then_a_comma_and_the_site_name(client):
     """A comma, not an en dash, between page and site name, so braille lines stay clean (docs/VOICE.md 4.17)."""
     r = client.get("/help")
-    assert "<title>Ask the community, Blind Creators Studio</title>" in r.text
+    assert "<title>Ask the community, Blind Builders</title>" in r.text
     assert "–" not in re.search(r"<title>(.*?)</title>", r.text, re.S).group(1)
     # A page name with its own comma still splits on the last one.
-    assert _title("<title>Build your ideas with AI: websites, apps, writing and research, Blind Creators Studio"
+    assert _title("<title>Build your ideas with AI: websites, apps, writing and research, Blind Builders"
                   "</title>") == "Build your ideas with AI: websites, apps, writing and research"
 
+
+
+TAGLINE = "Free to build. For blind and low-vision makers."
+
+
+def test_tagline_is_shown_once_where_a_member_meets_the_site(client):
+    """Under the home page's h1, signed out and signed in, and on About; never in a page title."""
+    for page in (client.get("/"), client.get("/about")):
+        assert page.text.count(TAGLINE) == 1
+        assert TAGLINE not in _title(page.text)
+        assert re.search(r"</h1>\s*(<p>[^<]*</p>\s*)?<p class=\"tagline\">" + re.escape(TAGLINE), page.text)
+    assert TAGLINE not in client.get("/help").text
+    register(client)
+    home = client.get("/")
+    assert home.text.count(TAGLINE) == 1 and TAGLINE not in _title(home.text)
 
 def test_form_errors_keep_h1_and_title_the_same(client):
     r = post(client, "/register", {"email": "bad", "display_name": "", "password": "short"})
@@ -447,7 +462,7 @@ def test_working_job_page_and_json(user_client):
     assert re.fullmatch(r"\d+ seconds?", data.pop("elapsed"))
     assert data == {
         "id": "run1", "status": "running", "state": "working", "title": "Slow job", "progress": "Reading your idea",
-        "result_url": "", "back_url": "", "error": ""}
+        "result_url": "", "back_url": "", "error": "", "member_words": ""}
     post(user_client, "/logout")
     register(user_client, "b@example.com", "B")
     assert user_client.get("/jobs/run1.json").status_code == 404
@@ -574,6 +589,51 @@ def test_secrets_are_never_kept(client):
                         "idea": "A bakery website"})
     assert kept == {"idea": "A bakery website"}
 
+
+
+def test_ticked_boxes_come_back_and_the_button_is_never_kept(user_client):
+    """A ticked box comes back ticked after the form needed refreshing; the submit button's value is not words."""
+    from studio.web import kept_fields
+    assert kept_fields({"idea": "A bakery website", "action": "build", "add_0": "yes"}) == {
+        "idea": "A bakery website", "add_0": "yes"}
+    form = {**_profile_form("Amina Ticks", "stale-token"), "show_name_on_help": "yes", "action": "save"}
+    user_client.post("/account/profile", data=form, headers=PROFILE_PAGE, follow_redirects=False)
+    page = user_client.get("/account/profile").text
+    assert re.search(r'<input type="checkbox" id="field-show_name_on_help" name="show_name_on_help" value="yes"'
+                     r' checked', page)
+    assert not re.search(r'id="field-show_name_on_checks"[^>]*checked', page)
+    assert "Your words from before" not in page  # the tick went back in its box, so nothing is left to copy
+
+
+def test_expired_key_or_password_form_says_those_boxes_are_empty(user_client):
+    page = {"referer": "http://testserver/account/password"}
+    user_client.post("/account/password", data={"csrf_token": "stale-token", "current_password": "x" * 12,
+                                                 "new_password": "y" * 12}, headers=page, follow_redirects=False)
+    r = user_client.get("/account/password")
+    assert ("This form needed refreshing to keep your account safe, so nothing was done. Key and password boxes "
+            "are never kept, so they are empty now: fill them in again, then choose the button again.") in r.text
+
+
+def test_radio_hint_is_read_once_and_the_error_on_every_choice(user_client):
+    page = user_client.get("/account/profile").text
+    radios = re.findall(r'<input type="radio" id="field-verbosity-\d+"[^>]*>', page)
+    assert len(radios) > 1
+    assert 'aria-describedby="hint-verbosity"' in radios[0]
+    assert all("hint-verbosity" not in r for r in radios[1:])
+    assert re.search(r'<fieldset[^>]*id="field-verbosity"[^>]*aria-describedby="hint-verbosity"', page)
+
+
+def test_pages_name_only_the_ways_a_member_can_pay(user_client, app):
+    """With no credits on sale and none on the account, pages do not offer credits."""
+    for url in ("/research", "/find", "/find/ask"):
+        page = user_client.get(url).text
+        assert "credits" not in page.split('<main')[1].split("</main>")[0], url
+    assert "credits left" not in user_client.get("/account/delete").text
+    assert "Credit balance" not in user_client.get("/account/credits").text
+    credits.add(user_id(), 500, "Gift")
+    app.state.settings.anthropic_api_key = "sk-ant-site-key"
+    assert "It uses your credits." in user_client.get("/find").text
+    assert "The credits left on your account, $5.00, are lost." in user_client.get("/account/delete").text
 
 # ----- ease of use: the header, the menu and where you are ---------------------------------------
 

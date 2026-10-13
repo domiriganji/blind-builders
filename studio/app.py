@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib
 import logging
+import re
 from pathlib import Path
 from urllib.parse import urlencode, urlparse, urlsplit
 
@@ -18,6 +19,9 @@ from .auth import router as auth_router
 from .config import Settings, load_settings
 from .core_routes import router as core_router
 from .web import FormExpired, LoginRequired, current_user, flash, keep_form, redirect, render
+
+# Fields that hold a key, password or code, which are never kept when a form needs sending again.
+_SECRET_FIELD = re.compile(r"pass|api_key|secret|code|card", re.IGNORECASE)
 
 log = logging.getLogger("studio")
 
@@ -195,8 +199,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if page:
             kept = keep_form(request, exc.form, page, "expired")
             if not kept:
-                flash(request, "This form needed refreshing to keep your account safe, so nothing was done. "
-                               "Please choose the button again.", "info")
+                # A form with only a key or password in it keeps nothing, so say those boxes are empty now.
+                had_secret = any(_SECRET_FIELD.search(name) and isinstance(exc.form.get(name), str)
+                                 and exc.form.get(name).strip() for name in exc.form.keys())
+                flash(request, "This form needed refreshing to keep your account safe, so nothing was done. " + (
+                    "Key and password boxes are never kept, so they are empty now: fill them in again, then "
+                    "choose the button again." if had_secret else "Please choose the button again."), "info")
             return redirect(page)
         heading = "This form needs refreshing: nothing was saved"
         return render(request, "error.html", title=heading, heading=heading, status_code=400, kept_note=False,

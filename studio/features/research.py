@@ -193,7 +193,7 @@ STAGES = [
         "explanation": "The AI searches the web for studies on your question and lists them with sources. "
                        "You open the sources to check them.",
         "start": "Find prior work", "read": "Read the prior work",
-        "again": "Search for prior work again (uses your key or credits)",
+        "again": "Search for prior work again",
     },
     {
         "key": "plan", "number": 2, "name": "Study plan", "noun": "study plan", "slug": "plan",
@@ -201,7 +201,7 @@ STAGES = [
                        "and task accessible to participants and to you.",
         "start": "Write a study plan", "start_no_sources": "Write a study plan without sources",
         "read": "Read the study plan", "next": "Next: write the study plan",
-        "again": "Write the study plan again (uses your key or credits)",
+        "again": "Write the study plan again",
     },
     {
         "key": "data", "number": 3, "name": "Notes and data", "noun": "notes and data", "slug": "data",
@@ -216,7 +216,7 @@ STAGES = [
                        f"{RESULT_NEEDED} wherever results are missing. The site then checks every citation number.",
         "start": "Write a draft paper", "start_no_sources": "Write a draft paper without sources",
         "read": "Read the draft paper", "next": "Next: write the draft paper",
-        "again": "Write the draft paper again (uses your key or credits)",
+        "again": "Write the draft paper again",
     },
 ]
 STAGE_BY_SLUG = {s["slug"]: s for s in STAGES}

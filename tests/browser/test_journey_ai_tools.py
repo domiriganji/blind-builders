@@ -220,7 +220,7 @@ def test_reader_signed_out_signs_in_to_report(live, browser):
     page.wait_for_load_state()
     checked(page, "sign in page")
     page.get_by_label("Email address").fill(address)
-    page.get_by_label("Password").fill("correct horse battery")
+    page.get_by_label("Password", exact=True).fill("correct horse battery")
     page.get_by_role("button", name="Sign in").click()
     page.wait_for_load_state()
     assert heading_1(page) == "How Cursor works with screen readers"

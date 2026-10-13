@@ -12,6 +12,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markdown_it import MarkdownIt
+from jinja2 import pass_context
 from markupsafe import Markup
 
 from . import db
@@ -141,7 +142,27 @@ def _restored_unused() -> list[tuple[str, str]]:
     return [(name, text) for name, text in kept["fields"].items() if name not in kept["used"]]
 
 
+def _restored_tick(name: str, checked=False) -> bool:
+    """A checkbox's tick: when the member's words were kept for this page, the tick they sent (an unticked box
+    is not sent at all, so it comes back unticked); otherwise `checked`."""
+    kept = _restored_for_render.get()
+    if not kept:
+        return bool(checked)
+    kept["used"].add(name)
+    return kept["fields"].get(name) == "yes"
+
+
+@pass_context
+def _ai_pays(context) -> dict:
+    """What pays for an AI step started from this page, in the shared words of account.pay_words."""
+    from .features.account import pay_words  # here: account imports this module
+    request = context.get("request")
+    return pay_words(request.app.state.settings, context.get("user"))
+
+
 templates.env.globals["restored"] = _restored
+templates.env.globals["ai_pays"] = _ai_pays
+templates.env.globals["restored_tick"] = _restored_tick
 templates.env.globals["restored_unused"] = _restored_unused
 
 
@@ -265,16 +286,19 @@ KEPT_FORM_MAX_CHARS = 200_000
 KEPT_FORM_SECONDS = 2 * 60 * 60
 # Never kept, whatever the field holds: passwords, keys, codes and the form's own token.
 _NEVER_KEEP = re.compile(r"pass|csrf|token|api_key|secret|code|card", re.IGNORECASE)
+# The name of the submit buttons that say which of several things to do. The button's value is not the
+# member's words, and choosing it again is part of sending the form again.
+_SUBMIT_FIELD = "action"
 
 
 def kept_fields(form) -> dict[str, str]:
-    """The member's own words from a submitted form: text fields only, never passwords, keys, codes or
-    anything that looks like a secret, at most KEPT_FORM_MAX_CHARS in all."""
+    """The member's own words from a submitted form: text fields and ticked boxes, never the submit button,
+    passwords, keys, codes or anything that looks like a secret, at most KEPT_FORM_MAX_CHARS in all."""
     from .sensitive import find_secret
     out: dict[str, str] = {}
     total = 0
     for name in form.keys():
-        if name in out or _NEVER_KEEP.search(name):
+        if name in out or name == _SUBMIT_FIELD or _NEVER_KEEP.search(name):
             continue
         value = form.get(name)
         if not isinstance(value, str) or not value.strip() or find_secret(value):
@@ -365,6 +389,7 @@ def render(request: Request, template: str, *, title: str, status_code: int = 20
         "csrf_token": csrf_token(request),
         "messages": messages,
         "site_name": settings.site_name,
+        "site_tagline": settings.site_tagline,
         "nav": request.app.state.nav,
         **context,
     }

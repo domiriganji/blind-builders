@@ -32,7 +32,8 @@
 <h2>Run a stage again</h2>
 <p>The earlier version is kept, and you can make it the current one again.</p>
 <div class="actions">
-  {% for s in rerun %}{{ post_button(s.url, s.again) }}{% endfor %}
+  {% set pays = ai_pays() %}
+  {% for s in rerun %}{{ post_button(s.url, s.again ~ ((' (' ~ pays.short ~ ')') if pays.short else '')) }}{% endfor %}
 </div>
 {% endif %}
 <h2>Delete this project</h2>

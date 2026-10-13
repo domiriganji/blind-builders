@@ -1,6 +1,6 @@
 # Voice and tone
 
-This guide covers every word a member reads on Blind Creators Studio: pages, buttons, hints, errors, flash notices, job progress, empty states, guides, and what the AI writes, since the AI writes much of what members read. It also covers the system prompts that tell the AI how to speak.
+This guide covers every word a member reads on Blind Builders: pages, buttons, hints, errors, flash notices, job progress, empty states, guides, and what the AI writes, since the AI writes much of what members read. It also covers the system prompts that tell the AI how to speak.
 
 It comes from four blind and low-vision reviewers who read the whole site: a disability advocate, a blind developer, a member who became blind late in life and speaks English as a second language, and a deafblind braille reader. It also draws on the community voices in `docs/research/landscape-brief.md` section 3, including Robert Kingett's "The Disability Dongle" and Andrew Leland's warnings.
 

@@ -1987,7 +1987,8 @@ async def _submit_change(request: Request, user: dict, project: dict, version: d
     job_id = jobs.submit(user["id"], "build.change", f"Changing {_display_title(project)}", _change, ai,
                          project["id"], project["share_token"], version["number"], request_text, typed,
                          back_url=f"/build/{project['id']}/v/{version['number']}",
-                         dedupe_key=job_key(project), item_ref=job_key(project))
+                         dedupe_key=job_key(project), item_ref=job_key(project),
+                         member_words=request_text if typed else "")
     return redirect(jobs.job_url(job_id))
 
 

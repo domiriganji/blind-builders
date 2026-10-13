@@ -2,4 +2,6 @@
 {% from "_macros.html" import post_button %}
 <h3>Run this stage again</h3>
 <p>The version you have now is kept, and you can make it current again.</p>
-<div class="actions">{{ post_button(stage_url, stage.again) }}</div>
+{#- The button says what pays for it, in the shared words of account.pay_words. -#}
+{% set pays = ai_pays() %}
+<div class="actions">{{ post_button(stage_url, stage.again ~ ((' (' ~ pays.short ~ ')') if pays.short else '')) }}</div>

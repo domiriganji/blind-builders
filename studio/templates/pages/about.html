@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>How this site works</h1>
+{% if site_tagline %}<p class="tagline">{{ site_tagline }}</p>{% endif %}
 <p>{{ site_name }} is a website where blind and low-vision people build their ideas with AI: websites and apps, writing and publishing, research, and tasks done for them on the web.</p>
 <h2>Getting started</h2>
 <ol>

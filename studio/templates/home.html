@@ -2,6 +2,7 @@
 {% block content %}
 <h1>{{ title }}</h1>
 {% if title != home_title %}<p>You are on the home page. {{ home_title }}.</p>{% endif %}
+{% if site_tagline %}<p class="tagline">{{ site_tagline }}</p>{% endif %}
 {% if next_steps %}
 <h2>Your next steps</h2>
 <ol>

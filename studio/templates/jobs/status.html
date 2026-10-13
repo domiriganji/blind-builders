@@ -8,18 +8,24 @@
 <p>This started {{ elapsed }} ago and has not finished. Most work finishes within {{ usual_minutes }} minutes, so it has most likely stopped, for example because the site restarted. Please try again.</p>
 <p>If it does finish later, the result will be in <a href="/jobs">Your recent work</a>.</p>
 {% else %}
+<div id="job-working">
 <p>Started <span id="job-elapsed">{{ elapsed }}</span> ago. Most work takes between half a minute and {{ usual_minutes }} minutes. After {{ stalled_minutes }} minutes this page says it has most likely stopped.</p>
 <p>Current step: <span id="job-step">{{ job.progress or 'Starting' }}</span></p>
+</div>
 <p id="job-live" role="status"></p>
 <p id="job-check"><a class="button button-primary" href="/jobs/{{ job.id }}">Check again</a></p>
-<p>You can leave this page. Your result will also be in <a href="/jobs">Your recent work</a>.</p>
-<div class="field choice js-only">
+<p id="job-leave">You can leave this page. Your result will also be in <a href="/jobs">Your recent work</a>.</p>
+<div class="field choice js-only" id="job-sound-choice">
   <input type="checkbox" id="job-sound" checked aria-describedby="hint-job-sound">
   <label for="job-sound">Play three short taps when it is done</label>
   <p class="hint" id="hint-job-sound">Either way, focus moves to a link to your result.</p>
 </div>
 {% endif %}
 {% if state != 'working' %}
+{% if job.member_words %}
+<p>Your request, in your words:</p>
+<blockquote class="member-words">{{ job.member_words }}</blockquote>
+{% endif %}
 {% if back_url %}<p><a href="{{ back_url }}">Go back and try again</a></p>{% endif %}
 <p><a href="/jobs">See all your recent work</a></p>
 {% endif %}

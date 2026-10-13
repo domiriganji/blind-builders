@@ -5,7 +5,8 @@
 {% if title.startswith("Site owner tools: gave") %}<p>The member sees the reason in their credit history.</p>{% endif %}
 <ul class="panel">
   <li>Members: {{ counts.members }} (plus {{ counts.deleted }} deleted accounts)</li>
-  <li>Members with their own Claude API key: {{ counts.with_key }}</li>
+  <li>Members with their own Claude API key: {{ counts.with_claude_key }}</li>
+  <li>Members with their own key from another AI company: {{ counts.with_other_key }}</li>
   <li>AI jobs: {{ counts.jobs }}, of which {{ counts.jobs_failed }} did not finish</li>
   <li>AI calls: {{ counts.ai_calls }}. Paid with credits: {{ counts.ai_credits_cents_text }}. On members' own keys: about {{ counts.ai_own_key_cents_text }}.</li>
   <li>Credit purchases: {{ counts.paid_count }}, totalling {{ counts.paid_cents_text }}</li>

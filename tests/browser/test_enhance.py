@@ -50,10 +50,15 @@ def test_error_summary_is_focused_and_read_once(live, browser):
         page.context.close()
 
 
+# A second answer with real text to copy, and a gap in it. "Library card number" is only a gap, so it has no box.
+COPY_PREPARED = {**PREPARED, "prepared_answers": PREPARED["prepared_answers"] + [
+    {"field_label": "Address", "suggested_answer": "12 Elm Street, [your postcode]", "note": ""}]}
+
+
 def _ready_page(live, browser, email: str, javascript: bool = True):
     base, fake = live["base"], live["fake_ai"]
     fake.on("errands.understand", TASK_CONTRACT)
-    fake.on("errands.task_research", TASK_RESEARCH).on("errands.task_prepare", PREPARED)
+    fake.on("errands.task_research", TASK_RESEARCH).on("errands.task_prepare", COPY_PREPARED)
     page = new_page(browser, javascript=javascript)
     sign_up(page, base, email, "Copy Tester")
     _new_errand(page, base, "Help me do a task on a website", "Help me renew my library card on the library website")
@@ -68,7 +73,9 @@ def test_prepared_answers_have_copy_buttons(live, browser):
     answer = page.get_by_role("textbox", name="Answer for: Full name")
     button = page.get_by_role("button", name="Copy the answer for Full name", exact=True)
     expect(button).to_be_visible()
-    expect(page.get_by_role("button", name="Copy the answer for Library card number", exact=True)).to_be_visible()
+    # An answer that is only a gap has nothing to copy, so it has no Copy button.
+    expect(page.get_by_role("button", name="Copy the answer for Library card number")).to_have_count(0)
+    expect(page.get_by_role("button", name="Copy the answer for Address", exact=True)).to_be_visible()
     # The button comes straight after its box, by keyboard too.
     answer.focus()
     page.keyboard.press("Tab")
@@ -83,10 +90,17 @@ def test_prepared_answers_have_copy_buttons(live, browser):
     expect(status).to_have_count(1)
     assert page.evaluate("navigator.clipboard.readText()") == "Amina Yusuf"
     expect(button).to_be_focused()
-    page.get_by_role("button", name="Copy the answer for Library card number", exact=True).click()
-    expect(page.get_by_role("status").filter(has_text="Copied: the answer for Library card number")).to_have_count(1)
+    seen = page.locator(".copy-result")
+    expect(seen.nth(0)).to_have_text("Copied")
+    page.get_by_role("button", name="Copy the answer for Address", exact=True).click()
+    # The status says the answer has a gap to fill in.
+    expect(page.get_by_role("status").filter(
+        has_text="Copied: the answer for Address. It has a gap to fill in.")).to_have_count(1)
     assert page.get_by_role("status").count() == statuses_before  # the same message is reused
-    assert page.evaluate("navigator.clipboard.readText()") == "[your library card number]"
+    assert page.evaluate("navigator.clipboard.readText()") == "12 Elm Street, [your postcode]"
+    # Only the latest copy shows the visible word "Copied".
+    expect(seen.nth(0)).to_have_text("")
+    expect(seen.nth(1)).to_have_text("Copied")
 
     # When the browser does not let the page copy, it says how to do it by hand, and the text is selected.
     page.evaluate("""() => {

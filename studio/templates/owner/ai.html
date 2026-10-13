@@ -16,7 +16,7 @@
 <div class="messages"><p class="message message-info" role="status">{% if kept_reason == 'signed_out' %}You were signed out before this was sent, so nothing was saved yet.{% else %}This form needed refreshing to keep your account safe, so nothing was saved yet.{% endif %}
 Your choices under <a href="#{{ kept_id }}">{{ kept_part }}</a> are back in the form.{% if kept_secret %} For safety, the key and your password were not kept: paste the key and type your password again there.{% endif %} Check them, then choose {{ kept_button }}.</p></div>
 {% endif %}
-<p>Each part of this page has its own Save button, and that button saves only its own part.</p>
+<p data-save-parts>Each part of this page has its own Save button, and that button saves only its own part.</p>
 <p>These settings are for the AI keys that you, the site owner, pay for: your Claude API key and, if you choose, a key from another AI company. Members who connect their own key use their own key and their own choice of model, and these limits never apply to them.</p>
 {% if not main_is_claude %}<p>Members' everyday AI work on your keys uses <strong>{{ main_label }}</strong>{% if not main_ready %}, but it is not ready: see Main AI for members on your key{% endif %}. Web search steps use Claude{% if not key_source %}, and no Claude key is saved, so for members on your keys those steps are not available{% endif %}.</p>{% endif %}
 {{ error_summary(key_errors) }}
