@@ -5,6 +5,7 @@
 <h1>{{ title }}</h1>
 <p class="lead">{{ req.done }} of {{ req.max_checks }} checks done. This request is {{ 'open' if req.status == 'open' else 'closed' }}.
 {% if req.reward_cents %}Reward: {{ money(req.reward_cents) }} in credits for each check.{% else %}No reward is offered.{% endif %}</p>
+<p>{{ wanted_sentence }}</p>
 <p class="actions">
 {% if eligible %}<a class="button button-primary" href="/checks/{{ req.id }}/report">Check this now</a>{% endif %}
 <a href="/checks/{{ req.id }}/record">Read the check record for {{ req.title }}</a>
@@ -27,6 +28,9 @@
 {{ post_button('/checks/' ~ req.id ~ '/close', 'Close this request') }}
 {% else %}
 <p>This request is closed.{% if req.reward_cents %} Checkers were paid {{ paid }} in total.{% if not_done_cents %} The {{ not_done }} held for checks that were not done came back to your credits when it closed.{% else %} Every check was done, so all the credits held went to checkers.{% endif %}{% endif %}</p>
+{% endif %}
+{% if req.status == 'open' and req.wanted != 'screen_reader' %}
+<p>To ask a sighted friend, family member or volunteer to check how it looks, send them this address: {{ share_url }}. They need a free account on this site to send their check.</p>
 {% endif %}
 <p>To share the results, send people the address of the check record. Anyone can read it without an account.</p>
 {% endif %}

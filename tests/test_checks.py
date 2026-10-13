@@ -29,9 +29,9 @@ def sign_in_as(client, email, name):
 
 
 def make_request(client, *, title="Cake shop", url="https://cakes.example/order", what="Order a chocolate cake.",
-                 max_checks="3", reward="0", **kwargs):
+                 max_checks="3", reward="0", wanted="screen_reader", **kwargs):
     return post(client, "/checks/new", {"title": title, "url": url, "what_to_try": what, "max_checks": max_checks,
-                                        "reward_cents": reward}, **kwargs)
+                                        "reward_cents": reward, "wanted": wanted}, **kwargs)
 
 
 def latest_request_id() -> int:
@@ -171,11 +171,14 @@ def test_http_url_is_accepted(asker):
 
 def test_required_fields_and_bad_choices(asker):
     r = post(asker, "/checks/new", {"title": "", "url": "https://x.example", "what_to_try": "",
-                                    "max_checks": "9", "reward_cents": "7"})
+                                    "max_checks": "9", "reward_cents": "7", "wanted": "robots"})
     assert r.status_code == 400
     for name in ("title", "what_to_try", "max_checks", "reward_cents"):
         assert f'href="#field-{name}"' in r.text
-    assert "There are 4 problems" in r.text
+    # The radio group's error links to its first choice, which can take focus.
+    assert 'href="#field-wanted-1"' in r.text and "Choose who should check it" in r.text
+    assert "There are 5 problems" in r.text
+    assert_accessible(r)
 
 
 def test_secrets_are_refused_in_public_text(asker):
@@ -377,8 +380,9 @@ def test_record_summary_and_details(asker):
     send_report(asker, rid, screen_reader="VoiceOver", device="iPhone 13", browser="Safari")
     post(asker, "/logout")
     r = asker.get(f"/checks/{rid}/record")
-    assert "3 members checked this. 2 could do the task, 1 could do it partly." in r.text
-    assert r.text.index("3 members checked this") < r.text.index("<h2>The checks</h2>")  # summary first
+    assert "3 members checked it with a screen reader. 2 could do the task, 1 could do it partly." in r.text
+    assert r.text.index("3 members checked it") < r.text.index("<h2>The checks</h2>")  # summary first
+    assert "sighted person has checked" not in r.text  # this request did not ask for sighted checks
     assert "Every fingerprint matches: no entry has been changed or removed from the middle" in r.text
     assert "Screen reader: NVDA version 2026.2" in r.text and "Browser: Firefox" in r.text
     assert "Device: Samsung Galaxy A15" in r.text
@@ -395,7 +399,8 @@ def test_record_summary_and_details(asker):
     assert "Mac" in not_checked and "Chromebook" in not_checked and "Linux computer" in not_checked
     assert "Windows computer" not in not_checked and "iPhone or iPad" not in not_checked
     assert "Android phone or tablet" not in not_checked
-    assert "No check here says anything about it." in not_checked
+    assert "How it looks: no sighted person checked it" in not_checked
+    assert "colour" not in r.text.lower()
     assert_accessible(r)
 
 
@@ -405,7 +410,9 @@ def test_record_notes_appearance_when_a_check_mentions_it(asker):
     sign_in_as(asker, CHECKER, "Chidi")
     send_report(asker, rid, problems="With my low vision the contrast of the links is poor.")
     r = asker.get(f"/checks/{rid}/record")
-    assert "1 check mentions colours, contrast, layout or zoom" in r.text
+    not_checked = r.text.split("<h2>Not checked</h2>")[1]
+    assert "1 screen reader check mentions how the page looks or how easy it is to read" in not_checked
+    assert "colour" not in not_checked.lower()
 
 
 def test_code_name_versus_show_name(asker):
@@ -506,7 +513,7 @@ def test_works_without_ai(no_ai_app):
     sign_in_as(client, CHECKER, "Chidi")
     r = send_report(client, rid)
     assert r.status_code == 200 and "Your check is saved in the record: Cake shop" in r.text
-    assert "1 member checked this. 1 could do the task." in r.text
+    assert "1 member checked it with a screen reader. 1 could do the task." in r.text
 
 
 def test_every_checks_page_with_data_passes_checks(asker):
@@ -609,7 +616,7 @@ def test_double_submission_at_the_same_moment(asker):
     uid = user_id(ASKER)
     credits.add(uid, 300, "test top-up")
     data = {"title": "Cake shop", "url": "https://cakes.example/order", "what_to_try": "Order a cake.",
-            "max_checks": "3", "reward_cents": "100", "csrf_token": csrf(asker)}
+            "max_checks": "3", "reward_cents": "100", "wanted": "both", "csrf_token": csrf(asker)}
     with ThreadPoolExecutor(max_workers=4) as pool:
         results = list(pool.map(lambda _: asker.post("/checks/new", data=data, follow_redirects=False), range(4)))
     assert all(r.status_code == 303 for r in results), [r.status_code for r in results]
@@ -789,3 +796,449 @@ def test_your_requests_are_split_into_open_and_closed(asker):
     assert "<h3>Open requests (1)</h3>" in mine and "<h3>Closed requests (1)</h3>" in mine
     assert mine.index("Second") < mine.index("Closed requests") < mine.index("First")
     assert_accessible(r)
+
+
+# ----- sighted checks of how it looks ----------------------------------------------------------
+# What a blind member reads about the look is about outcomes, never colours: these tests also check
+# that no colour word appears in anything the site itself writes on these pages.
+
+SIGHTED = "sighted@example.com"
+COLOUR_WORDS = re.compile(r"\b(colou?rs?|red|green|blue|yellow|purple|orange|pink|grey|gray|black|white|hex)\b|"
+                          r"#[0-9a-f]{3,6}\b", re.I)
+
+
+def sighted_data(**overrides):
+    data = {"method": "sighted", "looks_finished": "yes", "anything_broken": "no", "would_trust": "yes",
+            "improve": "A bigger order button would help on a phone."}
+    data.update(overrides)
+    return data
+
+
+def send_sighted(client, request_id, follow_redirects=True, **overrides):
+    return post(client, f"/checks/{request_id}/report", sighted_data(**overrides), follow_redirects=follow_redirects)
+
+
+def site_words(html: str) -> str:
+    """The visible page text without the checkers' own words (blockquotes) and the member's task (panels)."""
+    html = html.split("<main", 1)[1]
+    html = re.sub(r"<blockquote>.*?</blockquote>", "", html, flags=re.S)
+    html = re.sub(r'<div class="panel">.*?</div>', "", html, flags=re.S)
+    html = re.sub(r"<code>.*?</code>", "", html, flags=re.S)  # fingerprints are hexadecimal
+    return re.sub(r"<[^>]+>", " ", html)
+
+
+def reports_of(rid: int) -> list[dict]:
+    with db.session() as conn:
+        return [dict(r) for r in conn.execute("SELECT * FROM check_reports WHERE request_id = ? ORDER BY id", (rid,))]
+
+
+def request_row(rid: int) -> dict:
+    with db.session() as conn:
+        return dict(conn.execute("SELECT * FROM check_requests WHERE id = ?", (rid,)).fetchone())
+
+
+def test_new_form_asks_who_should_check_with_both_chosen(asker):
+    r = asker.get("/checks/new")
+    assert "<legend>Who should check it</legend>" in r.text
+    for label in ("People who use screen readers", "Sighted people, to check how it looks", "Both"):
+        assert f">{label}</label>" in r.text
+    assert re.search(r'name="wanted" value="both" checked', r.text)
+    assert_accessible(r)
+
+
+@pytest.mark.parametrize("kind", ["screen_reader", "sighted", "both"])
+def test_new_form_prefills_the_kind_from_the_address(asker, kind):
+    r = asker.get("/checks/new", params={"kind": kind, "url": "https://my.example/", "title": "My page"})
+    assert re.search(rf'name="wanted" value="{kind}" checked', r.text)
+    assert len(re.findall(r'name="wanted" value="[a-z_]+" checked', r.text)) == 1
+
+
+def test_unknown_kind_in_the_address_falls_back_to_both(asker):
+    r = asker.get("/checks/new", params={"kind": "<script>"})
+    assert re.search(r'name="wanted" value="both" checked', r.text) and "<script>" not in r.text
+
+
+def test_kind_is_stored_and_shown_in_the_queue_and_request_page(asker):
+    make_request(asker, title="Look shop", wanted="sighted")
+    rid = latest_request_id()
+    assert request_row(rid)["wanted"] == "sighted"
+    page = asker.get(f"/checks/{rid}")
+    assert "This request asks sighted people to check how it looks." in page.text
+    # The owner is told how to bring in a sighted friend.
+    assert f"send them this address: http://testserver/checks/{rid}" in page.text
+    assert_accessible(page)
+    make_request(asker, title="Reader shop", wanted="screen_reader")
+    reader_rid = latest_request_id()
+    assert "send them this address" not in asker.get(f"/checks/{reader_rid}").text
+    sign_in_as(asker, SIGHTED, "Sam Sighted")
+    queue = asker.get("/checks").text.split("<h2>Check someone's work</h2>")[1].split("<h2>")[0]
+    assert "Wanted: sighted people, to check how it looks." in queue
+    assert "Wanted: people who use screen readers." in queue
+    page = asker.get(f"/checks/{rid}")
+    assert "This request asks sighted people to check how it looks." in page.text
+    assert "send them this address" not in page.text  # only for the owner
+
+
+def test_same_request_for_a_different_kind_is_a_new_request(asker):
+    make_request(asker, wanted="screen_reader")
+    make_request(asker, wanted="sighted")
+    assert count("check_requests") == 2
+
+
+def test_report_form_for_both_shows_both_parts_under_headings(asker):
+    make_request(asker, wanted="both")
+    rid = latest_request_id()
+    sign_in_as(asker, SIGHTED, "Sam Sighted")
+    r = asker.get(f"/checks/{rid}/report")
+    assert "<legend>How did you check it?</legend>" in r.text
+    assert ">With a screen reader</label>" in r.text and ">I am sighted and looked at how it appears</label>" in r.text
+    assert "<h3>If you used a screen reader</h3>" in r.text
+    assert "<h3>If you are sighted and looked at how it appears</h3>" in r.text
+    for _, question, _ in checks_module.LOOK_QUESTIONS:
+        assert f"<legend>{question}</legend>" in r.text
+    assert "What would make it better?" in r.text and 'id="field-screen_reader"' in r.text
+    # Neither part is announced as required, because each is needed only for its own kind of check.
+    assert not re.search(r'id="field-(screen_reader|browser|device|heard_first)"[^>]*required', r.text)
+    assert r.text.index("If you used a screen reader") < r.text.index("If you are sighted")
+    assert_accessible(r)
+
+
+def test_report_form_for_one_kind_shows_only_that_part(asker):
+    make_request(asker, title="Look only", wanted="sighted")
+    look_rid = latest_request_id()
+    make_request(asker, title="Reader only", wanted="screen_reader")
+    reader_rid = latest_request_id()
+    sign_in_as(asker, SIGHTED, "Sam Sighted")
+    r = asker.get(f"/checks/{look_rid}/report")
+    assert "How did you check it?" not in r.text and 'id="field-screen_reader"' not in r.text
+    assert "<h3>How it looks</h3>" in r.text and "Does it look finished and professional?" in r.text
+    assert "This request asks sighted people to check how it looks." in r.text
+    assert_accessible(r)
+    r = asker.get(f"/checks/{reader_rid}/report")
+    assert "How did you check it?" not in r.text and "Does it look finished" not in r.text
+    assert "<h3>With your screen reader</h3>" in r.text
+    assert re.search(r'id="field-screen_reader"[^>]*required', r.text)
+    assert_accessible(r)
+
+
+def test_choosing_how_you_checked_is_required_when_both_are_wanted(asker):
+    make_request(asker, wanted="both")
+    rid = latest_request_id()
+    sign_in_as(asker, SIGHTED, "Sam Sighted")
+    r = post(asker, f"/checks/{rid}/report", {"looks_finished": "yes", "improve": "Kept text"})
+    assert r.status_code == 400
+    assert h1(r) == "Check this: Cake shop: please fix the problems" == title_text(r)
+    assert "There is a problem" in r.text
+    assert 'href="#field-method-1"' in r.text and 'id="field-method-1"' in r.text
+    assert "Choose how you checked it" in r.text
+    assert "Kept text" in r.text and re.search(r'name="looks_finished" value="yes" checked', r.text)
+    assert_accessible(r)
+    assert count("check_reports") == 0
+
+
+def test_sighted_validation_asks_only_the_sighted_questions(asker):
+    make_request(asker, wanted="both")
+    rid = latest_request_id()
+    sign_in_as(asker, SIGHTED, "Sam Sighted")
+    r = post(asker, f"/checks/{rid}/report", {"method": "sighted", "would_trust": "maybe"})
+    assert r.status_code == 400
+    assert "There are 3 problems" in r.text
+    for name in ("looks_finished", "anything_broken", "would_trust"):
+        assert f'href="#field-{name}-1"' in r.text
+    assert "Choose whether it looks finished and professional: yes, no or not sure." in r.text
+    for name in ("screen_reader", "browser", "device", "heard_first", "task_result"):
+        assert f'href="#field-{name}' not in r.text  # the screen reader part is not needed
+    assert re.search(r'name="method" value="sighted" checked', r.text)
+    assert_accessible(r)
+    r = send_sighted(asker, rid, improve="My test password: hunter22")
+    assert r.status_code == 400 and 'href="#field-improve"' in r.text and "looks like a password" in r.text
+    r = send_sighted(asker, rid, improve="x" * 8001)
+    assert r.status_code == 400 and "8000 characters or fewer" in r.text
+    assert count("check_reports") == 0
+
+
+def test_screen_reader_validation_does_not_ask_the_sighted_questions(asker):
+    make_request(asker, wanted="both")
+    rid = latest_request_id()
+    sign_in_as(asker, CHECKER, "Chidi")
+    r = send_report(asker, rid, method="screen_reader", browser="")
+    assert r.status_code == 400 and "There is a problem" in r.text and 'href="#field-browser"' in r.text
+    r = send_report(asker, rid, method="screen_reader", follow_redirects=False)
+    assert r.status_code == 303
+    rep = reports_of(rid)[0]
+    assert rep["method"] == "screen_reader" and rep["looks_finished"] == "" and rep["improve"] == ""
+
+
+def test_sighted_check_is_saved_paid_and_keeps_only_its_own_fields(asker):
+    credits.add(user_id(ASKER), 200, "test top-up")
+    make_request(asker, wanted="both", max_checks="2", reward="50")
+    rid = latest_request_id()
+    sign_in_as(asker, SIGHTED, "Sam Sighted")
+    # Things typed in the screen reader part are not saved with a sighted check.
+    r = post(asker, f"/checks/{rid}/report", {**report_data(), **sighted_data()}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == f"/checks/{rid}/record?sent=1"
+    rep = reports_of(rid)[0]
+    assert rep["method"] == "sighted"
+    assert (rep["looks_finished"], rep["anything_broken"], rep["would_trust"]) == ("yes", "no", "yes")
+    assert rep["improve"] == "A bigger order button would help on a phone."
+    assert rep["screen_reader"] == rep["browser"] == rep["heard_first"] == rep["task_result"] == ""
+    assert credits.balance(user_id(SIGHTED)) == 50  # rewards work the same
+    record = asker.get(r.headers["location"])
+    assert h1(record) == "Your check is saved in the record: Cake shop"
+    assert "$0.50 was added to your credits" in record.text
+    # And the same rules: one check per person, and a second press saves and pays nothing more.
+    assert asker.get(f"/checks/{rid}/report").status_code == 403
+    r = send_sighted(asker, rid, looks_finished="no")
+    assert "You sent this check before" in r.text and credits.balance(user_id(SIGHTED)) == 50
+    assert reports_of(rid)[0]["looks_finished"] == "yes"
+
+
+def test_a_request_for_one_kind_cannot_get_the_other_kind(asker):
+    make_request(asker, wanted="sighted")
+    rid = latest_request_id()
+    sign_in_as(asker, CHECKER, "Chidi")
+    r = send_report(asker, rid, method="screen_reader")  # a crafted form
+    assert r.status_code == 400 and "Choose whether it looks finished" in r.text
+    assert count("check_reports") == 0
+
+
+def test_record_summary_for_sighted_checks_is_in_outcome_words(asker):
+    make_request(asker, wanted="sighted", max_checks="3")
+    rid = latest_request_id()
+    sign_in_as(asker, SIGHTED, "Sam Sighted")
+    send_sighted(asker, rid, improve="The pale grey text on white is hard to read.")
+    sign_in_as(asker, THIRD, "Tomas")
+    send_sighted(asker, rid, improve="")
+    post(asker, "/logout")
+    r = asker.get(f"/checks/{rid}/record")
+    expected = ("2 sighted people checked how it looks. Both said it looks finished and professional, and neither "
+                "found anything broken or hard to read. Both would trust it as a visitor or customer. Every answer "
+                "was a good one: the look of this page is done well.")
+    assert expected in r.text
+    assert r.text.index(expected) < r.text.index("<h2>The checks</h2>")  # summary first
+    assert "Nobody has checked it with a screen reader" not in r.text  # it was not asked for
+    # Each check shows its answers and the checker's own words, labelled as theirs.
+    assert re.search(r"<h3[^>]*>Check 1: .*, looked at how it appears: looks done well</h3>", r.text)
+    assert "<li>Does it look finished and professional? Yes.</li>" in r.text
+    assert "<li>Is anything broken, overlapping or hard to read? No.</li>" in r.text
+    assert "<li>Would you trust this page as a visitor or customer? Yes.</li>" in r.text
+    assert "<h4>What would make it better, in their own words</h4>" in r.text
+    assert "The pale grey text on white is hard to read." in r.text  # their words are never changed
+    assert "Nothing written." in r.text
+    not_checked = r.text.split("<h2>Not checked</h2>")[1]
+    assert "How it looks was checked by 2 sighted people" in not_checked
+    assert "Nobody checked it with a screen reader" in not_checked
+    assert "Screen readers nobody used" not in not_checked
+    # Everything the site itself says about the look is free of colour words.
+    assert not COLOUR_WORDS.search(site_words(r.text)), COLOUR_WORDS.search(site_words(r.text))
+    assert "Every fingerprint matches" in r.text
+    assert_accessible(r)
+
+
+def test_record_separates_the_two_kinds_screen_reader_first(asker):
+    make_request(asker, wanted="both", max_checks="3")
+    rid = latest_request_id()
+    sign_in_as(asker, SIGHTED, "Sam Sighted")
+    send_sighted(asker, rid, looks_finished="no", anything_broken="yes", would_trust="not_sure",
+                 improve="The menu covers the prices on a phone.")
+    sign_in_as(asker, CHECKER, "Chidi")
+    send_report(asker, rid, method="screen_reader")
+    r = asker.get(f"/checks/{rid}/record")
+    leads = re.findall(r'<p class="lead">(.*?)</p>', r.text, re.S)
+    assert leads[0] == "1 member checked it with a screen reader. 1 could do the task."
+    assert leads[1] == ("1 sighted person checked how it looks. They said it does not look finished yet, and they "
+                        "found something broken, overlapping or hard to read. They were not sure whether they would "
+                        "trust it as a visitor or customer. There is something to fix. What they would make better "
+                        "is below, in their own words.")
+    assert re.search(r"Check 1: .*, looked at how it appears: found something to fix</h3>", r.text)
+    assert re.search(r"Check 2: .*, with a screen reader, could do the task</h3>", r.text)
+    assert "<li>Would you trust this page as a visitor or customer? Not sure.</li>" in r.text
+    not_checked = r.text.split("<h2>Not checked</h2>")[1]
+    assert "How it looks was checked by 1 sighted person" in not_checked and "Screen readers nobody used" in not_checked
+    assert not COLOUR_WORDS.search(site_words(r.text))
+    assert_accessible(r)
+
+
+def test_record_says_when_nobody_sighted_has_checked_yet(asker):
+    make_request(asker, wanted="both")
+    rid = latest_request_id()
+    sign_in_as(asker, CHECKER, "Chidi")
+    send_report(asker, rid, method="screen_reader")
+    r = asker.get(f"/checks/{rid}/record")
+    assert "No sighted person has checked how it looks yet." in r.text
+    assert "How it looks: no sighted person checked it" in r.text
+    assert "This request asks people who use screen readers to try the task, and sighted people" in r.text
+    assert not COLOUR_WORDS.search(site_words(r.text))
+
+
+def _sighted(**answers):
+    return {"looks_finished": "yes", "anything_broken": "no", "would_trust": "yes", **answers}
+
+
+def test_look_summary_wording_for_mixed_answers():
+    text = checks_module.look_summary([
+        _sighted(), _sighted(looks_finished="no"), _sighted(looks_finished="not_sure", anything_broken="yes")])
+    assert text == ("3 sighted people checked how it looks. 1 said it looks finished and professional, 1 said it "
+                    "does not look finished yet and 1 was not sure. 2 found nothing broken or hard to read and 1 "
+                    "found something broken, overlapping or hard to read. All 3 would trust it as a visitor or "
+                    "customer. There is something to fix. What they would make better is below, in their own words.")
+    text = checks_module.look_summary([_sighted()])
+    assert text == ("1 sighted person checked how it looks. They said it looks finished and professional, and they "
+                    "found nothing broken or hard to read. They would trust it as a visitor or customer. Every answer "
+                    "was a good one: to them, the look of this page is done well.")
+    text = checks_module.look_summary([_sighted(), _sighted(), _sighted()])
+    assert ("All 3 said it looks finished and professional, and none of the 3 found anything broken or hard to "
+            "read. All 3 would trust it") in text
+    text = checks_module.look_summary([_sighted(would_trust="not_sure"), _sighted(would_trust="not_sure")])
+    assert "Neither was sure whether they would trust it as a visitor or customer." in text
+    assert "Nobody found anything wrong, but not every answer was sure." in text
+    assert checks_module.look_verdict(_sighted(would_trust="not_sure")) == "found nothing wrong, not sure of everything"
+    assert checks_module.look_verdict(_sighted(anything_broken="yes")) == "found something to fix"
+    assert checks_module.look_verdict(_sighted()) == "looks done well"
+
+
+# ----- sighted checks and the fingerprints -----------------------------------------------------
+
+def legacy_hash(request_row: dict, report: dict, prev_hash: str) -> str:
+    """The fingerprint exactly as it was computed before sighted checks existed."""
+    import hashlib
+    import json
+    fields = ("checker_id", "screen_reader", "screen_reader_version", "browser", "device", "heard_first",
+              "task_result", "problems", "show_name", "created_at")
+    payload = {k: report[k] for k in fields}
+    payload["show_name"] = int(payload["show_name"])
+    payload["checker_id"] = int(payload["checker_id"])
+    payload.update({"request_id": int(request_row["id"]), "url": request_row["url"], "title": request_row["title"],
+                    "what_to_try": request_row["what_to_try"], "prev_hash": prev_hash})
+    canonical = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def test_screen_reader_checks_hash_exactly_as_before(asker):
+    make_request(asker, wanted="both")
+    rid = latest_request_id()
+    sign_in_as(asker, CHECKER, "Chidi")
+    send_report(asker, rid, method="screen_reader")
+    rep, req = reports_of(rid)[0], request_row(rid)
+    assert rep["record_hash"] == legacy_hash(req, rep, "")
+    # An old-format entry, with none of the new fields at all, still verifies.
+    old = {k: v for k, v in rep.items() if k not in checks_module.SIGHTED_FIELDS}
+    assert checks_module.compute_hash(req, old, "") == rep["record_hash"]
+    assert checks_module.verify_chain(req, [old]) == []
+
+
+def test_sighted_answers_are_in_the_fingerprint(asker):
+    make_request(asker, wanted="both", max_checks="3")
+    rid = latest_request_id()
+    sign_in_as(asker, CHECKER, "Chidi")
+    send_report(asker, rid, method="screen_reader")
+    sign_in_as(asker, SIGHTED, "Sam Sighted")
+    send_sighted(asker, rid, anything_broken="yes")
+    rows, req = reports_of(rid), request_row(rid)
+    assert rows[1]["prev_hash"] == rows[0]["record_hash"]
+    assert rows[1]["record_hash"] != legacy_hash(req, rows[1], rows[0]["record_hash"])  # new fields are covered
+    assert checks_module.verify_chain(req, rows) == []
+    for column, value in (("anything_broken", "no"), ("improve", "Nothing to change."), ("method", "screen_reader"),
+                          ("would_trust", "not_sure"), ("looks_finished", "no")):
+        tampered = [dict(r) for r in rows]
+        tampered[1][column] = value
+        assert checks_module.verify_chain(req, tampered) == [
+            "Entry 2 does not match its fingerprint. It was changed after it was written."], column
+    # Turning an old screen reader entry into a sighted one is detected too.
+    tampered = [dict(r) for r in rows]
+    tampered[0].update(method="sighted", looks_finished="yes", anything_broken="no", would_trust="yes")
+    assert "Entry 1 does not match its fingerprint. It was changed after it was written." in \
+        checks_module.verify_chain(req, tampered)
+
+
+def test_tampering_with_a_sighted_answer_shows_on_the_record(asker):
+    make_request(asker, wanted="sighted")
+    rid = latest_request_id()
+    sign_in_as(asker, SIGHTED, "Sam Sighted")
+    send_sighted(asker, rid, anything_broken="yes")
+    with db.session() as conn:
+        conn.execute("UPDATE check_reports SET anything_broken = 'no' WHERE request_id = ?", (rid,))
+    r = asker.get(f"/checks/{rid}/record")
+    assert "This record was changed after it was written" in r.text
+    assert "Entry 1 does not match its fingerprint" in r.text and "Every fingerprint matches" not in r.text
+    assert_accessible(r)
+
+
+OLD_TABLES = """
+CREATE TABLE check_requests (
+    id INTEGER PRIMARY KEY,
+    requester_id INTEGER NOT NULL REFERENCES users(id),
+    title TEXT NOT NULL,
+    url TEXT NOT NULL,
+    what_to_try TEXT NOT NULL,
+    max_checks INTEGER NOT NULL,
+    reward_cents INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed')),
+    created_at TEXT NOT NULL,
+    closed_at TEXT
+);
+CREATE TABLE check_reports (
+    id INTEGER PRIMARY KEY,
+    request_id INTEGER NOT NULL REFERENCES check_requests(id),
+    checker_id INTEGER NOT NULL REFERENCES users(id),
+    screen_reader TEXT NOT NULL,
+    screen_reader_version TEXT NOT NULL DEFAULT '',
+    browser TEXT NOT NULL,
+    device TEXT NOT NULL,
+    heard_first TEXT NOT NULL,
+    task_result TEXT NOT NULL CHECK (task_result IN ('completed', 'partly', 'could_not')),
+    problems TEXT NOT NULL DEFAULT '',
+    show_name INTEGER NOT NULL DEFAULT 0,
+    prev_hash TEXT NOT NULL DEFAULT '',
+    record_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (request_id, checker_id)
+);
+CREATE INDEX idx_check_reports_checker ON check_reports(checker_id);
+"""
+
+
+def test_a_database_from_before_sighted_checks_is_upgraded_and_still_verifies(asker):
+    """A site that already has check records: start-up adds the new columns, keeps every row and fingerprint."""
+    sign_in_as(asker, CHECKER, "Chidi")
+    sign_in_as(asker, THIRD, "Tomas")
+    with db.session() as conn:
+        conn.execute("DROP TABLE check_reports")
+        conn.execute("DROP TABLE check_requests")
+        conn.executescript(OLD_TABLES)
+    req = {"id": 7, "title": "Old cafe", "url": "https://old.example/", "what_to_try": "Find the menu."}
+    rows, prev = [], ""
+    for n, email in enumerate((CHECKER, THIRD), start=1):
+        rep = {"checker_id": user_id(email), "screen_reader": "NVDA", "screen_reader_version": "", "browser": "Firefox",
+               "device": "Windows laptop", "heard_first": f"Old cafe {n}", "task_result": "completed",
+               "problems": "", "show_name": 0, "created_at": f"2026-01-0{n}T10:00:00+00:00"}
+        rep["prev_hash"], rep["record_hash"] = prev, legacy_hash(req, rep, prev)
+        prev = rep["record_hash"]
+        rows.append(rep)
+    with db.session() as conn:
+        conn.execute("INSERT INTO check_requests (id, requester_id, title, url, what_to_try, max_checks, status,"
+                     " created_at) VALUES (7, ?, 'Old cafe', 'https://old.example/', 'Find the menu.', 3, 'open',"
+                     " '2026-01-01T09:00:00+00:00')", (user_id(ASKER),))
+        for rep in rows:
+            cols = ", ".join(rep)
+            conn.execute(f"INSERT INTO check_reports (request_id, {cols}) VALUES (7, {', '.join('?' * len(rep))})",
+                         tuple(rep.values()))
+    checks_module.seed()
+    checks_module.seed()  # safe to run on every start
+    upgraded = reports_of(7)
+    assert [r["record_hash"] for r in upgraded] == [r["record_hash"] for r in rows]
+    assert all(r["method"] == "screen_reader" and r["improve"] == "" for r in upgraded)
+    assert request_row(7)["wanted"] == "screen_reader"  # old requests asked screen reader users
+    assert checks_module.verify_chain(request_row(7), upgraded) == []
+    r = asker.get("/checks/7/record")
+    assert "Every fingerprint matches" in r.text
+    assert "2 members checked it with a screen reader. 2 could do the task." in r.text
+    assert "sighted person has checked" not in r.text
+    # The upgraded table takes sighted checks, and keeps its index.
+    with db.session() as conn:
+        conn.execute("UPDATE check_requests SET wanted = 'both' WHERE id = 7")
+        assert conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'idx_check_reports_checker'").fetchone()
+        assert not conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'check_reports_new'").fetchone()
+    sign_in_as(asker, SIGHTED, "Sam Sighted")
+    assert send_sighted(asker, 7, follow_redirects=False).status_code == 303
+    assert checks_module.verify_chain(request_row(7), reports_of(7)) == []

@@ -72,10 +72,12 @@ def open_section(page, base: str) -> None:
     assert h1_text(page) == "Peer checks"
 
 
-def fill_request(page, *, title: str, url: str, what: str, checks: str, reward: str) -> None:
+def fill_request(page, *, title: str, url: str, what: str, checks: str, reward: str,
+                 who: str = "People who use screen readers") -> None:
     page.get_by_label("Name of what you want checked").fill(title)
     page.get_by_label("Web address").fill(url)
     page.get_by_label("What should checkers try?").fill(what)
+    page.get_by_role("group", name="Who should check it").get_by_role("radio", name=who, exact=True).check()
     page.get_by_label("How many checks do you want?").select_option(label=checks)
     page.get_by_label("Reward for each check").select_option(label=reward)
 
@@ -202,7 +204,7 @@ def test_request_check_close_and_public_record(live, browser):
     audit(reader, "index, signed out")
     go(reader, reader.get_by_role("link", name=f"Check record: {title}"))
     assert h1_text(reader) == f"Check record: {title}"
-    expect(reader.get_by_text("1 member checked this. 1 could do it partly.")).to_be_visible()
+    expect(reader.get_by_text("1 member checked it with a screen reader. 1 could do it partly.")).to_be_visible()
     expect(reader.get_by_text(re.compile("^Every fingerprint matches"))).to_be_visible()
     expect(reader.get_by_role("heading", name="Not checked")).to_be_visible()
     audit(reader, "record, signed out")
@@ -293,7 +295,7 @@ def test_key_pages_work_without_javascript(live, browser):
     audit_twin(twins[asker_email], asker.url, "closed request")
     go(asker, asker.get_by_role("link", name=f"Read the check record for {title}"))
     works_without_js(asker, f"Check record: {title}")
-    expect(asker.get_by_text("1 member checked this. 1 could do the task.")).to_be_visible()
+    expect(asker.get_by_text("1 member checked it with a screen reader. 1 could do the task.")).to_be_visible()
     for p in (asker, checker, *twins.values()):
         p.context.close()
 
@@ -329,3 +331,149 @@ def test_keyboard_order_on_the_request_form(live, browser):
     page.keyboard.press("Enter")
     expect(page.get_by_role("main")).to_be_focused()
     page.context.close()
+
+
+# ----- sighted checks of how it looks ----------------------------------------------------------
+
+LOOK_QUESTIONS = ("Does it look finished and professional?", "Is anything broken, overlapping or hard to read?",
+                  "Would you trust this page as a visitor or customer?")
+
+
+def answer(page, question: str, choice: str) -> None:
+    page.get_by_role("group", name=question).get_by_role("radio", name=choice, exact=True).check()
+
+
+def fill_look(page, *, finished="Yes", broken="No", trust="Yes", better="") -> None:
+    for question, choice in zip(LOOK_QUESTIONS, (finished, broken, trust)):
+        answer(page, question, choice)
+    if better:
+        page.get_by_label("What would make it better? (optional)").fill(better)
+
+
+def test_sighted_friend_checks_how_it_looks(live, browser):
+    base = live["base"]
+    asker_email, friend_email = "journey-look-asker@example.com", "journey-look-friend@example.com"
+    title = "Bakery look journey"
+
+    # ----- a member asks for both kinds of check, starting from a link that suggests sighted ----
+    asker = new_page(browser)
+    sign_up(asker, base, asker_email, "Bea Baker")
+    asker.goto(base + "/checks/new?kind=sighted&url=https://bakery.example/&title=" + title.replace(" ", "+"))
+    assert h1_text(asker) == "Ask for a check"
+    who = asker.get_by_role("group", name="Who should check it")
+    expect(who.get_by_role("radio", name="Sighted people, to check how it looks")).to_be_checked()
+    audit(asker, "new request form, prefilled for sighted")
+    asker.get_by_label("What should checkers try?").fill("Look at the home page and find the price of bread.")
+    who.get_by_role("radio", name="Both", exact=True).check()
+    go(asker, asker.get_by_role("button", name="Ask for the check"))
+    assert h1_text(asker) == f"Your request is open: {title}"
+    expect(asker.get_by_text(re.compile("^This request asks people who use screen readers to try the task, "
+                                        "and sighted people to check how it looks"))).to_be_visible()
+    expect(asker.get_by_text(re.compile("^To ask a sighted friend, family member or volunteer"))).to_be_visible()
+    audit(asker, "request page, both kinds wanted")
+    request_url = asker.url
+
+    # ----- a sighted friend opens the address they were sent and checks it ---------------------
+    friend = new_page(browser)
+    sign_up(friend, base, friend_email, "Fran Friend")
+    open_section(friend, base)
+    queue_item = friend.get_by_role("listitem").filter(has=friend.get_by_role("link", name=title, exact=True))
+    expect(queue_item).to_contain_text("Wanted: people who use screen readers, and sighted people to check how it looks.")
+    friend.goto(request_url)
+    assert h1_text(friend) == f"Check request: {title}"
+    go(friend, friend.get_by_role("link", name="Check this now"))
+    assert h1_text(friend) == f"Check this: {title}"
+    # Both parts are on the page, each under its own heading.
+    expect(friend.get_by_role("heading", name="If you used a screen reader")).to_be_visible()
+    expect(friend.get_by_role("heading", name="If you are sighted and looked at how it appears")).to_be_visible()
+    for question in LOOK_QUESTIONS:
+        expect(friend.get_by_role("group", name=question)).to_be_visible()
+    audit(friend, "report form, both kinds")
+
+    # Sending without choosing how they checked: one problem, and its link goes to the first choice.
+    go(friend, friend.get_by_role("button", name="Send my check"))
+    assert h1_text(friend) == f"Check this: {title}: please fix the problems"
+    expect(friend.get_by_role("heading", name="There is a problem")).to_be_visible()
+    audit(friend, "report form, how you checked not chosen")
+    follow_error(friend, re.compile("^Choose how you checked it"),
+                 friend.get_by_role("radio", name="With a screen reader"))
+
+    # Sighted, but the questions not answered: only the sighted questions are asked for.
+    friend.get_by_role("radio", name="I am sighted and looked at how it appears").check()
+    go(friend, friend.get_by_role("button", name="Send my check"))
+    expect(friend.get_by_role("heading", name="There are 3 problems")).to_be_visible()
+    audit(friend, "report form, sighted questions not answered")
+    follow_error(friend, "Choose whether it looks finished and professional: yes, no or not sure.",
+                 friend.get_by_role("group", name=LOOK_QUESTIONS[0]).get_by_role("radio", name="Yes", exact=True))
+    follow_error(friend, re.compile("^Choose whether anything is broken"),
+                 friend.get_by_role("group", name=LOOK_QUESTIONS[1]).get_by_role("radio", name="Yes", exact=True))
+    expect(friend.get_by_role("radio", name="I am sighted and looked at how it appears")).to_be_checked()
+
+    fill_look(friend, better="The bread prices are small on my phone; bigger prices would help.")
+    go(friend, friend.get_by_role("button", name="Send my check"))
+    assert h1_text(friend) == f"Your check is saved in the record: {title}"
+    expect(friend.get_by_role("status")).to_contain_text("Thank you for checking.")
+    audit(friend, "record after a sighted check")
+
+    # ----- the member reads the record: an outcome they can trust, never a colour --------------
+    asker.goto(request_url)
+    go(asker, asker.get_by_role("link", name=f"Read the check record for {title}"))
+    assert h1_text(asker) == f"Check record: {title}"
+    expect(asker.get_by_text("Nobody has checked it with a screen reader yet.")).to_be_visible()
+    expect(asker.get_by_text(
+        "1 sighted person checked how it looks. They said it looks finished and professional, and they found "
+        "nothing broken or hard to read. They would trust it as a visitor or customer. Every answer was a good "
+        "one: to them, the look of this page is done well.")).to_be_visible()
+    check = asker.get_by_role("heading", name=re.compile("^Check 1: .*, looked at how it appears: looks done well$"))
+    expect(check).to_be_visible()
+    expect(asker.get_by_role("heading", name="What would make it better, in their own words")).to_be_visible()
+    expect(asker.get_by_text("Is anything broken, overlapping or hard to read? No.")).to_be_visible()
+    expect(asker.get_by_text("The bread prices are small on my phone; bigger prices would help.")).to_be_visible()
+    expect(asker.get_by_text(re.compile("^How it looks was checked by 1 sighted person"))).to_be_visible()
+    expect(asker.get_by_text(re.compile("^Every fingerprint matches"))).to_be_visible()
+    main_text = asker.get_by_role("main").inner_text().lower()
+    assert "colour" not in main_text and "color" not in main_text
+    audit(asker, "record with a sighted check, asker")
+    assert live["fake_ai"].calls == []
+    for p in (asker, friend):
+        p.context.close()
+
+
+def test_sighted_check_works_without_javascript(live, browser):
+    base = live["base"]
+    asker_email, friend_email = "journey-look-nojs-asker@example.com", "journey-look-nojs-friend@example.com"
+    title = "No script bakery"
+    twins = {}
+    for email, name in ((asker_email, "Nell NoJS"), (friend_email, "Fred NoJS")):
+        twins[email] = new_page(browser)
+        sign_up(twins[email], base, email, name)
+
+    asker = new_page(browser, javascript=False)
+    sign_in(asker, base, asker_email)
+    asker.goto(base + "/checks/new")
+    fill_request(asker, title=title, url="https://bakery-nojs.example/", what="Look at the menu.",
+                 checks="1 check", reward="No reward", who="Both")
+    go(asker, asker.get_by_role("button", name="Ask for the check"))
+    works_without_js(asker, f"Your request is open: {title}")
+    request_url = asker.url
+
+    friend = new_page(browser, javascript=False)
+    sign_in(friend, base, friend_email)
+    friend.goto(request_url + "/report")
+    works_without_js(friend, f"Check this: {title}")
+    # Without JavaScript both parts are visible, each under its own heading.
+    expect(friend.get_by_role("heading", name="If you used a screen reader")).to_be_visible()
+    expect(friend.get_by_label("Screen reader", exact=True)).to_be_visible()
+    expect(friend.get_by_role("heading", name="If you are sighted and looked at how it appears")).to_be_visible()
+    expect(friend.get_by_role("group", name=LOOK_QUESTIONS[2])).to_be_visible()
+    audit_twin(twins[friend_email], friend.url, "report form, both kinds")
+    friend.get_by_role("radio", name="I am sighted and looked at how it appears").check()
+    fill_look(friend, finished="No", broken="Yes", trust="Not sure", better="The menu covers the prices on a phone.")
+    go(friend, friend.get_by_role("button", name="Send my check"))
+    works_without_js(friend, f"Your check is saved in the record: {title}")
+    expect(friend.get_by_role("heading", name=re.compile("looked at how it appears: found something to fix$"))
+           ).to_be_visible()
+    expect(friend.get_by_text(re.compile("There is something to fix"))).to_be_visible()
+    audit_twin(twins[friend_email], friend.url, "record with a sighted check")
+    for p in (asker, friend, *twins.values()):
+        p.context.close()

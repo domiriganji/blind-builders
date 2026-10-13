@@ -2,7 +2,7 @@
 {% from "checks/_text.html" import literal %}
 {% block content %}
 <h1>{{ title }}</h1>
-<p class="lead">{{ summary }}</p>
+{% for para in summary %}<p class="lead">{{ para }}</p>{% endfor %}
 {% if chain_problems %}
 <div class="error-summary">
   <h2>This record was changed after it was written</h2>
@@ -15,7 +15,7 @@
 {% endif %}
 
 <h2>What was asked</h2>
-<p>Checkers were asked to open <a href="{{ req.url }}" rel="noopener noreferrer">{{ req.title }} (the member's own page)</a> and try this. The task is in the words of the member who asked:</p>
+<p>{{ wanted_sentence }} Checkers were asked to open <a href="{{ req.url }}" rel="noopener noreferrer">{{ req.title }} (the member's own page)</a> and try this. The task is in the words of the member who asked:</p>
 <div class="panel">{{ literal(req.what_to_try) }}</div>
 <p class="meta">Address: {{ req.url }}. Asked on {{ req.created_at[:10] }}. {{ req.done }} of {{ req.max_checks }} checks done; the request is {{ 'open' if req.status == 'open' else 'closed' }}.</p>
 
@@ -24,7 +24,22 @@
 <p>Each check below is in the checker's own words, as they typed it. The site did not change or rewrite them.</p>
 {% for r in reports %}
 <section aria-labelledby="check-{{ loop.index }}">
-<h3 id="check-{{ loop.index }}">Check {{ loop.index }}: {{ r.who }}, {{ result_words[r.task_result]|lower }}</h3>
+{% if r.method == 'sighted' %}
+<h3 id="check-{{ loop.index }}">Check {{ loop.index }}: {{ r.who }}, looked at how it appears: {{ r.verdict }}</h3>
+<ul>
+  <li>Who: {{ r.who }} ({{ r.who_note }})</li>
+  <li>How they checked: sighted, looking at how the page appears</li>
+  <li>Date: {{ r.created_at[:10] }}</li>
+</ul>
+<h4>Their answers</h4>
+<ul>
+{% for name, question, _ in look_questions %}  <li>{{ question }} {{ answer_words[r[name]] }}.</li>
+{% endfor %}
+</ul>
+<h4>What would make it better, in their own words</h4>
+{% if r.improve %}<blockquote>{{ literal(r.improve) }}</blockquote>{% else %}<p>Nothing written.</p>{% endif %}
+{% else %}
+<h3 id="check-{{ loop.index }}">Check {{ loop.index }}: {{ r.who }}, with a screen reader, {{ result_words[r.task_result]|lower }}</h3>
 <ul>
   <li>Who: {{ r.who }} ({{ r.who_note }})</li>
   <li>Screen reader: {{ r.screen_reader }}{% if r.screen_reader_version %} version {{ r.screen_reader_version }}{% endif %}</li>
@@ -37,6 +52,7 @@
 <blockquote>{{ literal(r.heard_first) }}</blockquote>
 <h4>Problems they found</h4>
 {% if r.problems %}{{ literal(r.problems) }}{% else %}<p>None written.</p>{% endif %}
+{% endif %}
 <p class="meta">Fingerprint: <code>{{ r.record_hash }}</code></p>
 </section>
 {% endfor %}
@@ -45,15 +61,19 @@
 <h2>Not checked</h2>
 <p>This is what the checks above do not cover, based on what checkers typed.</p>
 <ul>
-{% if not_checked.screen_readers %}<li>Screen readers nobody used: {{ not_checked.screen_readers|join(', ') }}.</li>{% endif %}
-{% if not_checked.devices %}<li>Devices nobody used: {{ not_checked.devices|join(', ') }}.</li>{% endif %}
-{% if not_checked.appearance_mentions %}
-<li>How the page looks to sighted people was not checked as a task. {{ not_checked.appearance_mentions }} {{ 'check mentions' if not_checked.appearance_mentions == 1 else 'checks mention' }} colours, contrast, layout or zoom; read them above.</li>
+{% if not_checked.sighted_checks %}
+<li>How it looks was checked by {{ '1 sighted person' if not_checked.sighted_checks == 1 else not_checked.sighted_checks ~ ' sighted people' }}; their answers are above. Each looked on one screen and did not record which, so it may come across differently on other phones or computers.</li>
 {% else %}
-<li>How the page looks to sighted people: colours, contrast and layout. No check here says anything about it.</li>
+<li>How it looks: no sighted person checked it, so nobody has said whether it looks finished, or whether anything is broken or hard to read.{% if not_checked.appearance_mentions %} {{ not_checked.appearance_mentions }} screen reader {{ 'check mentions' if not_checked.appearance_mentions == 1 else 'checks mention' }} how the page looks or how easy it is to read; read {{ 'it' if not_checked.appearance_mentions == 1 else 'them' }} above.{% endif %}</li>
+{% endif %}
+{% if not_checked.screen_reader_checks %}
+{% if not_checked.screen_readers %}<li>Screen readers nobody used: {{ not_checked.screen_readers|join(', ') }}.</li>{% endif %}
+{% if not_checked.devices %}<li>Devices nobody used with a screen reader: {{ not_checked.devices|join(', ') }}.</li>{% endif %}
+{% else %}
+<li>Nobody checked it with a screen reader, so nobody has said whether screen reader users can do the task.</li>
 {% endif %}
 <li>Anything beyond the task above. Other pages and other tasks were not tried.</li>
-<li>Whether each checker did exactly what they wrote. Each check is that member's own report; the site did not watch them.</li>
+<li>Whether each checker did exactly what they wrote. Each check is that person's own report; the site did not watch them.</li>
 </ul>
 
 <h2>About the fingerprints</h2>
