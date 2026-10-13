@@ -3,16 +3,19 @@
 {% block content %}
 <h1>{{ title }}</h1>
 {{ error_summary(errors) }}
-<p class="lead">Add a tool, app or service so other members can find it and report whether it worked for them. If its web address is already in the directory, you will be taken to that entry instead.</p>
+{% if found %}
+<p class="lead">The AI's notes from your web search are filled in. Check them and change anything that is not right, then choose Add the tool.</p>
+<p>If you keep the AI's description as it is, the entry says the AI wrote it and nobody checked it.</p>
+{% else %}
+<p class="lead">Add a tool, app or service so other members can find it and report whether it worked for them. If its web address is already in the directory, you will go to that entry instead.</p>
+{% endif %}
 <form method="post" action="/find/add" novalidate>
   {{ csrf_input() }}
-  {{ field('name', "Tool's name", values.name, required=true, error=errors.name) }}
-  {{ field('url', 'Web address', values.url, type='url', required=true, hint="The tool's own page, starting with https://.", error=errors.url) }}
-  {{ textarea('description', 'What it does', values.description, hint='One plain sentence.', error=errors.description, rows=3, required=true) }}
-  {{ select('category', 'Category', category_pairs, values.category, error=errors.category, required=true) }}
-  {{ field('maintainer', 'Who makes it', values.maintainer, hint='A person, group or company, if you know.', error=errors.maintainer) }}
-  {{ checkbox('made_by_blind', 'A blind or low-vision person made this', values.made_by_blind, hint='Tick only if you know. Tools made by blind people also appear in the Tool library.') }}
+  {% if found %}<input type="hidden" name="search" value="{{ values.search }}"><input type="hidden" name="candidate" value="{{ values.candidate }}">{% endif %}
+  {% include "find/_tool_fields.html" %}
+  {{ checkbox('made_by_blind', 'A blind or low-vision person made this', values.made_by_blind, hint='Tick only if you know. Tools made by blind or low-vision people also appear in the Tool library.') }}
   <button type="submit" class="button button-primary">Add the tool</button>
 </form>
+<p>You can change or remove the entry later, until another member reports on it.</p>
 <p><a href="/find">Back to Find before you build</a></p>
 {% endblock %}

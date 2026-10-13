@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% from "_macros.html" import post_button %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p class="lead">This deletes your report from {{ report.date }}: {{ report.outcome_text }}. Other members will no longer read it, and it no longer counts in the summary. This cannot be undone.</p>
+<div class="actions">
+  {{ post_button('/find/tool/' ~ tool.id ~ '/reports/' ~ report.id ~ '/delete', 'Delete my report', 'primary', hidden={'back': back}) }}
+  <a href="/{{ back }}/tool/{{ tool.id }}">Keep it and go back</a>
+</div>
+{% endblock %}

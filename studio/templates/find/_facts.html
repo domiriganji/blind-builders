@@ -8,5 +8,13 @@
   <li>{% if tool.source == 'research' %}The site's research says a blind or low-vision person made this.{% else %}The member who added this says a blind or low-vision person made it.{% endif %}</li>
   {% endif %}
   {% if tool.license %}<li>License: {{ tool.license }}</li>{% endif %}
-  <li>{% if tool.source == 'research' %}Where this entry came from: the site's research into tools for blind people, April to October 2026. The site has not tested the tool itself.{% else %}Where this entry came from: added by {{ tool.added_by_name or 'a member' }} on {{ tool.created_at[:10] }}. The site has not tested the tool itself.{% endif %}</li>
+  <li>{% if tool.source == 'research' %}Where this entry came from: the site's research into tools for blind and low-vision people, April to October 2026. The site has not tested the tool itself.{% else %}Where this entry came from: added by {{ tool.added_by_name or 'a member' }} on {{ tool.created_at|date_words }}. The site has not tested the tool itself.{% endif %}</li>
 </ul>
+{% if can_change %}
+<h2 id="change-title">You added this tool</h2>
+<p>You can change or remove it until another member reports on it, raises a problem or offers to help.</p>
+<ul>
+  <li><a href="/find/tool/{{ tool.id }}/change?back={{ back }}">Change the details of {{ tool.name }}</a></li>
+  <li><a href="/find/tool/{{ tool.id }}/remove?back={{ back }}">Remove {{ tool.name }}</a></li>
+</ul>
+{% endif %}

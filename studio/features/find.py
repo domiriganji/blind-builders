@@ -14,11 +14,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from .. import db, jobs, sensitive
 from ..ai import AINotAvailable
-from ..web import checked_form, current_user, flash, get_ai, redirect, render, require_user
+from ..web import (checked_form, current_user, date_words, error_title, flash, get_ai, redirect, render,
+                   require_user)
 
 router = APIRouter(prefix="/find")
 NAV = {"label": "Find before you build", "url": "/find",
-       "description": "Search for tools that already exist, with reports from blind people about whether they worked for them."}
+       "description": "Search for tools that already exist, with reports from members about whether they worked for them."}
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tools (
@@ -86,9 +87,10 @@ CATEGORIES = ["AI coding", "Screen reader add-on", "Seeing and describing", "Wri
               "Data and charts", "Audio and media", "Games", "Everyday tasks", "Hardware", "Other"]
 OUTCOMES = [("worked", "It worked for me"), ("partly", "It partly worked"), ("did_not_work", "It did not work for me")]
 OUTCOME_WORDS = {"worked": "worked", "partly": "partly worked", "did_not_work": "did not work"}
-SIGHT_ONSETS = [("prefer_not", "Prefer not to say"), ("birth", "Blind or low vision since birth or early childhood"),
-                ("later", "Lost sight later in life")]
-SIGHT_WORDS = {"birth": "since birth or early childhood", "later": "lost sight later in life"}
+# The same question and answers as the profile (docs/VOICE.md, 4.14): "Blind or low vision since".
+SIGHT_LABEL = "Blind or low vision since"
+SIGHT_ONSETS = [("birth", "Birth or early childhood"), ("later", "Later in life"), ("prefer_not", "Prefer not to say")]
+SIGHT_WORDS = {"birth": "birth or early childhood", "later": "later in life"}
 CATEGORY_PAIRS = [(c, c) for c in CATEGORIES]
 PAGE_SIZE = 25
 NEED_MAX = 500
@@ -99,8 +101,14 @@ _DIGIT_RUN_RE = re.compile(r"\d+(?:[ -]\d+)*")
 _PASSWORD_RE = re.compile(r"\b(password|passwd|passphrase)\b\s*(is|:|=)", re.I)
 _CODE_RE = re.compile(r"\b(passcode|pin|one[- ]time code|otp|security code|verification code|cvv|cvc)\b"
                       r"\s*(?:is|:|=)?\s*\d{3,}", re.I)
-SECRET_MESSAGE = ("This looks like a card number, password or one-time code. Please remove it. "
-                  "Never share these on this site.")
+# One wording for refused secrets everywhere (docs/VOICE.md, 4.9). It allows for the detector being wrong.
+SECRET_MESSAGE = getattr(sensitive, "SECRET_MESSAGE", (
+    "This looks like it includes a password, PIN, code, card number or API key, so it was not saved or sent to "
+    "the AI. Please take it out: this site never needs them. If it is not one, change the wording a little, for "
+    "example \"the PIN box is not announced\", and send it again."))
+PUBLIC_SUFFIX = getattr(sensitive, "PUBLIC_SUFFIX", "Everyone can read this page.")
+# For text other members read: reports, tool entries, problems and offers of help.
+PUBLIC_SECRET_MESSAGE = f"{SECRET_MESSAGE.strip()} {PUBLIC_SUFFIX.strip()}"
 
 
 def _luhn(digits: str) -> bool:
@@ -156,6 +164,20 @@ def valid_url(url: str) -> bool:
         return False
     parts = _split(url)
     return parts is not None and parts.scheme in ("http", "https") and bool(parts.hostname)
+
+
+# "example.org/tool" or "www.example.org": a web address typed or dictated without https:// in front.
+_BARE_ADDRESS_RE = re.compile(
+    r"^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}(?::\d{1,5})?(?:[/?#]\S*)?$", re.IGNORECASE)
+
+
+def with_scheme(url: str) -> str:
+    """Add https:// to an address that has no scheme but looks like a website, so members can type or dictate
+    "example.org/tool". Anything else comes back unchanged (and is then refused with a plain message)."""
+    url = (url or "").strip()
+    if "://" in url or not _BARE_ADDRESS_RE.match(url):
+        return url
+    return "https://" + url
 
 
 def norm_url(url: str) -> str:
@@ -222,7 +244,7 @@ def _plural(n: int, word: str) -> str:
 
 def report_summaries(tool_ids: list[int]) -> dict[int, str]:
     """One plain line per tool, from each member's latest report, for example
-    "3 members: 2 worked, 1 partly worked. Screen readers: NVDA, TalkBack". No full stop at the end."""
+    "3 members: 2 worked, 1 partly worked. Tools used: NVDA, TalkBack". No full stop at the end."""
     out = {tid: "No member has reported on this yet" for tid in tool_ids}
     if not tool_ids:
         return out
@@ -245,7 +267,7 @@ def report_summaries(tool_ids: list[int]) -> dict[int, str]:
                 readers.append(name)
         line = f"{_plural(len(items), 'member')}: {parts}"
         if readers:
-            line += ". Screen readers: " + ", ".join(sorted(readers, key=str.lower))
+            line += ". Tools used: " + ", ".join(sorted(readers, key=str.lower))
         out[tid] = line
     return out
 
@@ -260,7 +282,7 @@ def reports_for(tool_id: int) -> list[dict]:
         r = dict(row)
         r["outcome_text"] = dict(OUTCOMES)[r["outcome"]]
         r["sight_text"] = SIGHT_WORDS.get(r["sight_onset"], "")
-        r["date"] = r["created_at"][:10]
+        r["date"] = date_words(r["created_at"])
         out.append(r)
     return out
 
@@ -289,13 +311,13 @@ def validate_report(form: dict) -> tuple[dict, dict]:
     if values["outcome"] not in dict(OUTCOMES):
         errors["outcome"] = "Choose whether the tool worked for you."
     if values["sight_onset"] not in dict(SIGHT_ONSETS):
-        errors["sight_onset"] = "Choose one of the options for when you lost sight, or Prefer not to say."
+        errors["sight_onset"] = f"Choose one of the listed answers for {SIGHT_LABEL}, or choose Prefer not to say."
     for key, limit in REPORT_LIMITS.items():
         if too_long(values, key, limit):
             errors[key] = long_message(limit, "your note" if key == "note" else "it")
     for key in ("note", "screen_reader", "device", "language"):
         if key not in errors and looks_secret(values[key]):
-            errors[key] = SECRET_MESSAGE
+            errors[key] = PUBLIC_SECRET_MESSAGE
     return values, errors
 
 
@@ -323,9 +345,12 @@ URL_MAX = 500
 
 
 def validate_tool(form: dict, *, require_blind: bool = False) -> tuple[dict, dict]:
+    """The checked values of a tool form. An address without https:// gets it added (values["url_completed"]
+    is then True); if anything needs checking, the address comes back exactly as the member typed it."""
+    typed = clean(form, "url", KEEP)
     values = {
         "name": clean(form, "name", KEEP),
-        "url": clean(form, "url", KEEP),
+        "url": with_scheme(typed),
         "description": clean(form, "description", KEEP),
         "category": clean(form, "category", 40),
         "maintainer": clean(form, "maintainer", KEEP),
@@ -337,11 +362,11 @@ def validate_tool(form: dict, *, require_blind: bool = False) -> tuple[dict, dic
     elif too_long(values, "name", 120):
         errors["name"] = long_message(120, "the name")
     if not values["url"]:
-        errors["url"] = "Enter the tool's web address, starting with https://."
+        errors["url"] = "Enter the tool's web address, for example example.com/tool."
     elif too_long(values, "url", URL_MAX):
         errors["url"] = f"This web address is too long. Use the tool's main page, under {URL_MAX} characters."
     elif not valid_url(values["url"]):
-        errors["url"] = "Enter a full web address that starts with http:// or https://, like https://example.com."
+        errors["url"] = "Enter the tool's web address, for example example.com/tool or https://example.com/tool."
     if not values["description"]:
         errors["description"] = "Say in one sentence what the tool does."
     elif too_long(values, "description", 600):
@@ -355,7 +380,10 @@ def validate_tool(form: dict, *, require_blind: bool = False) -> tuple[dict, dic
                                    "Other tools belong in Find before you build.")
     for key in ("name", "description", "maintainer"):
         if key not in errors and looks_secret(values[key]):
-            errors[key] = SECRET_MESSAGE
+            errors[key] = PUBLIC_SECRET_MESSAGE
+    values["url_completed"] = values["url"] != typed
+    if errors:
+        values["url"], values["url_completed"] = typed, False
     return values, errors
 
 
@@ -389,6 +417,52 @@ def seed() -> None:
                 (item["name"], item["url"], item["description"],
                  item["category"] if item["category"] in CATEGORIES else "Other",
                  1 if item.get("made_by_blind") else 0, item.get("maintainer", ""), item.get("license", ""), db.now()))
+
+
+# ----- what just happened, and who may change an entry -----------------------------------------
+
+DONE_KEY = "find_done"
+
+
+def set_done(request: Request, where: str, tool_id: int, text: str) -> None:
+    """After a form is sent, the next page's title and h1 say what happened ("Your report is saved: Glide"), so
+    a member who reads or hears only the title knows it worked. `where` is "find", "library" or "index"."""
+    request.session[DONE_KEY] = {"where": where, "tool": tool_id, "text": text}
+
+
+def pop_done(request: Request, where: str, tool_id: int = 0) -> str:
+    """The words set by set_done for this page, once; "" for any other page."""
+    done = request.session.pop(DONE_KEY, None)
+    if isinstance(done, dict) and done.get("where") == where and done.get("tool") == tool_id:
+        return str(done.get("text") or "")
+    return ""
+
+
+def others_joined(tool_id: int, user_id: int) -> bool:
+    """True once another member has reported on the tool, raised a problem or offered to help."""
+    with db.session() as conn:
+        row = conn.execute(
+            "SELECT EXISTS (SELECT 1 FROM tool_reports WHERE tool_id = ? AND user_id != ?)"
+            " OR EXISTS (SELECT 1 FROM upkeep_requests WHERE tool_id = ? AND user_id != ?)"
+            " OR EXISTS (SELECT 1 FROM upkeep_volunteers WHERE tool_id = ? AND user_id != ?) AS joined",
+            (tool_id, user_id) * 3).fetchone()
+    return bool(row["joined"])
+
+
+def can_change(tool: dict, user: dict | None) -> bool:
+    """The member who added an entry can change or remove it until another member reports on it, raises a
+    problem or offers to help. Entries from the site's research are not changed here."""
+    return (bool(user) and tool["source"] == "member" and tool["added_by"] == user["id"]
+            and not others_joined(tool["id"], user["id"]))
+
+
+def back_to(value, tool: dict) -> str:
+    """Which page a tool form returns to: "library" for a library tool when asked, else "find"."""
+    return "library" if value == "library" and tool["made_by_blind"] else "find"
+
+
+def find_title(tool: dict) -> str:
+    return f"{tool['name']}: member reports"
 
 
 # ----- directory pages -------------------------------------------------------------------------
@@ -446,8 +520,10 @@ def index(request: Request, q: str = "", category: str = "", page: int = 1):
             searches = [dict(r) for r in conn.execute(
                 "SELECT id, need, created_at FROM find_searches WHERE user_id = ? ORDER BY id DESC LIMIT 10",
                 (user["id"],)).fetchall()]
-    return render(request, "find/index.html", title=_index_title(q, category, len(found), page, pages), q=q,
+    title = pop_done(request, "index") or _index_title(q, category, len(found), page, pages)
+    return render(request, "find/index.html", title=title, q=q,
                   category=category, tools=shown, total=len(found), summaries=summaries, page=page, pages=pages,
+                  page_urls=[_page_url(q, category, n) for n in range(1, pages + 1)],
                   prev_url=_page_url(q, category, page - 1) if page > 1 else "",
                   next_url=_page_url(q, category, page + 1) if page < pages else "",
                   category_pairs=CATEGORY_PAIRS, searches=searches, searching=bool(q or category))
@@ -460,10 +536,12 @@ def tool_page(request: Request, tool_id: int):
 
 
 def _render_tool(request: Request, tool: dict, *, values: dict, errors: dict, status_code: int = 200):
-    title = tool["name"] + (": please fix the problems" if errors else "")
+    done = pop_done(request, "find", tool["id"])
+    title = error_title(find_title(tool), errors) if errors else (done or find_title(tool))
     return render(request, "find/tool.html", title=title, tool=tool, reports=reports_for(tool["id"]),
                   summary=report_summaries([tool["id"]])[tool["id"]], values=values, errors=errors,
-                  outcomes=OUTCOMES, sight_onsets=SIGHT_ONSETS, status_code=status_code)
+                  outcomes=OUTCOMES, sight_onsets=SIGHT_ONSETS, sight_label=SIGHT_LABEL,
+                  can_change=can_change(tool, current_user(request)), status_code=status_code)
 
 
 @router.get("/tool/{tool_id}/report")
@@ -478,63 +556,228 @@ async def post_report(request: Request, tool_id: int, user: dict = Depends(requi
     form = await checked_form(request)
     tool = tool_or_404(tool_id)
     values, errors = validate_report(form)
-    back = "library" if form.get("back") == "library" and tool["made_by_blind"] else "find"
+    back = back_to(form.get("back"), tool)
     if errors:
         if back == "library":
             from .library import render_library_tool  # same section, second module
             return render_library_tool(request, tool, report_values=values, report_errors=errors, status_code=400)
         return _render_tool(request, tool, values=values, errors=errors, status_code=400)
     if save_report(tool_id, user["id"], values):
-        flash(request, "Thank you. Your report is saved and other members can read it.", "success")
+        set_done(request, back, tool_id, f"Your report is saved: {tool['name']}")
+        flash(request, "Thank you for letting other members know.", "success")
     else:
-        flash(request, "This report was already saved. It is listed once.", "info")
-    return redirect(f"/{back}/tool/{tool_id}#reports-title")
+        set_done(request, back, tool_id, f"Your report was already saved: {tool['name']}")
+        flash(request, "It is listed once, so nothing changed.", "info")
+    return redirect(f"/{back}/tool/{tool_id}")
+
+
+def _own_report(tool: dict, report_id: int, user: dict) -> dict:
+    with db.session() as conn:
+        row = conn.execute("SELECT * FROM tool_reports WHERE id = ? AND tool_id = ? AND user_id = ?",
+                           (report_id, tool["id"], user["id"])).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="We could not find that report among yours.")
+    report = dict(row)
+    report["outcome_text"] = dict(OUTCOMES)[report["outcome"]]
+    report["date"] = date_words(report["created_at"])
+    return report
+
+
+@router.get("/tool/{tool_id}/reports/{report_id}/delete")
+def delete_report_page(request: Request, tool_id: int, report_id: int, back: str = "find",
+                       user: dict = Depends(require_user)):
+    """Asks before deleting: says which report and that it cannot be undone."""
+    tool = tool_or_404(tool_id)
+    report = _own_report(tool, report_id, user)
+    return render(request, "find/delete_report.html", title=f"Delete your report on {tool['name']}", tool=tool,
+                  report=report, back=back_to(back, tool))
+
+
+@router.post("/tool/{tool_id}/reports/{report_id}/delete")
+async def delete_report(request: Request, tool_id: int, report_id: int, user: dict = Depends(require_user)):
+    form = await checked_form(request)
+    tool = tool_or_404(tool_id)
+    _own_report(tool, report_id, user)
+    with db.session() as conn:
+        conn.execute("DELETE FROM tool_reports WHERE id = ? AND user_id = ?", (report_id, user["id"]))
+    back = back_to(form.get("back"), tool)
+    set_done(request, back, tool_id, f"Your report is deleted: {tool['name']}")
+    return redirect(f"/{back}/tool/{tool_id}")
+
+
+# ----- adding, changing and removing an entry --------------------------------------------------
+
+ADD_TITLE = "Add a tool to the directory"
+AI_DESCRIPTION_NOTE = "(Description written by the AI during a web search; not checked.)"
+
+
+def _int(value, default: int) -> int:
+    if isinstance(value, list):
+        value = value[0] if value else ""
+    try:
+        return int(str(value))
+    except ValueError:
+        return default
+
+
+def _from_search(user: dict, search_id: int, index_: int) -> dict | None:
+    """The tool the AI found, when the add form was opened from one of the member's web searches."""
+    if not search_id:
+        return None
+    return _candidate(_owned_search(search_id, user), index_)
+
+
+def _add_page(request: Request, *, values: dict, errors: dict, found: dict | None, status_code: int = 200):
+    title = f"Add {found['name']} to the directory" if found else ADD_TITLE
+    return render(request, "find/add.html", title=error_title(title, errors), values=values, errors=errors,
+                  found=found, category_pairs=CATEGORY_PAIRS, status_code=status_code)
+
+
+def saved_at(values: dict) -> str:
+    """Where an address typed without https:// was saved, for the confirmation."""
+    return f", at {values['url']}" if values.get("url_completed") else ""
 
 
 @router.get("/add")
-def add_form(request: Request, user: dict = Depends(require_user)):
-    return render(request, "find/add.html", title="Add a tool to the directory", values={"category": "Other"},
-                  errors={}, category_pairs=CATEGORY_PAIRS)
+def add_form(request: Request, search: int = 0, candidate: int = -1, user: dict = Depends(require_user)):
+    found = _from_search(user, search, candidate)
+    values: dict = {"category": "Other"}
+    if found:
+        values.update(name=found["name"], url=found["url"], description=found["what_it_does"],
+                      search=search, candidate=candidate)
+    return _add_page(request, values=values, errors={}, found=found)
 
 
 @router.post("/add")
 async def add_tool(request: Request, user: dict = Depends(require_user)):
     form = await checked_form(request)
     values, errors = validate_tool(form)
+    search, candidate = _int(form.get("search"), 0), _int(form.get("candidate"), -1)
+    found = _from_search(user, search, candidate)
+    if found:
+        values.update(search=search, candidate=candidate)
     if "url" not in errors:
         existing = find_by_url(values["url"])
         if existing:
-            flash(request, f"{existing['name']} is already in the directory with this address. Here is its entry.", "info")
+            set_done(request, "find", existing["id"], f"Already in the directory: {existing['name']}")
+            flash(request, "It has this web address, so it was not added again.", "info")
             return redirect(f"/find/tool/{existing['id']}")
     if errors:
-        return render(request, "find/add.html", title="Add a tool to the directory: please fix the problems",
-                      values=values, errors=errors, category_pairs=CATEGORY_PAIRS, status_code=400)
+        return _add_page(request, values=values, errors=errors, found=found, status_code=400)
+    ai_words = " ".join((found or {}).get("what_it_does", "").split())
+    if ai_words and " ".join(values["description"].split()) == ai_words:
+        values["description"] = f"{values['description'].rstrip()} {AI_DESCRIPTION_NOTE}"
     tool_id = insert_member_tool(values, user["id"])
-    flash(request, f"{values['name']} is now in the directory. Thank you.", "success")
+    set_done(request, "find", tool_id, f"Added to the directory: {values['name']}")
+    flash(request, f"{values['name']} is now in the directory{saved_at(values)}. Thank you.", "success")
     return redirect(f"/find/tool/{tool_id}")
+
+
+def _changeable(request: Request, tool_id: int, user: dict):
+    """The tool, and None if this member may change it; otherwise a redirect back to it with the reason."""
+    tool = tool_or_404(tool_id)
+    if tool["source"] != "member" or tool["added_by"] != user["id"]:
+        raise HTTPException(status_code=404, detail="We could not find that tool among the ones you added.")
+    if others_joined(tool_id, user["id"]):
+        flash(request, f"Other members now use the entry for {tool['name']}, so it can no longer be changed or "
+                       "removed here. If something in it is wrong, please ask in Ask the community.", "info")
+        return tool, redirect(f"/find/tool/{tool_id}")
+    return tool, None
+
+
+def _change_page(request: Request, tool: dict, *, values: dict, errors: dict, back: str, status_code: int = 200):
+    return render(request, "find/change.html", title=error_title(f"Change the details of {tool['name']}", errors),
+                  tool=tool, values=values, errors=errors, back=back, category_pairs=CATEGORY_PAIRS,
+                  status_code=status_code)
+
+
+@router.get("/tool/{tool_id}/change")
+def change_form(request: Request, tool_id: int, back: str = "find", user: dict = Depends(require_user)):
+    tool, other = _changeable(request, tool_id, user)
+    if other:
+        return other
+    values = {k: tool[k] for k in ("name", "url", "description", "category", "maintainer")}
+    values["made_by_blind"] = bool(tool["made_by_blind"])
+    return _change_page(request, tool, values=values, errors={}, back=back_to(back, tool))
+
+
+@router.post("/tool/{tool_id}/change")
+async def change_tool(request: Request, tool_id: int, user: dict = Depends(require_user)):
+    form = await checked_form(request)
+    tool, other = _changeable(request, tool_id, user)
+    if other:
+        return other
+    values, errors = validate_tool(form)
+    if "url" not in errors:
+        existing = find_by_url(values["url"])
+        if existing and existing["id"] != tool_id:
+            errors["url"] = (f"{existing['name']} already has this web address in the directory. "
+                             "Enter this tool's own address.")
+            values["url"], values["url_completed"] = clean(form, "url", KEEP), False
+    back = back_to(form.get("back"), tool)
+    if errors:
+        return _change_page(request, tool, values=values, errors=errors, back=back, status_code=400)
+    with db.session() as conn:
+        conn.execute("UPDATE tools SET name = ?, url = ?, description = ?, category = ?, maintainer = ?,"
+                     " made_by_blind = ? WHERE id = ?",
+                     (values["name"], values["url"], values["description"], values["category"], values["maintainer"],
+                      1 if values["made_by_blind"] else 0, tool_id))
+    back = "library" if back == "library" and values["made_by_blind"] else "find"
+    set_done(request, back, tool_id, f"Your changes are saved: {values['name']}")
+    if values.get("url_completed"):
+        flash(request, f"The web address is saved as {values['url']}.", "info")
+    return redirect(f"/{back}/tool/{tool_id}")
+
+
+@router.get("/tool/{tool_id}/remove")
+def remove_page(request: Request, tool_id: int, back: str = "find", user: dict = Depends(require_user)):
+    """Asks before removing: says what goes with the entry and that it cannot be undone."""
+    tool, other = _changeable(request, tool_id, user)
+    if other:
+        return other
+    with db.session() as conn:
+        own_words = conn.execute("SELECT (SELECT COUNT(*) FROM tool_reports WHERE tool_id = ?)"
+                                 " + (SELECT COUNT(*) FROM upkeep_requests WHERE tool_id = ?)"
+                                 " + (SELECT COUNT(*) FROM upkeep_volunteers WHERE tool_id = ?) AS n",
+                                 (tool_id, tool_id, tool_id)).fetchone()["n"]
+    return render(request, "find/remove.html", title=f"Remove {tool['name']} from the directory", tool=tool,
+                  has_own_words=bool(own_words), back=back_to(back, tool))
+
+
+@router.post("/tool/{tool_id}/remove")
+async def remove_tool(request: Request, tool_id: int, user: dict = Depends(require_user)):
+    await checked_form(request)
+    tool, other = _changeable(request, tool_id, user)
+    if other:
+        return other
+    with db.session() as conn:
+        for table in ("tool_reports", "upkeep_requests", "upkeep_volunteers"):
+            conn.execute(f"DELETE FROM {table} WHERE tool_id = ?", (tool_id,))
+        conn.execute("DELETE FROM tools WHERE id = ?", (tool_id,))
+    set_done(request, "index", 0, f"Removed from the directory: {tool['name']}")
+    return redirect("/find")
 
 
 # ----- AI web search ---------------------------------------------------------------------------
 
-BASE_RULES = ("The person is blind or has low vision and uses a screen reader. Put the summary first. "
-              "Use plain language and short headings. No tables. No emoji. "
-              "Never claim something was checked or tested unless a source says who tested it and how.")
-
+# The shared member note (studio/ai.member_voice) is put before these prompts by the AI client, so they hold
+# only what this task needs (docs/VOICE.md, 4.18).
 RESEARCH_SYSTEM = (
-    "You help a blind or low-vision person find tools, apps, browser extensions, screen reader add-ons, "
-    "open-source projects and services that already exist, so they do not build something that is already there. "
-    + BASE_RULES +
-    " Search the web. For each tool give its name, its own web address, what it does, what blind users or the maker "
-    "say about screen reader use (and who said it), and what it costs. Say plainly when you found nothing about "
-    "accessibility. Prefer tools that are still maintained.")
+    "You help the person find tools, apps, browser extensions, screen reader add-ons, open-source projects and "
+    "services that already exist, so they do not build something that is already there. Search the web. For each "
+    "tool give its name, its own web address, what it does, what blind or low-vision users or the maker say about "
+    "using it with a screen reader, braille display or magnification (and who said it), and what it costs. Say "
+    "plainly when you found nothing about accessibility. Prefer tools that are still maintained. Never say a tool "
+    "was tested unless a source says who tested it and how.")
 
 EXTRACT_SYSTEM = (
-    "You turn research notes about existing tools into a short list. " + BASE_RULES +
-    " Only include tools that the notes name together with a web address; never invent an address. "
-    "what_it_does: one plain sentence. accessibility_notes: what the notes say about using it with a screen reader, "
-    "and who said it; if the notes say nothing, write 'Nothing found about screen reader use.' "
-    "cost: what the notes say about price, or 'Not found.' summary: two to four short sentences that answer whether "
-    "something already exists for the need, written in plain Markdown without headings.")
+    "You turn research notes about existing tools into a short list. "
+    "Only include tools that the notes name together with a web address; never invent an address. "
+    "what_it_does: one plain sentence. accessibility_notes: what the notes say about using it with a screen "
+    "reader, braille display or magnification, and who said it; if the notes say nothing, write 'Nothing found "
+    "about accessibility.' cost: what the notes say about price, or 'Not found.' summary: two to four short "
+    "sentences that answer whether something already exists for the need, written in plain Markdown without "
+    "headings. Never say a tool was tested unless the notes say who tested it and how.")
 
 EXTRACT_SCHEMA = {
     "type": "object",
@@ -562,7 +805,7 @@ EXTRACT_SCHEMA = {
 
 
 def _ask_page(request: Request, *, need: str, errors: dict, status_code: int = 200):
-    title = "Ask the AI what already exists" + (": please fix the problems" if errors else "")
+    title = error_title("Ask the AI what already exists", errors)
     return render(request, "find/ask.html", title=title, need=need, errors=errors, status_code=status_code)
 
 
@@ -634,7 +877,8 @@ def _search_job(ctx, ai, user_id: int, need: str, profile: dict) -> str:
     research = ai.research(
         system=RESEARCH_SYSTEM,
         prompt=(f"What already exists for this need?\n\nNeed: {need}\n\nWhat the person uses: {uses}\n\n"
-                "Find up to 8 existing tools. Put the ones blind people say work with screen readers first."),
+                "Find up to 8 existing tools. Put first the ones that blind or low-vision users say work with "
+                "screen readers, braille displays or magnification."),
         purpose="find.search")
     sources = []
     for s in research.sources or []:
@@ -691,6 +935,13 @@ def _owned_search(search_id: int, user: dict) -> dict:
     return search
 
 
+def _candidate(search: dict, index_: int) -> dict:
+    """One tool from a search's list, or 404."""
+    if index_ < 0 or index_ >= len(search["candidates"]):
+        raise HTTPException(status_code=404, detail="We could not find that tool in your search.")
+    return search["candidates"][index_]
+
+
 def _host(url: str) -> str:
     parts = _split(url)
     host = parts.netloc.lower() if parts else ""
@@ -717,8 +968,10 @@ def _match_directory(candidates: list[dict]) -> None:
 def search_result(request: Request, search_id: int, user: dict = Depends(require_user)):
     search = _owned_search(search_id, user)
     _match_directory(search["candidates"])
+    # "Source: Menu Reader" keeps each web page's link apart from "Visit Menu Reader" for voice control.
+    sources = [{**s, "title": f"Source: {s.get('title') or s.get('url')}"} for s in search["sources"]]
     return render(request, "find/search.html", title=f"What already exists for: {' '.join(search['need'].split())}",
-                  search=search)
+                  search=search, sources=sources)
 
 
 @router.get("/search/{search_id}/add")
@@ -730,26 +983,17 @@ def add_candidate_get(search_id: int, user: dict = Depends(require_user)):
 
 @router.post("/search/{search_id}/add")
 async def add_candidate(request: Request, search_id: int, user: dict = Depends(require_user)):
+    """Earlier pages had a button here that added the tool at once. Now the member checks the AI's notes first:
+    this opens the add form filled in with them."""
     form = await checked_form(request)
     search = _owned_search(search_id, user)
-    try:
-        index_ = int(str(form.get("candidate", "")))
-        if index_ < 0:
-            raise IndexError(index_)
-        candidate = search["candidates"][index_]
-    except (ValueError, IndexError):
-        raise HTTPException(status_code=404, detail="We could not find that tool in your search.")
+    index_ = _int(form.get("candidate", ""), -1)
+    candidate = _candidate(search, index_)
     existing = find_by_url(candidate["url"])
     if existing:
-        flash(request, f"{existing['name']} is already in the directory. Here is its entry.", "info")
+        set_done(request, "find", existing["id"], f"Already in the directory: {existing['name']}")
         return redirect(f"/find/tool/{existing['id']}")
-    description = (candidate["what_it_does"] or "No description yet.").rstrip()
-    values = {"name": candidate["name"], "url": candidate["url"],
-              "description": f"{description} (Description written by the AI during a web search; not checked.)",
-              "category": "Other", "maintainer": "", "made_by_blind": False}
-    tool_id = insert_member_tool(values, user["id"])
-    flash(request, f"{candidate['name']} is now in the directory. Tell others whether it works for you.", "success")
-    return redirect(f"/find/tool/{tool_id}")
+    return redirect("/find/add?" + urlencode({"search": search_id, "candidate": index_}))
 
 
 def forget_user(user_id: int) -> None:

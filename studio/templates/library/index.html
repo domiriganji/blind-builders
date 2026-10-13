@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>{{ title }}</h1>
-<p class="lead">Tools that blind and low-vision people made for each other. When a screen reader, operating system or AI tool updates and one of them breaks, members report it here and volunteer to help fix it. There are no staff: the library keeps working because members help each other.</p>
+<p class="lead">Tools that blind and low-vision people made for each other. When a screen reader, operating system or AI tool updates and one of them breaks, members report it here and volunteer to help fix it. The library keeps working because members help each other. There are no staff.</p>
 <p>{{ counts.all }} {{ 'tool is' if counts.all == 1 else 'tools are' }} in the library. {{ counts.upkeep }} {{ 'needs' if counts.upkeep == 1 else 'need' }} help after an update.</p>
 
 <nav aria-label="Show tools">
@@ -21,7 +21,7 @@
     <p>{{ t.description }}</p>
     <p class="meta">Maintainer: {{ t.maintainer or 'not recorded' }}.
       Status: {% if t.needs_upkeep %}needs help after an update, {{ t.open_count }} open {{ 'problem' if t.open_count == 1 else 'problems' }}{% else %}no open problems reported{% endif %}.
-      {{ t.volunteer_count }} {{ 'member is' if t.volunteer_count == 1 else 'members are' }} helping keep it working.
+      {% if t.volunteer_count %}{{ t.volunteer_count }} {{ 'member is' if t.volunteer_count == 1 else 'members are' }} helping keep it working.{% else %}No volunteers yet.{% endif %}
       {{ summaries[t.id] }}.</p>
   </li>
 {% endfor %}
@@ -34,7 +34,7 @@
 
 <h2>Add to the library</h2>
 <ul>
-  <li><a href="/library/add">Add a tool a blind person made</a></li>
+  <li><a href="/library/add">Add a tool a blind or low-vision person made</a></li>
   <li><a href="/find">Search every tool in Find before you build</a></li>
 </ul>
 {% endblock %}

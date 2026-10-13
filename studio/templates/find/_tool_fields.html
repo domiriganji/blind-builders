@@ -1,0 +1,9 @@
+{# The fields of a directory entry, shared by the add and change forms of Find and the Tool library.
+   Needs: values, errors, category_pairs. Optional: url_hint, maintainer_label, maintainer_hint.
+   autocomplete="off" stops browsers offering the member's own name or addresses they visited. #}
+{% from "_macros.html" import field, textarea, select %}
+{{ field('name', "Tool's name", values.name, required=true, autocomplete='off', error=errors.name) }}
+{{ field('url', 'Web address', values.url, type='url', required=true, autocomplete='off', hint=url_hint|default("The tool's own page, for example example.org/tool."), error=errors.url) }}
+{{ textarea('description', 'What it does', values.description, hint='One plain sentence.', error=errors.description, rows=3, required=true) }}
+{{ select('category', 'Category', category_pairs, values.category, error=errors.category, required=true) }}
+{{ field('maintainer', maintainer_label|default('Who makes it'), values.maintainer, hint=maintainer_hint|default('A person, group or company, if you know.'), error=errors.maintainer) }}

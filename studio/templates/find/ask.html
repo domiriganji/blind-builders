@@ -3,12 +3,12 @@
 {% block content %}
 <h1>{{ title }}</h1>
 {{ error_summary(errors) }}
-<p class="lead">Describe what you want to do or make. The AI searches the web for tools, apps and services that already exist, and lists what it found with links. Nobody on this site checks what the AI finds. Where members have reported on a tool, you will see their reports.</p>
+<p class="lead">Describe what you want to do or make. The AI searches the web for tools, apps and services that already exist, and lists what it found with links. Where members have reported on a tool, you will see their reports. Nobody on this site checks what the AI finds.</p>
 <p>This uses the AI. It is paid from your own Claude API key or from your credits. <a href="/pricing">Read how paying works</a>.</p>
 {% if user %}
 <form method="post" action="/find/ask" novalidate>
   {{ csrf_input() }}
-  {{ textarea('need', 'What do you want to do or make?', need, hint='A sentence or two. For example: a way to read my bank letters aloud on a cheap Android phone.', error=errors.need, rows=4, required=true) }}
+  {{ textarea('need', 'What do you want to do or make?', need, hint='A sentence or two. For example: a way to read my bank letters aloud on a low-cost Android phone.', error=errors.need, rows=4, required=true) }}
   <button type="submit" class="button button-primary">Search the web</button>
 </form>
 <p>It usually takes one to three minutes. You will get a page that says what is happening, then the result.</p>
