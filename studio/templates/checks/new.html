@@ -2,16 +2,16 @@
 {% from "_macros.html" import csrf_input, error_summary, field, textarea, select, radios %}
 {% block content %}
 <h1>{{ title }}</h1>
-<p>Other members will open your page, try the task you describe, and write down what happened. People who use screen readers try it with their own screen reader. Sighted people, such as friends, family or volunteers, check how it looks: whether it looks finished, whether anything is broken or hard to read, and whether they would trust it. Their checks go into a public record, so do not put passwords or private details here.</p>
+<p>Other members open your page, try the task you describe, and write down what happened. Blind and low-vision members try it with their own screen reader, braille display or magnifier. Sighted people, such as friends, family or volunteers, check how it looks: whether it looks finished, whether anything is broken or hard to read, and whether they would trust it. Their checks go into a public record, so leave out passwords and private details.</p>
 {{ error_summary(summary_errors) }}
 <form method="post" action="/checks/new" novalidate>
   {{ csrf_input() }}
   {{ field('title', 'Name of what you want checked', values.title, required=true, hint='For example: Cake shop order page.', error=errors.title) }}
   {{ field('url', 'Web address', values.url, type='url', required=true, autocomplete='url', hint='The full address, starting with https:// or http://. For an app, give the page where people can download it.', error=errors.url) }}
   {{ textarea('what_to_try', 'What should checkers try?', values.what_to_try, required=true, rows=5, hint='Describe one task, for example: find the price of a chocolate cake and add it to the basket. If it needs an account, ask checkers to make their own test account.', error=errors.what_to_try) }}
-  {{ radios('wanted', 'Who should check it', wanted_options, values.wanted, hint='Sighted people tell you whether the page looks finished and works for sighted visitors. They need a free account on this site; once your request is open, you can send them its address.', error=errors.wanted) }}
+  {{ radios('wanted', 'Who should check it', wanted_options, values.wanted, hint='Sighted people tell you whether the page looks finished and works for sighted visitors. They need a free account on this site; once your request is open, its page gives you an address to send them.', error=errors.wanted) }}
   {{ select('max_checks', 'How many checks do you want?', count_options, values.max_checks, required=true, hint='Each check comes from a different person. More checks usually means more screen readers, devices and points of view.', error=errors.max_checks) }}
-  {{ select('reward_cents', 'Reward for each check', reward_options, values.reward_cents, required=true, hint="Credits are the site's money, counted in US dollars and cents. The reward times the number of checks is held from your credits now. Each checker is paid when they send their check, and anything not paid comes back if you close the request early. Your credits now: " ~ balance ~ ".", error=errors.reward_cents) }}
+  {{ select('reward_cents', 'Reward for each check', reward_options, values.reward_cents, required=true, hint="Credits are the site's money, in US dollars. The full amount for all the checks is set aside from your credits now. Each checker is paid when they send their check, and anything not paid comes back if you close the request early. Your credits now: " ~ balance ~ ".", error=errors.reward_cents) }}
   <button type="submit" class="button button-primary">Ask for the check</button>
 </form>
 <p><a href="/checks">Back to Peer checks</a></p>

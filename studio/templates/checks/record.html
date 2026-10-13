@@ -1,7 +1,9 @@
 {% extends "base.html" %}
+{% from "_macros.html" import csrf_input, textarea %}
 {% from "checks/_text.html" import literal %}
 {% block content %}
 <h1>{{ title }}</h1>
+<p>Asked by {{ req.asker }} on {{ req.created_at|date_words }}. {{ req.done }} of {{ req.max_checks }} checks done; the request is {{ 'open' if req.status == 'open' else 'closed' }}.</p>
 {% for para in summary %}<p class="lead">{{ para }}</p>{% endfor %}
 {% if chain_problems %}
 <div class="error-summary">
@@ -10,14 +12,20 @@
   <ul>{% for p in chain_problems %}<li>{{ p }}</li>{% endfor %}</ul>
 </div>
 {% elif reports %}
-<p class="status-pass">Every fingerprint matches: no entry has been changed or removed from the middle since it was written.</p>
-<p class="meta">Checked by the site just now, by recomputing the fingerprint of every entry. This cannot show whether the newest entry was removed; see About the fingerprints below.</p>
+<p class="status-pass">Record intact. Every fingerprint matches, checked by the site just now.</p>
+{% endif %}
+{% if just_sent %}
+{% if waiting %}
+<p class="actions"><a class="button button-primary" href="/checks/{{ waiting[0].id }}">Check another request ({{ waiting|length }} waiting)</a></p>
+{% else %}
+<p>No other requests are waiting for you right now.</p>
+{% endif %}
 {% endif %}
 
 <h2>What was asked</h2>
 <p>{{ wanted_sentence }} Checkers were asked to open <a href="{{ req.url }}" rel="noopener noreferrer">{{ req.title }} (the member's own page)</a> and try this. The task is in the words of the member who asked:</p>
 <div class="panel">{{ literal(req.what_to_try) }}</div>
-<p class="meta">Address: {{ req.url }}. Asked on {{ req.created_at[:10] }}. {{ req.done }} of {{ req.max_checks }} checks done; the request is {{ 'open' if req.status == 'open' else 'closed' }}.</p>
+<p class="meta">Address: {{ req.url }}</p>
 
 {% if reports %}
 <h2>The checks</h2>
@@ -29,7 +37,7 @@
 <ul>
   <li>Who: {{ r.who }} ({{ r.who_note }})</li>
   <li>How they checked: sighted, looking at how the page appears</li>
-  <li>Date: {{ r.created_at[:10] }}</li>
+  <li>Date: {{ r.created_at|date_words }}</li>
 </ul>
 <h4>Their answers</h4>
 <ul>
@@ -39,23 +47,33 @@
 <h4>What would make it better, in their own words</h4>
 {% if r.improve %}<blockquote>{{ literal(r.improve) }}</blockquote>{% else %}<p>Nothing written.</p>{% endif %}
 {% else %}
-<h3 id="check-{{ loop.index }}">Check {{ loop.index }}: {{ r.who }}, with a screen reader, {{ result_words[r.task_result]|lower }}</h3>
+<h3 id="check-{{ loop.index }}">Check {{ loop.index }}: {{ r.who }}, with {{ r.screen_reader }}, {{ result_words[r.task_result]|lower }}</h3>
 <ul>
   <li>Who: {{ r.who }} ({{ r.who_note }})</li>
   <li>Screen reader: {{ r.screen_reader }}{% if r.screen_reader_version %} version {{ r.screen_reader_version }}{% endif %}</li>
   <li>Browser: {{ r.browser }}</li>
   <li>Device: {{ r.device }}</li>
-  <li>Date: {{ r.created_at[:10] }}</li>
+  <li>Date: {{ r.created_at|date_words }}</li>
   <li>Result: {{ result_words[r.task_result] }}</li>
 </ul>
-<h4>What they heard first</h4>
+<h4>What their screen reader gave first</h4>
 <blockquote>{{ literal(r.heard_first) }}</blockquote>
 <h4>Problems they found</h4>
 {% if r.problems %}{{ literal(r.problems) }}{% else %}<p>None written.</p>{% endif %}
 {% endif %}
-<p class="meta">Fingerprint: <code>{{ r.record_hash }}</code></p>
 </section>
 {% endfor %}
+{% endif %}
+
+{% if fix %}
+<h2>Ask the AI to fix what checkers found</h2>
+<p>This address is version {{ fix.number }} of your project in Build. The site wrote the request below from the checks, with the checkers' words as they typed them. Change it as you like. The AI starts only when you choose the button, as with any change in Build.</p>
+<form method="post" action="/build/{{ fix.project_id }}/v/{{ fix.number }}/change" novalidate>
+  {{ csrf_input() }}
+  {{ textarea('request', 'The change you want', fix.text, rows=12, required=true) }}
+  <button type="submit" class="button button-primary">Ask the AI to fix what checkers found</button>
+</form>
+<p><a href="/build/{{ fix.project_id }}/v/{{ fix.number }}">Go to version {{ fix.number }} in Build</a></p>
 {% endif %}
 
 <h2>Not checked</h2>
@@ -70,13 +88,21 @@
 {% if not_checked.screen_readers %}<li>Screen readers nobody used: {{ not_checked.screen_readers|join(', ') }}.</li>{% endif %}
 {% if not_checked.devices %}<li>Devices nobody used with a screen reader: {{ not_checked.devices|join(', ') }}.</li>{% endif %}
 {% else %}
-<li>Nobody checked it with a screen reader, so nobody has said whether screen reader users can do the task.</li>
+<li>Nobody tried the task with a screen reader, braille display or magnifier, so nobody has said whether blind and low-vision people can do it.</li>
 {% endif %}
 <li>Anything beyond the task above. Other pages and other tasks were not tried.</li>
 <li>Whether each checker did exactly what they wrote. Each check is that person's own report; the site did not watch them.</li>
 </ul>
 
 <h2>About the fingerprints</h2>
-<p>Each check has a fingerprint, a SHA-256 hash of everything in the check, the request's name, address and task, and the fingerprint of the check before it. Changing any entry, or removing one in the middle, breaks the chain, and this page says so. On its own the chain cannot show whether the newest check was removed, and someone able to rewrite the whole database could recompute every fingerprint. If you saved the last fingerprint, compare it with the one above: if it is still there, nothing before it has changed.</p>
+<p>Each check has a fingerprint: a code made from everything in the check and from the check before it. If anyone changes or removes a check, the fingerprints stop matching, and this page tells you. (Technical: SHA-256, covering the request's name, address and task.)</p>
+<p>On its own, the chain cannot show whether the newest check was removed, and someone able to rewrite the whole database could recompute every fingerprint. If you saved the last fingerprint, compare it with the list below: if it is still there, nothing before it has changed.</p>
+{% if reports %}
+<h3>Fingerprints, for checking the record only (64 characters each)</h3>
+<ul>
+{% for r in reports %}  <li>Check {{ loop.index }}: <code>{{ r.record_hash }}</code></li>
+{% endfor %}
+</ul>
+{% endif %}
 <p><a href="/checks">Back to Peer checks</a></p>
 {% endblock %}

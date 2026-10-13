@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% from "_macros.html" import post_button %}
+{% from "_macros.html" import post_button, field %}
 {% from "checks/_text.html" import literal %}
 {% block content %}
 <h1>{{ title }}</h1>
-<p class="lead">{{ req.done }} of {{ req.max_checks }} checks done. This request is {{ 'open' if req.status == 'open' else 'closed' }}.
+<p class="lead">Asked by {{ 'you' if is_owner else req.asker }} on {{ req.created_at|date_words }}{% if req.closed_at %}, closed on {{ req.closed_at|date_words }}{% endif %}. {{ req.done }} of {{ req.max_checks }} checks done{% if not is_owner %}; the request is {{ 'open' if req.status == 'open' else 'closed' }}{% endif %}.
 {% if req.reward_cents %}Reward: {{ money(req.reward_cents) }} in credits for each check.{% else %}No reward is offered.{% endif %}</p>
 <p>{{ wanted_sentence }}</p>
 <p class="actions">
@@ -19,20 +19,26 @@
 <p><a href="{{ req.url }}" rel="noopener noreferrer">Open {{ req.title }} (the member's own page)</a></p>
 <p class="meta">Address: {{ req.url }}</p>
 <p>This page was made by a member, not by this site. Never type your password for this site, or any other password or card number, into it.</p>
-<p class="meta">Asked on {{ req.created_at[:10] }}{% if req.closed_at %}. Closed on {{ req.closed_at[:10] }}{% endif %}.</p>
 
 {% if is_owner %}
 <h2>Your request</h2>
 {% if req.status == 'open' %}
-<p>When you close this request, nobody else can check it.{% if not_done_cents %} The {{ not_done }} held for checks not done yet comes back to your credits.{% endif %}</p>
+<p>When you close this request, nobody else can check it.{% if not_done_cents %} The {{ not_done }} set aside for checks not done yet comes back to your credits.{% endif %}</p>
 {{ post_button('/checks/' ~ req.id ~ '/close', 'Close this request') }}
 {% else %}
-<p>This request is closed.{% if req.reward_cents %} Checkers were paid {{ paid }} in total.{% if not_done_cents %} The {{ not_done }} held for checks that were not done came back to your credits when it closed.{% else %} Every check was done, so all the credits held went to checkers.{% endif %}{% endif %}</p>
+<p>This request is closed.{% if req.reward_cents %} Checkers were paid {{ paid }} in total.{% if not_done_cents %} The {{ not_done }} set aside for checks that were not done came back to your credits when it closed.{% else %} Every check was done, so all the credits set aside went to checkers.{% endif %}{% endif %}</p>
 {% endif %}
-{% if req.status == 'open' and req.wanted != 'screen_reader' %}
-<p>To ask a sighted friend, family member or volunteer to check how it looks, send them this address: {{ share_url }}. They need a free account on this site to send their check.</p>
+
+<h2>Addresses to share</h2>
+<p>Each address is in its own text box, so you can copy it.</p>
+{% if req.status == 'open' %}
+{% if req.wanted == 'screen_reader' %}
+{{ field('share_url', 'Address for checkers', share_url, type='url', mark_optional=false, extra='readonly', hint='Send it to anyone you would like to check it. They need a free account on this site to send their check.') }}
+{% else %}
+{{ field('share_url', 'Address for sighted checkers', share_url, type='url', mark_optional=false, extra='readonly', hint='Send it to a sighted friend, family member or volunteer. They need a free account on this site to send their check.') }}
 {% endif %}
-<p>To share the results, send people the address of the check record. Anyone can read it without an account.</p>
+{% endif %}
+{{ field('record_url', 'Address of the check record', record_url, type='url', mark_optional=false, extra='readonly', hint='Send it to share the results. Anyone can read the record without an account.') }}
 {% endif %}
 <p><a href="/checks">Back to Peer checks</a></p>
 {% endblock %}

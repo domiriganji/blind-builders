@@ -3,7 +3,7 @@
 {% from "checks/_text.html" import literal %}
 {% block content %}
 <h1>{{ title }}</h1>
-<p>{% if req.wanted == 'screen_reader' %}Open the page, try the task with your screen reader, then come back and fill in this form.{% elif req.wanted == 'sighted' %}Open the page, look at it and try the task, then come back and answer the questions.{% else %}Open the page and try the task, with your screen reader or by looking at it, then come back and fill in the part of this form that matches how you checked.{% endif %} Write what really happened. Your check goes into a public record and cannot be changed later.{% if req.reward_cents %} You get {{ money(req.reward_cents) }} in credits when you send it.{% endif %}</p>
+<p>{% if req.wanted == 'screen_reader' %}Open the page, try the task with your screen reader, braille display or magnifier, then come back and fill in this form.{% elif req.wanted == 'sighted' %}Open the page, look at it and try the task, then come back and answer the questions.{% else %}Open the page and try the task, with your screen reader, braille display or magnifier, or by looking at it. Then come back and fill in the part of this form that matches how you checked.{% endif %} Write what happened, in your own words. Your check goes into a public record and cannot be changed later.{% if req.reward_cents %} You get {{ money(req.reward_cents) }} in credits when you send it.{% endif %}</p>
 {{ error_summary(summary_errors) }}
 <h2>The task</h2>
 <p>{{ wanted_sentence }}</p>
@@ -20,14 +20,14 @@
   {# With both kinds wanted, each part is needed only for its own kind, so no field is announced as required. #}
   {% set only_one = req.wanted != 'both' %}
   {% if req.wanted != 'sighted' %}
-  <h3>{{ 'With your screen reader' if only_one else 'If you used a screen reader' }}</h3>
-  {{ field('screen_reader', 'Screen reader', values.screen_reader, required=only_one, mark_optional=false, hint='For example NVDA, JAWS, VoiceOver, TalkBack or Narrator. This is filled in from your profile; change it if you used another one.', error=errors.screen_reader) }}
+  <h3>{{ 'With your screen reader, braille display or magnifier' if only_one else 'If you used a screen reader, braille display or magnifier' }}</h3>
+  {{ field('screen_reader', 'Screen reader', values.screen_reader, required=only_one, mark_optional=false, hint='For example NVDA, JAWS, VoiceOver, TalkBack or Narrator. Add your braille display or magnifier if you used one. This is filled in from your profile; change it if you used another one.', error=errors.screen_reader) }}
   {{ field('screen_reader_version', 'Screen reader version', values.screen_reader_version, hint='For example 2026.2. Leave it empty if you do not know.', error=errors.screen_reader_version) }}
   {{ field('browser', 'Browser', values.browser, required=only_one, mark_optional=false, hint="For example Chrome, Firefox, Edge or Safari. If you tested an app, type the app's name.", error=errors.browser) }}
   {{ field('device', 'Device', values.device, required=only_one, mark_optional=false, hint='For example a Samsung Android phone, an iPhone or a Windows laptop.', error=errors.device) }}
-  {{ textarea('heard_first', 'What did you hear first when the page opened? Type it from memory.', values.heard_first, required=only_one, mark_optional=false, rows=4, error=errors.heard_first) }}
+  {{ textarea('heard_first', 'What did your screen reader say or show first when the page opened? Type it from memory.', values.heard_first, required=only_one, mark_optional=false, rows=4, error=errors.heard_first) }}
   {{ radios('task_result', 'Could you do the task?', result_options, values.task_result, error=errors.task_result) }}
-  {{ textarea('problems', 'Problems you found', values.problems, rows=6, hint='What was confusing, missing or not read out. Say where it happened if you can.', error=errors.problems) }}
+  {{ textarea('problems', 'Problems you found', values.problems, rows=6, hint='What was confusing, missing, or not read out or shown in braille. Say where it happened if you can.', error=errors.problems) }}
   {% endif %}
 
   {% if req.wanted != 'screen_reader' %}
@@ -36,7 +36,7 @@
   {% for name, question, _ in look_questions %}
   {{ radios(name, question, answer_options, values[name], error=errors[name]) }}
   {% endfor %}
-  {{ textarea('improve', 'What would make it better?', values.improve, rows=6, hint='Say what a visitor would notice and why it matters, for example: the prices are hard to read on a phone, or the order button sits on top of the menu. The member may not see the page, so describe the effect, not only the colour or shape.', error=errors.improve) }}
+  {{ textarea('improve', 'What would make it better?', values.improve, rows=6, hint='Say what a visitor would notice and why it matters, for example: the prices are hard to read on a phone, or the order button sits on top of the menu. The member may not see the page, so say what effect something has, not only what it looks like.', error=errors.improve) }}
   {% endif %}
 
   {{ checkbox('show_name', 'Show my name on this check instead of my code name', values.show_name, hint='Without this, the public record shows only your code name.') }}

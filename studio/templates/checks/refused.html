@@ -1,7 +1,16 @@
 {% extends "base.html" %}
+{% from "checks/_text.html" import literal %}
 {% block content %}
 <h1>{{ title }}</h1>
 <p>{{ reason }}</p>
+{% if kept %}
+<h2>What you wrote</h2>
+<p>Your words are here, so you can copy them and keep them.</p>
+{% for words, text in kept %}
+<h3>{{ words }}</h3>
+<div class="panel">{{ literal(text) }}</div>
+{% endfor %}
+{% endif %}
 <ul>
   <li><a href="/checks/{{ req.id }}/record">Read the check record for {{ req.title }}</a></li>
   <li><a href="/checks">Find other work to check</a></li>
