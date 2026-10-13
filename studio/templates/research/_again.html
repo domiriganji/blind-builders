@@ -1,0 +1,5 @@
+{# Running a stage again costs money, so it sits under its own heading, after the next step and the download. #}
+{% from "_macros.html" import post_button %}
+<h3>Run this stage again</h3>
+<p>The version you have now is kept, and you can make it current again.</p>
+<div class="actions">{{ post_button(stage_url, stage.again) }}</div>

@@ -118,7 +118,7 @@ def test_research_journey_end_to_end(live, browser):
     # A form sent with mistakes shows the error summary; each link in it moves focus to its field.
     page.get_by_label("Project name").fill("   ")
     page.get_by_role("button", name="Start the project").click()
-    pages.check("Run your own research: please fix the problems")
+    pages.check("Please check 2 answers: Run your own research")
     summary = page.get_by_role("alert")
     assert "Please check 2 answers" in summary.inner_text()
     summary.get_by_role("link", name="Enter a short name for your project.").click()
@@ -132,6 +132,9 @@ def test_research_journey_end_to_end(live, browser):
     assert page.get_by_text("0 of 4 stages done. Next: stage 1, prior work.").is_visible()
     for n, name in enumerate(["Prior work", "Study plan", "Notes and data", "Draft paper"], start=1):
         assert page.get_by_role("heading", name=f"{n}. {name}", level=2).is_visible()
+    # Before stage 1 there is nothing to cite, and the plan and draft buttons say so in their names.
+    assert page.get_by_role("button", name="Write a study plan without sources").is_visible()
+    assert page.get_by_role("button", name="Write a draft paper without sources").is_visible()
 
     # Stage 1: prior work. The AI's text is labelled as the AI's; the sources are real links.
     page.get_by_role("button", name="Find prior work").click()
@@ -148,21 +151,28 @@ def test_research_journey_end_to_end(live, browser):
     text = open(info.value.path(), encoding="utf-8").read()
     assert text.startswith(f"# Prior work: {TITLE}") and "Written by the AI" in text
 
+    # The next stage is the main action; running this stage again is a separate button that names its stage.
+    assert page.get_by_role("button", name="Next: write the study plan").is_visible()
+    assert page.get_by_role("heading", name="Run this stage again", level=3).is_visible()
+    assert page.get_by_role("button", name="Search for prior work again (uses your key or credits)").is_visible()
+
     page.get_by_role("link", name=f"Back to {TITLE}").click()
     pages.check(TITLE)
     assert page.get_by_text("1 of 4 stages done").is_visible()
+    assert page.get_by_role("heading", name="Run a stage again", level=2).is_visible()
 
     # Stage 2: study plan. A failed AI call first: the job page says why, in plain words.
     fake.on("research.plan", AIError("The AI is busy right now (rate limit). Please try again in a minute."))
-    page.get_by_role("button", name="Write a study plan").click()
+    page.get_by_role("button", name="Write a study plan", exact=True).click()
     pages.check(f"This did not finish: Writing a study plan for {TITLE}")
     assert page.get_by_text("rate limit").is_visible()
     page.get_by_role("link", name="Go back and try again").click()
     pages.check(TITLE)
     fake.on("research.plan", PLAN_TEXT)
-    page.get_by_role("button", name="Write a study plan").click()
+    page.get_by_role("button", name="Write a study plan", exact=True).click()
     pages.check(f"Study plan is ready: {TITLE}")
     assert page.get_by_text("Checked by the site: each citation number").is_visible()
+    assert page.get_by_role("heading", name="The study plan, written by the AI (not checked)", level=2).is_visible()
     page.get_by_role("link", name=f"Back to {TITLE}").click()
     pages.check(TITLE)
 
@@ -170,30 +180,34 @@ def test_research_journey_end_to_end(live, browser):
     page.get_by_role("link", name="Add notes and data").click()
     pages.check(f"Notes and data: {TITLE}")
     page.get_by_label("Notes").fill("Pilot ran with 4 people.")
-    page.get_by_role("button", name="Save notes").click()
+    page.get_by_role("button", name="Save notes and file").click()
     pages.check(f"Your notes are saved: {TITLE}")
     assert page.get_by_label("Notes").input_value() == "Pilot ran with 4 people."
 
-    # Uploading with no file chosen, then a file that is not CSV: the error summary leads to the field.
-    page.get_by_role("button", name="Upload and compute the facts").click()
-    pages.check(f"Notes and data: {TITLE}: please fix the problems")
-    page.get_by_role("alert").get_by_role("link", name="Choose a CSV file to upload.").click()
-    assert _is_focused(page.get_by_label("CSV file"))
+    # Notes typed, then a file that is not CSV: nothing is saved, the typed notes stay in the box,
+    # and the error summary leads to the file field.
+    page.get_by_label("Notes").fill("Pilot ran with 4 people. Two used braille displays.")
     page.get_by_label("CSV file").set_input_files(
         files=[{"name": "photo.png", "mimeType": "image/png", "buffer": b"\x89PNG\r\n\x1a\n"}])
-    page.get_by_role("button", name="Upload and compute the facts").click()
-    pages.check(f"Notes and data: {TITLE}: please fix the problems")
+    page.get_by_role("button", name="Save notes and file").click()
+    pages.check(f"Please check 1 answer: Notes and data: {TITLE}")
+    assert page.get_by_label("Notes").input_value() == "Pilot ran with 4 people. Two used braille displays."
+    assert page.get_by_text("Your notes are not saved yet.").is_visible()
     page.get_by_role("alert").get_by_role("link", name=re.compile("^This is not a CSV file")).click()
     assert _is_focused(page.get_by_label("CSV file"))
 
+    # The notes and a good file are saved together.
     page.get_by_label("CSV file").set_input_files(
         files=[{"name": "scores.csv", "mimeType": "text/csv", "buffer": CSV_TEXT.encode()}])
-    page.get_by_role("button", name="Upload and compute the facts").click()
-    pages.check(f"The site computed facts from scores.csv: 4 rows and 3 columns: {TITLE}")
+    page.get_by_role("button", name="Save notes and file").click()
+    pages.check(f"Notes saved and facts computed from scores.csv: {TITLE}")
+    assert page.get_by_label("Notes").input_value() == "Pilot ran with 4 people. Two used braille displays."
     assert page.get_by_role("heading", name="Computed by the site", level=2).is_visible()
     assert page.get_by_role("heading", name="Columns with numbers (1)", level=3).is_visible()
     assert page.get_by_role("heading", name="Columns with text (2)", level=3).is_visible()
-    assert page.get_by_text("Mean 4, smallest 3, largest 5.").is_visible()
+    assert page.get_by_text("Mean 4, median 4, smallest 3, largest 5, standard deviation 1.").is_visible()
+    sample = page.get_by_role("table", name="The first 4 rows of scores.csv")
+    assert sample.get_by_role("columnheader", name="score").is_visible()
     page.get_by_role("button", name="Ask the AI to describe patterns").click()
     pages.check(f"The AI's interpretation is ready: {TITLE}")
     assert page.get_by_text("It is an interpretation, not a result").is_visible()
@@ -202,30 +216,55 @@ def test_research_journey_end_to_end(live, browser):
     pages.check(TITLE)
 
     # Stage 4: draft paper, with the citation check done by the site.
-    page.get_by_role("button", name="Write a draft paper").click()
+    page.get_by_role("button", name="Write a draft paper", exact=True).click()
     pages.check(f"Draft paper is ready: {TITLE}")
     assert page.get_by_role("heading", name="What the site checked", level=2).is_visible()
     unmatched = page.get_by_role("heading", name="Citations the site could not match", level=2)
     assert unmatched.is_visible()
+    assert page.get_by_text('[7] in: "A made-up claim [7]." (Abstract)').is_visible()
     assert page.get_by_text("Places marked [RESULT NEEDED]: 1.").is_visible()
-    assert page.get_by_role("link", name="Start a paper in Write with this title").is_visible()
+    assert page.get_by_role("heading", name="The draft, written by the AI (not checked)", level=2).is_visible()
+    # A citation number leads to its source, and the source leads back to the sentence.
+    page.get_by_role("link", name="source 2", exact=True).click()
+    assert page.url.endswith("#source-2")
+    assert page.evaluate("document.activeElement.id") == "source-2"
+    page.get_by_role("link", name="Back to [2] in the text").click()
+    assert page.url.endswith("#cite-2")
+    assert page.evaluate("document.activeElement.id") == "cite-2"
     with page.expect_download() as info:
         page.get_by_role("link", name="Download the draft as Markdown").click()
     text = open(info.value.path(), encoding="utf-8").read()
     assert "Citations the site could not match: [7]" in text and "Not checked:" in text
 
-    # Running a stage again keeps the earlier version, which can be read.
+    # Running a stage again keeps the earlier version, which can be read, downloaded and made current.
     fake.on("research.draft", "# Second\n## Abstract\nOnly [1].\n")
-    page.get_by_role("button", name="Write the draft again").click()
+    page.get_by_role("button", name="Write the draft paper again (uses your key or credits)").click()
     pages.check(f"Draft paper is ready: {TITLE}")
     versions = page.get_by_role("heading", name="Earlier versions", level=2)
     assert versions.is_visible()
-    page.get_by_role("link", name=re.compile(r"^Version from \d{4}-\d{2}-\d{2} ")).click()
+    page.get_by_role("link", name=re.compile(r"^Version from \d{1,2} [A-Z][a-z]+ \d{4}, \d{2}:\d{2} UTC$")).click()
     pages.check()
     assert page.get_by_role("heading", level=1).inner_text().startswith(f"Draft paper: {TITLE}, version from ")
     assert page.get_by_text("This is an earlier version.").is_visible()
+    with page.expect_download() as info:
+        page.get_by_role("link", name=re.compile(r"^Download this version \(.+\) as Markdown$")).click()
+    assert "A made-up claim [7]" in open(info.value.path(), encoding="utf-8").read()
     page.get_by_role("link", name="Read the latest draft").click()
     pages.check(f"Draft paper: {TITLE}")
+    page.get_by_role("link", name=re.compile(r"^Version from ")).click()
+    page.get_by_role("button", name="Make this the current draft").click()
+    pages.check()
+    heading = page.get_by_role("heading", level=1).inner_text()
+    assert heading.startswith("The draft from ") and heading.endswith(f"is now the current version: {TITLE}")
+    assert page.get_by_text("A made-up claim").first.is_visible()
+
+    # The draft is copied into a new Write document, with a note that the AI wrote it.
+    # (Write's own page is checked by Write's tests; here only that the copy arrived and says who wrote it.)
+    page.get_by_role("button", name="Copy this draft into a new Write document").click()
+    page.wait_for_load_state()
+    assert re.search(r"/write/\d+$", page.url)
+    assert page.get_by_role("status").filter(has_text="The AI wrote it and nobody has checked it.").is_visible()
+    page.go_back()
     page.get_by_role("link", name=f"Back to {TITLE}").click()
     pages.check(TITLE)
     assert page.get_by_text("4 of 4 stages done").is_visible()
@@ -264,19 +303,19 @@ def test_research_works_without_javascript(live, browser):
     page.get_by_role("button", name="Find prior work").click()
     pages.check("Prior work is ready: No script study")
     page.get_by_role("link", name="Back to No script study").click()
-    page.get_by_role("button", name="Write a study plan").click()
+    page.get_by_role("button", name="Write a study plan", exact=True).click()
     pages.check("Study plan is ready: No script study")
     page.get_by_role("link", name="Back to No script study").click()
     page.get_by_role("link", name="Add notes and data").click()
     pages.check("Notes and data: No script study")
     page.get_by_label("CSV file").set_input_files(
         files=[{"name": "s.csv", "mimeType": "text/csv", "buffer": CSV_TEXT.encode()}])
-    page.get_by_role("button", name="Upload and compute the facts").click()
-    pages.check("The site computed facts from s.csv: 4 rows and 3 columns: No script study")
+    page.get_by_role("button", name="Save notes and file").click()
+    pages.check("Facts computed from s.csv: No script study")
     page.get_by_role("button", name="Ask the AI to describe patterns").click()
     pages.check("The AI's interpretation is ready: No script study")
     page.get_by_role("link", name="Back to No script study").click()
-    page.get_by_role("button", name="Write a draft paper").click()
+    page.get_by_role("button", name="Write a draft paper", exact=True).click()
     pages.check("Draft paper is ready: No script study")
     assert page.get_by_role("link", name="Download the draft as Markdown").is_visible()
     page.get_by_role("link", name="Back to No script study").click()
@@ -313,7 +352,7 @@ def test_long_unbroken_text_does_not_scroll_sideways(live, browser):
     page.get_by_label("CSV file").set_input_files(files=[{
         "name": "wide.csv", "mimeType": "text/csv",
         "buffer": ("q" * 300 + ",n\n" + "w" * 300 + ",1\n").encode()}])
-    page.get_by_role("button", name="Upload and compute the facts").click()
+    page.get_by_role("button", name="Save notes and file").click()
     pages.check()
     pages.assert_clean()
     _answers(fake)

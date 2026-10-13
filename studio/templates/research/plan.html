@@ -1,30 +1,38 @@
 {% extends "base.html" %}
-{% from "_macros.html" import post_button, sources_list %}
+{% from "_macros.html" import post_button %}
+{% from "research/_sources.html" import numbered_sources %}
 {% block content %}
 <h1>{{ title }}</h1>
 {% if item %}
-<p class="panel">Written by the AI on {{ item.created_at[:10] }} from your question and the prior work. It is a plan for you to check, not a tested design. Pilot every survey and task with blind participants before the real study.</p>
+<p class="panel">Written by the AI on {{ item.created_at|date_words }} from your question and the prior work. It is a plan for you to check, not a tested design. Pilot every survey and task with people like your participants before the real study.</p>
 {% if not is_latest %}<p>This is an earlier version. <a href="{{ stage_url }}">Read the latest study plan</a>.</p>{% endif %}
-{% set unmatched = item.meta.citations.unmatched if item.meta.citations else [] %}
-<p>Checked by the site: each citation number in square brackets was compared with the numbered sources. {% set matched = item.meta.citations.matched if item.meta.citations else [] %}{% if unmatched %}{{ unmatched|length }} could not be matched.{% elif matched %}Every one matches a source.{% else %}The plan cites no numbered sources.{% endif %} Not checked: whether a source supports the sentence that cites it.</p>
+{% set unmatched = citations.unmatched or [] %}
+<p>Checked by the site: each citation number in square brackets was compared with the numbered sources. {% if unmatched %}{{ unmatched|length }} could not be matched.{% elif citations.matched %}Every one matches a source, and each links to it.{% else %}The plan cites no numbered sources.{% endif %} Not checked: whether a source supports the sentence that cites it.</p>
 {% if unmatched %}
 <h2>Citations the site could not match</h2>
-<p>The plan cites {% for n in unmatched %}[{{ n }}]{{ ', ' if not loop.last }}{% endfor %}, but there {{ 'is' if item.sources|length == 1 else 'are' }} only {{ item.sources|length }} numbered source{{ '' if item.sources|length == 1 else 's' }}. Treat those claims as unsupported.</p>
+<p>The AI cited these numbers, but {% if item.sources %}there {{ 'is' if item.sources|length == 1 else 'are' }} only {{ item.sources|length }} numbered source{{ '' if item.sources|length == 1 else 's' }}{% else %}there are no numbered sources{% endif %}. Treat those claims as unsupported.</p>
+{% include "research/_places.html" %}
 {% endif %}
-<h2>The study plan</h2>
+<h2>The study plan, written by the AI (not checked)</h2>
 {{ content_html }}
-{{ sources_list(item.sources, 2, 'Numbered sources from the prior work') }}
+{{ numbered_sources(item.sources, 'Numbered sources from the prior work', cited_first) }}
 <h2>What next</h2>
 <div class="actions">
-  <a class="button button-primary" href="/research/{{ project.id }}">Back to {{ project.title }}</a>
-  {{ post_button(stage_url, 'Write the plan again') }}
-  <a href="/research/{{ project.id }}/plan.md">Download the study plan as Markdown</a>
+  {% if is_latest and next_action %}
+    {% if next_action.kind == 'button' %}{{ post_button(next_action.url, next_action.label, 'primary') }}{% else %}<a class="button button-primary" href="{{ next_action.url }}">{{ next_action.label }}</a>{% endif %}
+  {% endif %}
+  <a href="{{ download_url }}">{{ download_label }}</a>
+  {% if not is_latest %}{{ post_button(stage_url ~ '/restore', restore_label, hidden={'version': item.id}) }}{% endif %}
+  <a href="/research/{{ project.id }}">Back to {{ project.title }}</a>
 </div>
+{% include "research/_again.html" %}
 {% include "research/_versions.html" %}
 {% else %}
-<p>No study plan yet. The AI writes one from your question and the prior work, including how to recruit blind participants and make every survey and task usable with a screen reader.</p>
+<p>No study plan yet. The AI writes one from your question and the prior work, with every survey and task accessible to participants and to you.</p>
+{% if not sources_ready %}<p>{{ no_sources_note }}</p>{% endif %}
 <div class="actions">
-  {{ post_button(stage_url, 'Write a study plan', 'primary') }}
+  {% if sources_ready %}{{ post_button(stage_url, stage.start, 'primary') }}{% else %}<a class="button button-primary" href="/research/{{ project.id }}/prior-work">Go to stage 1, prior work</a>
+  {{ post_button(stage_url, stage.start_no_sources) }}{% endif %}
   <a href="/research/{{ project.id }}">Back to {{ project.title }}</a>
 </div>
 {% endif %}
