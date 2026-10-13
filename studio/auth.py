@@ -11,7 +11,7 @@ from starlette.concurrency import run_in_threadpool
 
 from . import credits, db, limits
 from .security import hash_password, verify_password
-from .sensitive import SECRET_MESSAGE
+from .sensitive import API_KEY_MESSAGE, SECRET_MESSAGE
 from .web import (checked_form, current_user, end_all_sessions, error_title, flash, forget_kept_form, has_kept_form,
                   redirect, render, require_user, sign_in)
 
@@ -60,8 +60,7 @@ def secret_problem(text: str) -> str | None:
     if not text:
         return None
     if _SECRET_KEY_RE.search(text):
-        return ("This looks like a Claude API key, so it was not saved. Please take it out: other members could see "
-                "it. To use your key, connect it on Your account.")
+        return API_KEY_MESSAGE
     for run in _CARD_RUN_RE.finditer(text):
         digits = re.sub(r"\D", "", run.group(0))
         if 13 <= len(digits) <= 19 and _luhn_ok(digits):

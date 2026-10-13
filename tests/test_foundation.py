@@ -222,6 +222,33 @@ def test_checker_finds_common_problems():
     assert report.not_checked
 
 
+def test_checker_findings_lead_with_the_effect_on_visitors():
+    """Each finding says what visitors meet first, in plain words, then the technical fix for the AI."""
+    bad = """<html><head><meta http-equiv="refresh" content="5"></head><body><h1>A</h1><h1></h1><h4>B</h4>
+    <img src="a.png"><input name="q"><input type="submit"><input type="image" src="b.png"><button></button>
+    <a href="/x"></a><div id="d"></div><div id="d"></div><iframe src="/f"></iframe><span tabindex="3">x</span>
+    <div aria-hidden="true"><a href="/y">y</a></div><table><tr><td>1</td></tr></table><audio autoplay></audio>
+    <meta name="viewport" content="width=device-width, user-scalable=no"><script></script></body></html>"""
+    report = a11y_check.check_html(bad + " " * 61_000)
+    rules = {f.rule for f in report.findings}
+    assert rules == set(a11y_check.RULES), set(a11y_check.RULES) - rules
+    for f in report.findings:
+        lead = f.message.split(". ")[0]
+        assert not re.search(r"[<>=]|\b(?:alt|aria|tabindex|lang|h\d)\b", lead), f.message
+        assert len(f.message.split(". ")) >= 2, f.message  # the technical part follows
+    assert "The page has 2 main headings (h1)." in next(f.message for f in report.findings if f.rule == "one-h1")
+    none = a11y_check.check_html("<html lang='en'><title>x</title><main>x</main></html>")
+    assert "The page has no main heading (h1)." in next(f.message for f in none.findings if f.rule == "one-h1")
+
+
+def test_checker_lists_what_it_does_not_check_in_plain_words():
+    assert a11y_check.NOT_CHECKED[:2] == [
+        "How a real screen reader reads the page, in speech and in braille (ask for a peer check).",
+        "Contrast, layout and spacing: not measured here.",
+    ]
+    assert sum("contrast" in item.lower() for item in a11y_check.NOT_CHECKED) == 1
+
+
 def test_checker_passes_a_good_page():
     good = """<!doctype html><html lang="en"><head><title>Cakes</title>
     <meta name="viewport" content="width=device-width, initial-scale=1"></head>
@@ -246,7 +273,7 @@ def _h1(html: str) -> str:
 
 
 def _title(html: str) -> str:
-    return re.search(r"<title>(.*?) – ", html).group(1)
+    return re.search(r"<title>(.*), [^,<]*</title>", html, re.S).group(1)
 
 
 @pytest.mark.parametrize("bad", ["//evil.example", "/\\evil.example", "/\t/evil.example", "/\n/evil.example",
@@ -265,6 +292,16 @@ def test_sign_in_with_backslash_next_stays_on_site(client):
     r = post(client, "/login", {"email": "amina@example.com", "password": "correct horse battery",
                                 "next": "/\\evil.example"}, follow_redirects=False)
     assert r.headers["location"] == "/"
+
+
+def test_page_title_is_the_page_then_a_comma_and_the_site_name(client):
+    """A comma, not an en dash, between page and site name, so braille lines stay clean (docs/VOICE.md 4.17)."""
+    r = client.get("/help")
+    assert "<title>Ask the community, Blind Creators Studio</title>" in r.text
+    assert "–" not in re.search(r"<title>(.*?)</title>", r.text, re.S).group(1)
+    # A page name with its own comma still splits on the last one.
+    assert _title("<title>Build your ideas with AI: websites, apps, writing and research, Blind Creators Studio"
+                  "</title>") == "Build your ideas with AI: websites, apps, writing and research"
 
 
 def test_form_errors_keep_h1_and_title_the_same(client):
@@ -291,7 +328,7 @@ def test_register_limits_and_secrets(client):
         assert f'href="#field-{name}"' in r.text, name
     r = post(client, "/register", {"email": "k@example.com", "display_name": "sk-ant-api03-Ab12Cd34Ef56",
                                    "password": "long enough pw"})
-    assert r.status_code == 400 and "looks like a Claude API key" in r.text
+    assert r.status_code == 400 and "To use your own Claude API key, connect it on Your account." in r.text
     assert "sk-ant-api03-Ab12Cd34Ef56" not in r.text
 
 

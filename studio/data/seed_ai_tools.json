@@ -8,7 +8,7 @@
       "vendor": "Anthropic",
       "kind": "terminal",
       "url": "https://code.claude.com/docs/en/accessibility",
-      "research_note": "Claude Code has a screen reader mode. Turn it on by starting it with claude --ax-screen-reader, by setting the environment variable CLAUDE_AX_SCREEN_READER=1, or with \"axScreenReader\": true in its settings file; it needs version 2.1.181 or later and was officially released on 20 July 2026. The mode prints plain labelled lines (you:, claude:, tool:, Permission Required:), turns menus into numbered lists you answer by typing a number, reads changes line by line with plus and minus before you approve them, and rings the terminal bell when a reply ends or a question waits. It does not turn on by itself when a screen reader is running, costs are announced only when you exit, and on 17 August 2026 an Anthropic maintainer confirmed that built-in speech, plain-language tool names and heading rules for replies are not shipped.",
+      "research_note": "Claude Code has a screen reader mode. You turn it on yourself, because it does not turn on by itself when a screen reader is running. To turn it on, start it with claude --ax-screen-reader, set the environment variable CLAUDE_AX_SCREEN_READER=1, or add \"axScreenReader\": true to its settings file. It needs version 2.1.181 or later and was officially released on 20 July 2026. It prints plain labelled lines (you:, claude:, tool:, Permission Required:). It turns menus into numbered lists, and you answer by typing a number. Before you approve changes, it reads them line by line, with plus and minus. It rings the terminal bell when a reply ends or a question waits. Known gap: costs are shown only when you exit. On 17 August 2026 an Anthropic maintainer confirmed that built-in speech, plain-language tool names and heading rules for replies are not shipped.",
       "sources": [
         {"title": "Claude Code accessibility documentation", "url": "https://code.claude.com/docs/en/accessibility"},
         {"title": "Use Claude Code CLI with a screen reader (support article)", "url": "https://support.claude.com/en/articles/15924927-use-claude-code-cli-with-a-screen-reader"},
@@ -23,7 +23,7 @@
       "vendor": "Anthropic",
       "kind": "editor",
       "url": "https://code.claude.com/docs/en/vs-code",
-      "research_note": "Since version 2.1.236 (19 August 2026) the Claude Code extension for VS Code announces each reply once when it is complete, and announces permission requests, errors and status changes, with no setting needed. Each turn has a hidden heading so you can jump from turn to turn, and version 2.1.268 added the command Claude Code: Focus last message. A VoiceOver user reported on 28 September 2026 that version 2.1.283 stopped echoing typed characters (issue 97889).",
+      "research_note": "The Claude Code extension for VS Code announces each reply once, when it is complete. This came in version 2.1.236 (19 August 2026), with no setting needed. It also announces permission requests, errors and status changes. Each turn has a hidden heading, so you can jump from turn to turn. Version 2.1.268 added the command Claude Code: Focus last message. A VoiceOver user reported on 28 September 2026 that version 2.1.283 stopped echoing typed characters (issue 97889).",
       "sources": [
         {"title": "Claude Code in VS Code documentation", "url": "https://code.claude.com/docs/en/vs-code"},
         {"title": "Claude Code v2.1.236 release", "url": "https://github.com/anthropics/claude-code/releases/tag/v2.1.236"},
@@ -37,7 +37,7 @@
       "vendor": "Anthropic",
       "kind": "desktop app",
       "url": "https://code.claude.com/docs/en/desktop",
-      "research_note": "Desktop version 1.17377 (21 July 2026) added a heading for each turn, permission requests announced without taking focus, and announcements when a response starts and ends. Still open in October 2026: the list of messages in a conversation removes the message your screen reader is reading (issue 99332), the file and change panel reads every line as \"Add comment\" with VoiceOver (issue 100911), and NVDA users report a silent slash menu and new replies that are not announced (issues 94353 and 95937). A community script, claude-desktop-stable-feed, keeps every message loaded, but you must paste it into the developer console each time you start the app, and it was tested on Windows only.",
+      "research_note": "Desktop version 1.17377 (21 July 2026) added a heading for each turn. It also announces permission requests without taking focus, and announces when a response starts and ends. Three problems were still open in October 2026. The list of messages in a conversation removes the message your screen reader is reading (issue 99332). With VoiceOver, the file and change panel reads every line as \"Add comment\" (issue 100911). NVDA users report a silent slash menu, and new replies that are not announced (issues 94353 and 95937). A community script, claude-desktop-stable-feed, keeps every message loaded. You must paste it into the developer console each time you start the app. It was tested on Windows only.",
       "sources": [
         {"title": "Issue 69996: NVDA problems in Claude Desktop, with the fix confirmed", "url": "https://github.com/anthropics/claude-code/issues/69996"},
         {"title": "Issue 99332: the transcript unmounts what the screen reader is reading", "url": "https://github.com/anthropics/claude-code/issues/99332"},
@@ -53,7 +53,7 @@
       "vendor": "OpenAI",
       "kind": "terminal",
       "url": "https://github.com/openai/codex",
-      "research_note": "Codex CLI has no dedicated screen reader mode. Since 1 May 2026 the setting tui.animations=false turns every animation off, and since 16 September 2026 Codex checks for a running screen reader when it starts and, if it finds one, saves that setting for you. Version 0.154.0 made VoiceOver read fragments of output until animations were turned off (issue 44728). The request for a --screen-reader flag (issue 20489, 30 April 2026) is still open; in October a JAWS user still reported repeated speech and a VoiceOver user could reach only the end of the conversation.",
+      "research_note": "Codex CLI has no dedicated screen reader mode. Since 1 May 2026, the setting tui.animations=false turns every animation off. Since 16 September 2026, Codex checks for a running screen reader when it starts. If it finds one, it saves that setting for you. Version 0.154.0 made VoiceOver read fragments of output until animations were turned off (issue 44728). The request for a --screen-reader flag (issue 20489, 30 April 2026) is still open. In October, a JAWS user still reported repeated speech, and a VoiceOver user could reach only the end of the conversation.",
       "sources": [
         {"title": "Issue 20489: add a screen reader flag", "url": "https://github.com/openai/codex/issues/20489"},
         {"title": "Pull request 20564: enforce animations off for screen readers", "url": "https://github.com/openai/codex/pull/20564"},
@@ -68,7 +68,7 @@
       "vendor": "OpenAI",
       "kind": "desktop app",
       "url": "https://github.com/openai/codex",
-      "research_note": "Screen reader users filed about ten accessibility issues on the Codex desktop app, now part of the ChatGPT desktop app, between April and October 2026. Reported problems include focus jumping to the top while it writes (issue 22816), a \"/\" suggestion menu that NVDA cannot see (issue 32375), no status announcements (issue 38246), and replies during an active task arriving with no VoiceOver announcement (issue 52784, 10 October 2026). A JAWS user reported in July that most heading problems were fixed, and a VoiceOver user on AppleVis, in a post whose date could not be confirmed, called the Mac app the best native experience they had used with VoiceOver, though lacking features.",
+      "research_note": "Screen reader users filed about ten accessibility issues on the Codex desktop app between April and October 2026. The app is now part of the ChatGPT desktop app. Reported problems include focus jumping to the top while it writes (issue 22816). NVDA cannot see the \"/\" suggestion menu (issue 32375). There are no status announcements (issue 38246). Replies during an active task arrive with no VoiceOver announcement (issue 52784, 10 October 2026). A JAWS user reported in July that most heading problems were fixed. A VoiceOver user on AppleVis called the Mac app the best native experience they had used with VoiceOver, though lacking features. That post's date could not be confirmed.",
       "sources": [
         {"title": "Issue 22816: focus jumps to the top while generating", "url": "https://github.com/openai/codex/issues/22816"},
         {"title": "Issue 32375: slash suggestion menu invisible to screen readers", "url": "https://github.com/openai/codex/issues/32375"},
@@ -84,7 +84,7 @@
       "vendor": "GitHub",
       "kind": "terminal",
       "url": "https://github.com/github/copilot-cli",
-      "research_note": "GitHub Copilot CLI has had a --screen-reader mode since October 2025, before it became generally available on 25 February 2026. Its new terminal interface, generally available on 23 June 2026, turns screen reader support on by itself when it detects a screen reader, with labelled icons and animations that switch themselves off. Version 1.0.71 (16 July 2026) announces the focused row in pickers and 1.0.81 (27 August 2026) added Ctrl+Space to turn voice dictation on and off. Issue 1642, filed in February by a blind developer, says the status bar is announced on every keypress and has had no reply from the maintainers.",
+      "research_note": "GitHub Copilot CLI has had a --screen-reader mode since October 2025. That was before it became generally available on 25 February 2026. Its new terminal interface became generally available on 23 June 2026. It turns screen reader support on by itself when it detects a screen reader. Its icons are labelled, and its animations switch themselves off. Version 1.0.71 (16 July 2026) announces the focused row in pickers. Version 1.0.81 (27 August 2026) added Ctrl+Space to turn voice dictation on and off. Issue 1642, filed in February by a blind developer, says the status bar is announced on every keypress. The maintainers have not replied to it.",
       "sources": [
         {"title": "Copilot CLI changelog", "url": "https://raw.githubusercontent.com/github/copilot-cli/main/changelog.md"},
         {"title": "GitHub changelog: Copilot CLI new terminal interface is generally available", "url": "https://github.blog/changelog/2026-06-23-copilot-cli-new-terminal-interface-is-generally-available/"},
@@ -98,7 +98,7 @@
       "vendor": "Microsoft and GitHub",
       "kind": "editor",
       "url": "https://code.visualstudio.com/",
-      "research_note": "VS Code 1.116 (15 April 2026) added an accessibility help dialog for the Agents window, opened with Alt+F1, and landmarks. Version 1.131 (29 July 2026) added experimental built-in offline dictation in chat, editor and terminal, and a terminal accessible view that keeps your reading position while output keeps arriving. Version 1.137 added an experimental Voice Mode for talking to an agent, for individual Copilot plans only. Still open: NVDA stops reading after file dialogs (issue 326546).",
+      "research_note": "VS Code 1.116 (15 April 2026) added landmarks and an accessibility help dialog for the Agents window. You open that dialog with Alt+F1. Version 1.131 (29 July 2026) added experimental built-in offline dictation in chat, editor and terminal. It also added a terminal accessible view that keeps your reading position while output keeps arriving. Version 1.137 added an experimental Voice Mode for talking to an agent. Voice Mode is for individual Copilot plans only. Still open: NVDA stops reading after file dialogs (issue 326546).",
       "sources": [
         {"title": "VS Code 1.116 release notes", "url": "https://raw.githubusercontent.com/microsoft/vscode-docs/main/release-notes/v1_116.md"},
         {"title": "VS Code 1.131 release notes", "url": "https://raw.githubusercontent.com/microsoft/vscode-docs/main/release-notes/v1_131.md"},
@@ -112,7 +112,7 @@
       "vendor": "Anysphere",
       "kind": "editor",
       "url": "https://cursor.com/",
-      "research_note": "Cursor 3.23 (early October 2026) lists accessibility fixes: screen readers announce the highlighted item and its position in the agent input's / and @ menus, and buttons in the agent chat show a focus ring when reached by keyboard. Older forum reports, whose dates could not be confirmed, describe the agent panel as \"completely opaque\" to NVDA and JAWS, while the editor itself works like VS Code. No Cursor accessibility statement, and no blind user confirming the 3.23 fixes, was found.",
+      "research_note": "Cursor 3.23 (early October 2026) lists accessibility fixes. Screen readers announce the highlighted item and its position in the agent input's / and @ menus. Buttons in the agent chat show a focus ring when reached by keyboard. Older forum reports describe the agent panel as \"completely opaque\" to NVDA and JAWS. The same reports say the editor itself works like VS Code. Their dates could not be confirmed. No Cursor accessibility statement was found. No blind user confirming the 3.23 fixes was found either.",
       "sources": [
         {"title": "Cursor release notes", "url": "https://cursor.com/docs/release-notes"},
         {"title": "Version tracker entry for Cursor 3.23.12", "url": "https://github.com/agent-sh/agnix/issues/1599"},
@@ -125,7 +125,7 @@
       "vendor": "Google",
       "kind": "terminal",
       "url": "https://github.com/google-gemini/gemini-cli",
-      "research_note": "Gemini CLI has a plain-text screen reader mode: start it with --screen-reader, or set ui.accessibility.screenReader to true in its settings. A user on the Antigravity CLI tracker called it \"very usable with a screen reader\", but its screen reader cursor bug was closed as not planned on 10 May 2026. On 18 June 2026 Gemini CLI stopped serving free, Google AI Pro and Ultra requests in favour of Antigravity CLI; paid API keys and Code Assist Standard and Enterprise are not affected.",
+      "research_note": "Gemini CLI has a plain-text screen reader mode. Start it with --screen-reader, or set ui.accessibility.screenReader to true in its settings. A user on the Antigravity CLI tracker called it \"very usable with a screen reader\". Its screen reader cursor bug was closed as not planned on 10 May 2026. On 18 June 2026, Gemini CLI stopped serving free, Google AI Pro and Ultra requests, in favour of Antigravity CLI. Paid API keys and Code Assist Standard and Enterprise are not affected.",
       "sources": [
         {"title": "Gemini CLI settings documentation", "url": "https://raw.githubusercontent.com/google-gemini/gemini-cli/main/docs/cli/settings.md"},
         {"title": "Issue 19465: screen reader mode does not support the cursor", "url": "https://github.com/google-gemini/gemini-cli/issues/19465"},
@@ -139,7 +139,7 @@
       "vendor": "Google",
       "kind": "terminal",
       "url": "https://github.com/google-antigravity/antigravity-cli",
-      "research_note": "Antigravity CLI, which replaced Gemini CLI for free users on 18 June 2026, has no screen reader mode. The request to restore --screen-reader support (issue 6, opened 19 May 2026) is still open; a Google engineer assigned it to themselves on 20 August 2026 with no reply since. A blind VoiceOver user reported they could not get past the first-run setup, and another user called it \"impossible for some tasks\".",
+      "research_note": "Antigravity CLI has no screen reader mode. It replaced Gemini CLI for free users on 18 June 2026. The request to restore --screen-reader support (issue 6, opened 19 May 2026) is still open. A Google engineer assigned it to themselves on 20 August 2026, with no reply since. A blind VoiceOver user reported they could not get past the first-run setup. Another user called it \"impossible for some tasks\".",
       "sources": [
         {"title": "Issue 6: please restore --screen-reader support", "url": "https://github.com/google-antigravity/antigravity-cli/issues/6"},
         {"title": "Transitioning Gemini CLI to Antigravity CLI", "url": "https://github.com/google-gemini/gemini-cli/discussions/27274"}
@@ -151,7 +151,7 @@
       "vendor": "Cognition",
       "kind": "editor",
       "url": "https://devin.ai/desktop",
-      "research_note": "Cognition renamed Windsurf to Devin Desktop on 2 June 2026 and replaced its Cascade agent with Devin Local. A \"Screen Reader Optimized\" marketing claim could not be confirmed by any user report, test or documentation. Nothing was found about how the Devin cloud agent works with screen readers.",
+      "research_note": "Cognition renamed Windsurf to Devin Desktop on 2 June 2026, and replaced its Cascade agent with Devin Local. Its \"Screen Reader Optimized\" marketing claim could not be confirmed by any user report, test or documentation. Nothing was found about how the Devin cloud agent works with screen readers.",
       "sources": [
         {"title": "Windsurf is now Devin Desktop: what actually changed", "url": "https://byteiota.com/windsurf-is-now-devin-desktop-what-actually-changed/"},
         {"title": "Cognition turns Windsurf into Devin Desktop", "url": "https://alphasignal.ai/news/cognition-turns-windsurf-into-devin-desktop-with-a-30-faster-local-agent"}
@@ -163,7 +163,7 @@
       "vendor": "Lovable",
       "kind": "website",
       "url": "https://lovable.dev/",
-      "research_note": "Lovable's accessibility statement, last updated 6 August 2026, aims for WCAG 2.2 level AA, based on an evaluation by Funka between 23 February and 10 July 2026. It is unclear whether this covers the workspace where you build or only the marketing site, and no reports from blind people building with Lovable were found. Nothing comparable was found for Bolt, v0, Base44 or Replit.",
+      "research_note": "Lovable's accessibility statement aims for WCAG 2.2 level AA, a common standard for web accessibility. It was last updated on 6 August 2026. It is based on an evaluation by Funka between 23 February and 10 July 2026. It is unclear whether it covers the workspace where you build, or only the marketing site. No reports from blind people building with Lovable were found. Nothing comparable was found for Bolt, v0, Base44 or Replit.",
       "sources": [
         {"title": "Lovable accessibility statement", "url": "https://lovable.dev/accessibility"}
       ]
@@ -174,7 +174,7 @@
       "vendor": "Anomaly",
       "kind": "terminal",
       "url": "https://github.com/anomalyco/opencode",
-      "research_note": "OpenCode has no accessibility mode. An earlier request was closed by a stale bot on 29 April 2026 after maintainers said they had no capacity, and a detailed proposal for a screen_reader setting from a blind NVDA user (issue 39368, 28 July 2026) is still open. Users report that the desktop app hides streaming text from screen readers, and issue 54652 (12 October 2026) says version 2 still does.",
+      "research_note": "OpenCode has no accessibility mode. An earlier request was closed by a stale bot, which closes quiet requests, on 29 April 2026. Before that, maintainers said they had no capacity. A blind NVDA user made a detailed proposal for a screen_reader setting (issue 39368, 28 July 2026). That proposal is still open. Users report that the desktop app hides streaming text from screen readers. Issue 54652 (12 October 2026) says version 2 still does.",
       "sources": [
         {"title": "Issue 8565: accessibility mode request", "url": "https://github.com/anomalyco/opencode/issues/8565"},
         {"title": "Issue 39368: screen reader friendly mode proposal", "url": "https://github.com/anomalyco/opencode/issues/39368"},
@@ -188,7 +188,7 @@
       "vendor": "serrebidev (community project)",
       "kind": "desktop app",
       "url": "https://github.com/serrebidev/BlindPilot",
-      "research_note": "BlindPilot is an open source desktop app (MIT licence) that runs Claude Code, Codex, Gemini CLI, Antigravity CLI, opencode and other agents, and splits each answer into rows you move through with the arrow keys, with narration modes, permission dialogs and sound cues. It had more than 130 tagged versions between 9 August and 11 October 2026. One person maintains it, the macOS build is not notarized, Linux is the least tested, and every agent runs in Bypass permissions mode by default, so the agent does not ask before it acts.",
+      "research_note": "BlindPilot is an open source desktop app (MIT licence) that runs AI coding agents. It runs Claude Code, Codex, Gemini CLI, Antigravity CLI, opencode and other agents. It splits each answer into rows you move through with the arrow keys. It has narration modes, permission dialogs and sound cues. It had more than 130 tagged versions between 9 August and 11 October 2026. One person maintains it. The macOS build is not notarized by Apple, and Linux is the least tested. Every agent runs in Bypass permissions mode by default, so the agent does not ask before it acts.",
       "sources": [
         {"title": "BlindPilot repository", "url": "https://github.com/serrebidev/BlindPilot"},
         {"title": "BlindPilot changelog", "url": "https://raw.githubusercontent.com/serrebidev/BlindPilot/main/CHANGELOG.md"},
@@ -201,7 +201,7 @@
       "vendor": "lpintes (community project)",
       "kind": "desktop app",
       "url": "https://github.com/lpintes/agentaloud",
-      "research_note": "agentaloud is a Windows app, started on 2 September 2026, that runs Claude Code or Codex in the background and shows the conversation as a read-only transcript, with single-letter keys to jump between prompts, answers and tool steps. Each tool step is spoken as one sentence through NVDA, and permission requests appear as dialogs that show the exact command. It needs Windows 10 or 11 and NVDA, and how mature it is was not known in October 2026.",
+      "research_note": "agentaloud is a Windows app, started on 2 September 2026, that runs Claude Code or Codex in the background. It shows the conversation as a read-only transcript. Single-letter keys jump between prompts, answers and tool steps. Each tool step is spoken as one sentence through NVDA. Permission requests appear as dialogs that show the exact command. It needs Windows 10 or 11 and NVDA. In October 2026 it was not known how mature it is.",
       "sources": [
         {"title": "agentaloud repository", "url": "https://github.com/lpintes/agentaloud"},
         {"title": "agentaloud README", "url": "https://raw.githubusercontent.com/lpintes/agentaloud/main/README.md"}

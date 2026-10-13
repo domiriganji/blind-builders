@@ -691,7 +691,8 @@ def _page_check(path: str, size: dict, m: dict, root: Path) -> PageCheck:
 
 
 def names_a_colour(text: str) -> bool:
-    """True if the text names a colour or holds a colour code (the member must never be told these)."""
+    """True if the text names a colour or holds a colour code. Used only for members who chose, in Your profile,
+    to hear looks described by their effect only (docs/VOICE.md 4.4); members who want colours get them."""
     lowered = text.lower()
     if re.search(r"#[0-9a-f]{3,8}\b", lowered):
         return True

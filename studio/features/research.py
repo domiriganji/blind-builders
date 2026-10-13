@@ -226,11 +226,8 @@ NO_SOURCES_NOTE = ("Stage 1 has not found any sources yet, so there are none to 
 
 # ----- small helpers ---------------------------------------------------------------------------
 
-# The shared wording for text that looks like a secret (docs/VOICE.md, 4.9). It allows for the detector being
-# wrong, because research notes about accessibility say "PIN" and "password" all the time.
-SECRET_MESSAGE = ("This looks like it includes a password, PIN, code, card number or API key, so it was not saved "
-                  "or sent to the AI. Please take it out: this site never needs them. If it is not one, change the "
-                  "wording a little, for example \"the PIN box is not announced\", and send it again.")
+# The shared wording for text that looks like a secret (docs/VOICE.md, 4.9), from studio/sensitive.py.
+SECRET_MESSAGE = sensitive.SECRET_MESSAGE
 SECRET_CONTEXT = 20  # characters quoted on each side of the words that looked like a secret
 
 

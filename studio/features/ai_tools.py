@@ -20,16 +20,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from .. import db
-from ..sensitive import find_secret
+from ..sensitive import PUBLIC_SUFFIX, SECRET_MESSAGE, find_secret
 from ..web import checked_form, current_user, date_words, error_title, redirect, render, require_user
-
-try:  # One wording for the secrets rule everywhere (docs/VOICE.md 4.9), once studio/sensitive.py has it.
-    from ..sensitive import PUBLIC_SUFFIX, SECRET_MESSAGE
-except ImportError:
-    SECRET_MESSAGE = ("This looks like it includes a password, PIN, code, card number or API key, so it was not "
-                      "saved or sent to the AI. Please take it out: this site never needs them. If it is not one, "
-                      "change the wording a little, for example \"the PIN box is not announced\", and send it again.")
-    PUBLIC_SUFFIX = "Everyone can read this page."
 
 router = APIRouter(prefix="/ai-tools")
 NAV = {"label": "AI tools report", "url": "/ai-tools",

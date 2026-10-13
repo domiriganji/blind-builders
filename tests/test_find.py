@@ -81,7 +81,7 @@ def test_index_lists_every_tool_in_pages(client):
     assert r.status_code == 200
     pages = (len(SEED) + find.PAGE_SIZE - 1) // find.PAGE_SIZE
     assert f"<h1>Find before you build: page 1 of {pages}</h1>" in r.text
-    assert f"<title>Find before you build: page 1 of {pages} – " in r.text
+    assert f"<title>Find before you build: page 1 of {pages}, Blind Creators Studio</title>" in r.text
     assert f"All tools in the directory ({len(SEED)})" in r.text
     assert f"Next page (2 of {pages})" in r.text and "Page 1 of" in r.text
     assert r.text.count('<h3><a href="/find/tool/') == find.PAGE_SIZE
@@ -440,7 +440,7 @@ def test_no_ai_explains_and_keeps_the_need(no_ai_app):
 # ----- audit regressions -----------------------------------------------------------------------
 
 H1_RE = re.compile(r"<h1>(.*?)</h1>", re.S)
-TITLE_RE = re.compile(r"<title>(.*?) – ", re.S)
+TITLE_RE = re.compile(r"<title>(.*), [^,<]*</title>", re.S)
 
 
 def assert_h1_is_title(html: str) -> str:

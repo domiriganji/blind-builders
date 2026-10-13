@@ -70,7 +70,7 @@ def _h1(html: str) -> str:
 
 
 def _title(html: str) -> str:
-    return re.search(r"<title>(.*?) – ", html, re.S).group(1).strip()
+    return re.search(r"<title>(.*), [^,<]*</title>", html, re.S).group(1).strip()
 
 
 def _errand(errand_id: int) -> dict:

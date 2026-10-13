@@ -823,11 +823,8 @@ def looks_like_secret(text: str) -> bool:
     return any(r.search(text) for r in _SECRET_RES)
 
 
-# The shared wording from docs/VOICE.md 4.9. It allows for the detector being wrong, because ideas for
-# websites mention PINs and passwords all the time.
-SECRET_MESSAGE = ("This looks like it includes a password, PIN, code, card number or API key, so it was not saved "
-                  "or sent to the AI. Please take it out: this site never needs them. If it is not one, change the "
-                  "wording a little, for example \"the PIN box is not announced\", and send it again.")
+# The shared wording from docs/VOICE.md 4.9, from studio/sensitive.py.
+SECRET_MESSAGE = sensitive.SECRET_MESSAGE
 
 
 def _display_title(project: dict) -> str:

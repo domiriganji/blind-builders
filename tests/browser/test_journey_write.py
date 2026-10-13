@@ -94,8 +94,10 @@ def test_create_validation_moves_focus_to_the_field(live, browser):
     assert h1(page) == "Please check 2 answers: Été: a story"
     assert_page_ok(page, "save errors")
     assert page.get_by_role("textbox", name="Your text").input_value() == "My card is 4111 1111 1111 1111."  # nothing lost
-    follow_error_link(page, "This looks like it includes a card number. Please take it out. This site never needs "
-                            "your card details, and the AI must not see them. Then save again.",
+    follow_error_link(page, "This looks like it includes a password, PIN, code, card number or API key, so it was "
+                            "not saved or sent to the AI. Please take it out: this site never needs them. If it is "
+                            "not one, change the wording a little, for example \"the PIN box is not announced\", "
+                            "and send it again. Then save again.",
                       page.get_by_role("textbox", name="Your text"))
     follow_error_link(page, "Enter a title for your document.", page.get_by_label("Title", exact=True))
 

@@ -263,13 +263,9 @@ def looks_secret(text: str) -> bool:
     return False
 
 
-# One wording for this rule across the site (docs/VOICE.md, 4.9), plus the reason that fits a public page.
-# The shared words live in studio/sensitive.py; the fallbacks here are the same words.
-SECRET_MESSAGE = getattr(sensitive, "SECRET_MESSAGE", (
-    "This looks like it includes a password, PIN, code, card number or API key, so it was not saved or sent to "
-    "the AI. Please take it out: this site never needs them. If it is not one, change the wording a little, for "
-    "example \"the PIN box is not announced\", and send it again.")) + getattr(
-    sensitive, "PUBLIC_SUFFIX", " Everyone can read this page.")
+# One wording for this rule across the site (docs/VOICE.md, 4.9), from studio/sensitive.py, with the reason
+# that fits a public page.
+SECRET_MESSAGE = sensitive.PUBLIC_SECRET_MESSAGE
 
 
 # ----- data helpers --------------------------------------------------------------------------------

@@ -97,7 +97,7 @@ If a change made things worse, say what went wrong in plain words, the same way 
 
 Machine checks and the AI cannot tell you what a screen reader user experiences. Kelly Ford, a screen reader user for decades who built an email app with AI, put it this way: "AI can implement accessibility patterns. Only a screen reader user can verify that they actually work." ([Kelly Ford's QuickMail story (source)](https://raw.githubusercontent.com/kellylford/QuickMail/main/docs/planning/the-quickmail-story.md))
 
-In [Peer checks](/checks), ask blind and low-vision members to test your website with their own screen reader, braille display or magnifier and device. Say what you want them to try, for example "order a cake from start to finish". Their findings are saved in their own words, including what they could not test. When you can, check someone else's work too. That is how the community keeps working without staff.
+In [Peer checks](/checks), ask blind and low-vision members to test your website with their own screen reader, braille display or magnifier and device. Say what you want them to try, for example "order a cake from start to finish". Each check is saved in the checker's own words, including what they could not test, in a public record anyone can verify. When you can, check someone else's work too. That is how the community keeps working without staff.
 
 ## When you are ready to share it
 

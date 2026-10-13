@@ -732,7 +732,7 @@
  {
   "name": "rcdo",
   "url": "https://github.com/afterdarksys/rcdo",
-  "description": "Screen reader and braille friendly summaries of Terraform, Ansible, AWS and gcloud output, written by a 90 percent blind operator.",
+  "description": "Screen reader and braille friendly summaries of Terraform, Ansible, AWS and gcloud output, written by an operator who is 90 percent blind.",
   "category": "Other",
   "made_by_blind": true,
   "maintainer": "Ryan Coleman",

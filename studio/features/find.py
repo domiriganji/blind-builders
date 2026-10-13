@@ -101,14 +101,10 @@ _DIGIT_RUN_RE = re.compile(r"\d+(?:[ -]\d+)*")
 _PASSWORD_RE = re.compile(r"\b(password|passwd|passphrase)\b\s*(is|:|=)", re.I)
 _CODE_RE = re.compile(r"\b(passcode|pin|one[- ]time code|otp|security code|verification code|cvv|cvc)\b"
                       r"\s*(?:is|:|=)?\s*\d{3,}", re.I)
-# One wording for refused secrets everywhere (docs/VOICE.md, 4.9). It allows for the detector being wrong.
-SECRET_MESSAGE = getattr(sensitive, "SECRET_MESSAGE", (
-    "This looks like it includes a password, PIN, code, card number or API key, so it was not saved or sent to "
-    "the AI. Please take it out: this site never needs them. If it is not one, change the wording a little, for "
-    "example \"the PIN box is not announced\", and send it again."))
-PUBLIC_SUFFIX = getattr(sensitive, "PUBLIC_SUFFIX", "Everyone can read this page.")
-# For text other members read: reports, tool entries, problems and offers of help.
-PUBLIC_SECRET_MESSAGE = f"{SECRET_MESSAGE.strip()} {PUBLIC_SUFFIX.strip()}"
+# One wording for refused secrets everywhere (docs/VOICE.md, 4.9), from studio/sensitive.py. The public one is
+# for text other members read: reports, tool entries, problems and offers of help.
+SECRET_MESSAGE = sensitive.SECRET_MESSAGE
+PUBLIC_SECRET_MESSAGE = sensitive.PUBLIC_SECRET_MESSAGE
 
 
 def _luhn(digits: str) -> bool:

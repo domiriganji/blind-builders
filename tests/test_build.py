@@ -1628,7 +1628,7 @@ def test_an_older_version_says_so_in_its_title(user_client, fake_ai):
     post(user_client, f"/build/{project_id}/v/1/change", {"request": "Small chops now cost 1500."})
     r = user_client.get(f"/build/{project_id}/v/1")
     assert h1(r) == "Kemi Kitchen: version 1 (older; the latest is version 2)"
-    assert f"<title>{h1(r)} – " in r.text
+    assert f"<title>{h1(r)}, Blind Creators Studio</title>" in r.text
 
 
 def test_returning_members_find_their_projects_first(user_client, fake_ai):

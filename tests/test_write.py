@@ -85,10 +85,10 @@ def test_create_and_list(user_client):
     assert page.status_code == 200
     # Straight after creating it, the h1 says what happened; later visits just name the document.
     assert h1(page.text) == "Letter to the council: new document started"
-    assert "<title>Letter to the council: new document started –" in page.text
+    assert "<title>Letter to the council: new document started, Blind Creators Studio</title>" in page.text
     page = user_client.get(f"/write/{doc_id}")
     assert h1(page.text) == "Letter to the council"
-    assert "<title>Letter to the council –" in page.text
+    assert "<title>Letter to the council, Blind Creators Studio</title>" in page.text
     assert "Nothing saved yet" in page.text and "Aiming for: City News" in page.text
     assert 'rows="20"' in page.text and ">Your text" in page.text
     for heading in ["Get suggestions from the AI", "Versions", "Export", "Find where to publish", "Draft a cover letter"]:
@@ -231,7 +231,7 @@ def test_suggestions_keep_only_exact_excerpts_in_document_order(user_client, fak
     page = user_client.get(f"/write/{doc_id}/suggestions/{batch_id}")
     assert page.status_code == 200
     assert h1(page.text) == "2 suggestions for My essay"
-    assert "<title>2 suggestions for My essay –" in page.text
+    assert "<title>2 suggestions for My essay, Blind Creators Studio</title>" in page.text
     assert "Suggestion 1 of 2" in page.text and "Suggestion 2 of 2" in page.text
     assert "<strong>Your words:</strong> teh" in page.text and "<strong>Suggested:</strong> the" in page.text
     assert "Was:" not in page.text and "Now:" not in page.text
@@ -754,7 +754,7 @@ def test_slug(title, expected):
 def test_h1_says_what_just_happened_once(user_client, fake_ai):
     doc_id = create_doc(user_client)
     r = save(user_client, doc_id, BODY)
-    assert h1(r.text) == "My essay: saved as version 1" and "<title>My essay: saved as version 1 –" in r.text
+    assert h1(r.text) == "My essay: saved as version 1" and "<title>My essay: saved as version 1, Blind Creators Studio</title>" in r.text
     assert h1(user_client.get(f"/write/{doc_id}").text) == "My essay"  # only once
     r = save(user_client, doc_id, BODY)
     assert h1(r.text) == "My essay: saved, the text had not changed"

@@ -36,7 +36,7 @@ def assert_accessible(response) -> None:
     report = check_html(response.text)
     assert report.errors == [], [(f.rule, f.message, f.where) for f in report.errors]
     assert len(re.findall(r"<h1[ >]", response.text)) == 1
-    title = re.search(r"<title>(.*?) – ", response.text).group(1)
+    title = re.search(r"<title>(.*), [^,<]*</title>", response.text, re.S).group(1)
     assert h1(response.text) == title
 
 
@@ -721,8 +721,8 @@ def test_delete_account_anonymises_and_signs_out(user_client, key_ok):
 # ----- regressions from the audit ---------------------------------------------------------------
 
 @pytest.mark.parametrize("field, value, message", [
-    ("display_name", "Amina sk-ant-api03-Ab12Cd34Ef", "looks like a Claude API key"),
-    ("display_name", "Amina " + GOOD_KEY, "looks like a Claude API key"),
+    ("display_name", "Amina sk-ant-api03-Ab12Cd34Ef", "To use your own Claude API key, connect it on Your account."),
+    ("display_name", "Amina " + GOOD_KEY, "To use your own Claude API key, connect it on Your account."),
     ("device", "Pixel, card 4111 1111 1111 1111", "looks like it includes a password, PIN, code, card number"),
     ("screen_reader", "NVDA, password: hunter22", "looks like it includes a password, PIN, code, card number"),
 ])

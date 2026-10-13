@@ -10,10 +10,10 @@ import re
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 
+# Build maps the older wording of these lines, which is stored with older versions (features/build.py).
 NOT_CHECKED = [
-    "How a real screen reader speaks the page (ask a peer check).",
-    "Whether the page looks right to sighted people: colours, layout, spacing.",
-    "Whether text and background colours have enough contrast.",
+    "How a real screen reader reads the page, in speech and in braille (ask for a peer check).",
+    "Contrast, layout and spacing: not measured here.",
     "Whether the page works on a phone with zoom at 400 percent.",
     "Whether buttons and links do what their names say.",
 ]
@@ -50,6 +50,7 @@ _NO_LABEL_INPUTS = {"hidden", "submit", "button", "reset", "image"}
 class Finding:
     rule: str
     severity: str  # "error" or "warning"
+    # The effect on visitors in plain words first, for the member; then the technical fix, for the AI.
     message: str
     where: str = ""
 
@@ -175,38 +176,46 @@ def check_html(html: str, *, name: str = "page") -> Report:
     # html-lang
     html_nodes = by_tag.get("html", [])
     if not html_nodes or not html_nodes[0].attrs.get("lang", "").strip():
-        fail("html-lang", "Add a lang attribute to <html>, for example lang=\"en\", so screen readers use the right voice.")
+        fail("html-lang", "Screen readers may read this page in the wrong language, in speech and in braille. "
+                         "Add a lang attribute to <html>, for example lang=\"en\".")
     # document-title
     titles = by_tag.get("title", [])
     if not titles or not titles[0].text():
-        fail("document-title", "Add a <title> that says what the page is. It is the first thing a screen reader announces.")
+        fail("document-title", "Visitors cannot tell which page or tab this is: the title is the first thing a screen "
+                               "reader gives them. Add a <title> that says what the page is.")
     # duplicate ids
     seen: set[str] = set()
     for n in nodes:
         i = n.attrs.get("id")
         if i:
             if i in seen:
-                fail("duplicate-id", f"The id \"{i}\" is used more than once. Labels and links that point to it can break.", n)
+                fail("duplicate-id", f"Labels and links that point to \"{i}\" may go to the wrong place. The id "
+                                     f"\"{i}\" is used more than once. Give each element its own id.", n)
             seen.add(i)
             by_id.setdefault(i, n)
     # headings
     headings = [n for n in nodes if re.fullmatch(r"h[1-6]", n.tag)]
     h1s = [h for h in headings if h.tag == "h1"]
     if len(h1s) != 1:
-        fail("one-h1", f"The page has {len(h1s)} main headings (h1). Use exactly one, describing the page.",
+        has = "no main heading (h1)" if not h1s else f"{len(h1s)} main headings (h1)"
+        fail("one-h1", "Visitors who move by headings cannot find one main heading that says what the page is. "
+                       f"The page has {has}. Use exactly one, describing the page.",
              severity="warning" if len(h1s) > 1 else "error")
     last = 0
     for h in headings:
         level = int(h.tag[1])
         if last and level > last + 1:
-            fail("heading-order", f"Heading level jumps from h{last} to h{level}. Use h{last + 1} instead.", h, "warning")
+            fail("heading-order", "Visitors who move by headings may think a section is missing. The heading level "
+                                  f"jumps from h{last} to h{level}. Use h{last + 1} instead.", h, "warning")
         last = level
         if not h.text():
-            fail("empty-heading", "This heading is empty. Screen reader users jump between headings, so each needs text.", h)
+            fail("empty-heading", "Visitors who move by headings land on a heading with nothing in it. This heading is "
+                                  "empty. Give it text, or remove it.", h)
     # images
     for img in by_tag.get("img", []):
         if "alt" not in img.attrs:
-            fail("img-alt", "Add alt text to this image, or alt=\"\" if it is only decoration.", img)
+            fail("img-alt", "Screen readers may give visitors this image's file name instead of what it shows. Add alt "
+                           "text that says what it shows, or alt=\"\" if it is only decoration.", img)
     # form labels
     labels_for = {n.attrs.get("for") for n in by_tag.get("label", []) if n.attrs.get("for")}
     for n in by_tag.get("input", []) + by_tag.get("select", []) + by_tag.get("textarea", []):
@@ -220,49 +229,61 @@ def check_html(html: str, *, name: str = "page") -> Report:
             or n.attrs.get("title", "").strip()
         )
         if not labelled:
-            fail("form-label", "This form field has no label. Add a <label for=...> that says what to enter.", n)
+            fail("form-label", "Visitors cannot tell what to enter in this form field, because it has no label. "
+                              "Add a <label for=...> that says what to enter.", n)
     # buttons
     for b in by_tag.get("button", []):
         if not _accessible_name(b, by_id):
-            fail("button-name", "This button has no name. Add text inside it or an aria-label.", b)
+            fail("button-name", "Visitors cannot tell what this button does, because it has no name. "
+                               "Add text inside it or an aria-label.", b)
     for n in by_tag.get("input", []):
         if n.attrs.get("type", "").lower() in ("submit", "button", "reset") and not (
             n.attrs.get("value", "").strip() or n.attrs.get("aria-label", "").strip()
         ):
-            fail("button-name", "This button has no name. Add a value attribute.", n)
+            fail("button-name", "Visitors cannot tell what this button does, because it has no name. "
+                               "Add a value attribute.", n)
         if n.attrs.get("type", "").lower() == "image" and not n.attrs.get("alt", "").strip():
-            fail("button-name", "This image button needs alt text.", n)
+            fail("button-name", "Visitors cannot tell what this image button does, because it has no name. "
+                               "Add alt text to it.", n)
     # links
     for a in by_tag.get("a", []):
         if "href" in a.attrs and not _accessible_name(a, by_id):
-            fail("link-name", "This link has no name. Add text inside it, or alt text to its image.", a)
+            fail("link-name", "Visitors cannot tell where this link goes, because it has no name. "
+                             "Add text inside it, or alt text to its image.", a)
     # viewport
     for m in by_tag.get("meta", []):
         if m.attrs.get("name", "").lower() == "viewport":
             content = m.attrs.get("content", "").replace(" ", "").lower()
             mx = re.search(r"maximum-scale=([\d.]+)", content)
             if "user-scalable=no" in content or "user-scalable=0" in content or (mx and float(mx.group(1)) < 2):
-                fail("viewport-zoom", "The viewport stops people from zooming. Remove user-scalable=no and maximum-scale.", m)
+                fail("viewport-zoom", "Visitors who zoom to read cannot make this page larger. The viewport stops "
+                                      "zooming. Remove user-scalable=no and maximum-scale.", m)
         if m.attrs.get("http-equiv", "").lower() == "refresh":
-            fail("meta-refresh", "The page refreshes or redirects by itself. This moves screen reader users without warning.", m)
+            fail("meta-refresh", "Visitors lose their place, in speech, braille or magnification, when the page "
+                                     "changes without warning. It refreshes or redirects by itself (meta refresh). "
+                                     "Remove it, or use a link.", m)
     # main landmark
     if not by_tag.get("main") and not any(n.attrs.get("role") == "main" for n in nodes):
-        fail("landmark-main", "Wrap the main content in <main> so people can jump straight to it.")
+        fail("landmark-main", "Visitors cannot jump straight to the main content. Wrap it in <main>.")
     # iframes
     for f in by_tag.get("iframe", []):
         if not f.attrs.get("title", "").strip():
-            fail("iframe-title", "Give this frame a title that says what it contains.", f)
+            fail("iframe-title", "Visitors cannot tell what this frame holds before they go into it. Give the "
+                                "<iframe> a title that says what it contains.", f)
     # tabindex
     for n in nodes:
         t = n.attrs.get("tabindex", "").strip()
         if t.lstrip("-").isdigit() and int(t) > 0:
-            fail("tabindex-positive", "Avoid tabindex above 0; it changes the order keyboard users move through the page.", n, "warning")
+            fail("tabindex-positive", "Keyboard visitors move through the page in an unexpected order. Avoid "
+                                         "tabindex above 0.", n, "warning")
     # aria-hidden on focusable
     for n in nodes:
         if n.attrs.get("aria-hidden") == "true":
             for inner in [n] + list(n.walk()):
                 if inner.tag in _FOCUSABLE and inner.attrs.get("tabindex") != "-1" and (inner.tag != "a" or "href" in inner.attrs):
-                    fail("aria-hidden-focus", "Something hidden with aria-hidden can still be reached with the keyboard.", inner)
+                    fail("aria-hidden-focus", "Keyboard visitors can reach something their screen reader does not give "
+                                                   "them. It is inside aria-hidden=\"true\" but can still be focused. "
+                                                   "Remove aria-hidden, or add tabindex=\"-1\".", inner)
                     break
     # tables
     for t in by_tag.get("table", []):
@@ -270,19 +291,23 @@ def check_html(html: str, *, name: str = "page") -> Report:
             continue
         inner = list(t.walk())
         if any(x.tag == "td" for x in inner) and not any(x.tag == "th" for x in inner):
-            fail("table-headers", "This table has no header cells (<th>). Screen readers use them to say what each cell means.", t, "warning")
+            fail("table-headers", "Screen readers cannot say which column or row each cell belongs to. This table "
+                                  "has no header cells. Add <th> cells.", t, "warning")
     # autoplay
     for n in by_tag.get("audio", []) + by_tag.get("video", []):
         if "autoplay" in n.attrs:
-            fail("autoplay", "Media that plays by itself talks over the screen reader. Remove autoplay.", n)
+            fail("autoplay", "Sound that starts by itself plays over visitors' screen reader speech. "
+                            "Remove autoplay.", n)
     # weight
     size = len(html.encode("utf-8"))
     if size > 60_000:
-        fail("page-weight", f"The HTML is {size // 1024} KB. Pages over 60 KB load slowly on cheap phones and data plans.", severity="warning")
+        fail("page-weight", f"The page may load slowly on low-cost phones and small data plans. The HTML is "
+                            f"{size // 1024} KB. Keep it under 60 KB.", severity="warning")
     # needs JavaScript
     body = (by_tag.get("body") or [root])[0]
     if by_tag.get("script") and len(body.text()) < 40:
-        fail("needs-javascript", "Almost no text is in the HTML itself; the page probably needs JavaScript to show anything.", severity="warning")
+        fail("needs-javascript", "Visitors may find an empty page if JavaScript does not run. Almost no text is in "
+                                 "the HTML itself. Put the main content in the HTML.", severity="warning")
 
     report.passed = [RULES[r] for r in RULES if r not in failed]
     return report

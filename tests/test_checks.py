@@ -69,7 +69,7 @@ def lbl(rid: int, title: str = "Cake shop", wanted: str = "screen_reader") -> st
 
 
 def title_text(response) -> str:
-    return re.search(r"<title>(.*?) – ", response.text, re.S).group(1).strip()
+    return re.search(r"<title>(.*), [^,<]*</title>", response.text, re.S).group(1).strip()
 
 
 @pytest.fixture

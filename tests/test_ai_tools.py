@@ -101,8 +101,12 @@ def test_every_seeded_source_is_http_and_every_note_is_short():
             assert re.match(r"^https?://", s["url"]), s["url"]
         if t["url"]:
             assert re.match(r"^https?://", t["url"])
-        sentences = [s for s in re.split(r"(?<=[.!?\"])\s+(?=[A-Z])", t["research_note"]) if s]
-        assert 2 <= len(sentences) <= 4, (t["slug"], len(sentences))
+        # One plain lead sentence, then short sentences (docs/VOICE.md 4.13): about 20 words at most each.
+        lead, points = ai_tools.note_parts(t["research_note"])
+        assert points, t["slug"]
+        for sentence in [lead] + points:
+            assert len(sentence.split()) <= 22, (t["slug"], sentence)
+        assert ";" not in t["research_note"], t["slug"]
 
 
 def test_seed_rejects_non_web_sources(tmp_path):
@@ -145,6 +149,7 @@ def test_tool_page_shows_dated_research_and_sources(client):
     assert 'href="https://code.claude.com/docs/en/accessibility" rel="noopener noreferrer"' in page.text
     # The research is a plain lead sentence, then a list of short sentences.
     assert "<p>Claude Code has a screen reader mode.</p>" in page.text
+    assert "<li>Known gap: costs are shown only when you exit.</li>" in page.text
     assert "<li>It needs version 2.1.181 or later and was officially released on 20 July 2026.</li>" in page.text
     # "No reports" is said once, under the h1; the section only says what to do next.
     assert page.text.count("reports yet") == 1 and "No member reports yet." in page.text
@@ -443,7 +448,7 @@ def h1(page_text):
 
 
 def title(page_text):
-    return re.search(r"<title>(.*?) – ", page_text, re.S).group(1).strip()
+    return re.search(r"<title>(.*), [^,<]*</title>", page_text, re.S).group(1).strip()
 
 
 def test_h1_says_what_just_happened(user_client):

@@ -22,7 +22,7 @@ def h1s(html: str) -> list[str]:
 
 
 def page_title(html: str) -> str:
-    return re.search(r"<title>(.*?) – ", html, re.S).group(1).strip()
+    return re.search(r"<title>(.*), [^,<]*</title>", html, re.S).group(1).strip()
 
 
 def ask(client, title="NVDA does not read my preview", body="When I open the preview, NVDA says nothing.", **extra):

@@ -55,7 +55,7 @@ def assert_no_js_page_ok(page, twin, label: str) -> None:
     locators, and the same address is opened in `twin` (JavaScript on, same member) for the full checks."""
     assert page.get_by_role("heading", level=1).count() == 1, label
     assert page.get_by_role("main").count() == 1, label
-    assert " ".join(page.title().split(" – ")[0].split()) == heading(page), label
+    assert " ".join(page.title().rsplit(", ", 1)[0].split()) == heading(page), label
     assert len(page.get_by_role("main").inner_text().strip()) >= 20, label
     twin.goto(page.url)
     assert heading(twin) == heading(page), label
@@ -271,8 +271,11 @@ def test_profile_journey(live, browser):
     page.get_by_label("Your name").fill("Amina sk-ant-api03-Ab12Cd34Ef56")
     page.get_by_label("Device you use most").fill("Android phone")
     page.get_by_role("button", name="Save my profile").click()
-    follow_error(page, "This looks like a Claude API key, so it was not saved. Please take it out: other members "
-                       "could see it. To use your key, connect it on Your account.", page.get_by_label("Your name"))
+    follow_error(page, "This looks like it includes a password, PIN, code, card number or API key, so it was not "
+                       "saved or sent to the AI. Please take it out: this site never needs them. If it is not one, "
+                       "change the wording a little, for example \"the PIN box is not announced\", and send it "
+                       "again. To use your own Claude API key, connect it on Your account.",
+                 page.get_by_label("Your name"))
     expect(page.get_by_label("Your name")).to_have_value("")
 
     page.get_by_label("Your name").fill("Amina 王芳")

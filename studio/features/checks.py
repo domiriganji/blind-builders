@@ -26,16 +26,8 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from .. import credits, db
-from ..sensitive import find_secret
+from ..sensitive import PUBLIC_SUFFIX, SECRET_MESSAGE, find_secret
 from ..web import checked_form, current_user, error_title, flash, form_text, redirect, render, require_user
-
-try:  # the one secrets wording (docs/VOICE.md, 4.9), once studio/sensitive.py carries it
-    from ..sensitive import PUBLIC_SUFFIX, SECRET_MESSAGE
-except ImportError:
-    SECRET_MESSAGE = ("This looks like it includes a password, PIN, code, card number or API key, so it was not "
-                      "saved or sent to the AI. Please take it out: this site never needs them. If it is not one, "
-                      "change the wording a little, for example \"the PIN box is not announced\", and send it again.")
-    PUBLIC_SUFFIX = "Everyone can read this page."
 
 router = APIRouter(prefix="/checks")
 NAV = {"label": 'Peer checks', "url": '/checks', "description": "Ask blind and low-vision members to test your website or app with their own screen reader, braille display or magnifier, and sighted people to check how it looks. Every check is saved in the checker's own words, in a public record anyone can verify."}

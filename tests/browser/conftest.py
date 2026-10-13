@@ -169,7 +169,7 @@ def check_page(page, label: str = "") -> list[str]:
         problems.append(f"{where}: {h1s.count()} h1 elements")
     else:
         h1 = " ".join(h1s.first.inner_text().split())
-        title = " ".join(page.title().split(" – ")[0].split())
+        title = " ".join(page.title().rsplit(", ", 1)[0].split())
         if h1 != title:
             problems.append(f"{where}: title {title!r} does not match h1 {h1!r}")
     if page.locator("main").count() != 1:

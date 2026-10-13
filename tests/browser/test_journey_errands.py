@@ -261,7 +261,8 @@ def test_task_journey_prepares_answers_and_hides_secrets(live, browser):
     page.get_by_role("button", name="This is right: go ahead").click()
     _expect_h1(page, "Please check 1 answer: Here is what I understood: Help me renew my library card on the library website")
     _check(page, "task read-back with a card number")
-    _follow_error_link(page, "This looks like it includes a card number", "Corrections or answers")
+    _follow_error_link(page, "This looks like it includes a password, PIN, code, card number or API key",
+                      "Corrections or answers")
 
     page.get_by_label("Corrections or answers").fill("My name is Amina Yusuf.")
     page.get_by_role("button", name="This is right: go ahead").click()

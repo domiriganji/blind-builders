@@ -94,10 +94,10 @@ def test_create_project_and_see_stages(user_client):
     assert_accessible(r)
     # Right after saving, the h1 (and title) says what happened; on any later visit it is the project's name.
     assert h1(r) == "Project saved: Exams and screen readers"
-    assert "<title>Project saved: Exams and screen readers –" in r.text
+    assert "<title>Project saved: Exams and screen readers, Blind Creators Studio</title>" in r.text
     r = user_client.get(f"/research/{pid}")
     assert h1(r) == "Exams and screen readers"
-    assert "<title>Exams and screen readers –" in r.text
+    assert "<title>Exams and screen readers, Blind Creators Studio</title>" in r.text
     # The question comes first, before the stages.
     assert r.text.index("Do blind students finish exams faster") < r.text.index("1. Prior work")
     for heading in ["1. Prior work", "2. Study plan", "3. Notes and data", "4. Draft paper"]:

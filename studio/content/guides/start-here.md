@@ -39,7 +39,7 @@ The fastest way around is by headings:
 - With a magnifier, large text or zoom: every page has the same order, and the main heading comes soon after the top of the page. Pages never scroll sideways, so you only move up and down.
 - With voice control: say "click" and the words you see on a link or button, for example "click Ask a question". If several have the same words, say "show numbers" and then the number.
 
-The level 1 heading always matches the page title your screen reader gives when the page loads. If a form needs a second look, the page title starts with "Please check" and the number of answers to check, and a list of them comes first. Each item in the list is a link that takes you to the field.
+The level 1 heading always matches the page title your screen reader gives when the page loads. The page title is the page's name, a comma, then Blind Creators Studio, for example "Ask the community, Blind Creators Studio". If a form needs a second look, the page title starts with "Please check" and the number of answers to check, and a list of them comes first. Each item in the list is a link that takes you to the field.
 
 ## When the AI is working: the job page
 

@@ -8,11 +8,15 @@ from __future__ import annotations
 import re
 
 # The one wording for every refusal (docs/VOICE.md, 4.9). It allows for the detector being wrong, because
-# accessibility reports say "PIN" and "password" all the time. Add PUBLIC_SUFFIX where the text would be public.
+# accessibility reports say "PIN" and "password" all the time. Sections import these; none keeps its own copy.
 SECRET_MESSAGE = ("This looks like it includes a password, PIN, code, card number or API key, so it was not saved or "
                   "sent to the AI. Please take it out: this site never needs them. If it is not one, change the "
                   "wording a little, for example \"the PIN box is not announced\", and send it again.")
-PUBLIC_SUFFIX = " Everyone can read this page."
+# Added after SECRET_MESSAGE, with a space, where the text would be public.
+PUBLIC_SUFFIX = "Everyone can read this page."
+PUBLIC_SECRET_MESSAGE = f"{SECRET_MESSAGE} {PUBLIC_SUFFIX}"
+# For a Claude API key, the member also learns where a key does belong.
+API_KEY_MESSAGE = f"{SECRET_MESSAGE} To use your own Claude API key, connect it on Your account."
 
 _SECRET_WORD = r"(?:passwords?|passwd|passcodes?|passphrases?|pin(?:\s*(?:code|number))?)"
 # "password: x", "PIN = 1234"
@@ -40,7 +44,8 @@ _ONE_TIME = re.compile(
     r"(?:\d{3}[\s-]\d{3}\b|(?=[A-Za-z0-9-]{3,})[A-Za-z0-9-]*\d[A-Za-z0-9-]*)", re.IGNORECASE)
 # "my OTP is 123456", "2FA: 4821"
 _OTP_WORD = re.compile(r"\b(?:otp|2fa|mfa)\b\D{0,20}\d{4,8}\b", re.IGNORECASE)
-_API_KEY = re.compile(r"\bsk-ant-[A-Za-z0-9_-]{8,}|\bsk-[A-Za-z0-9_-]{20,}")
+_CLAUDE_KEY = re.compile(r"\bsk-ant-[A-Za-z0-9_-]{8,}")
+_API_KEY = re.compile(r"\bsk-[A-Za-z0-9_-]{20,}")
 _DIGIT_GROUPS = re.compile(r"\d+(?:[ \-]\d+)*")
 
 
@@ -77,26 +82,23 @@ def _has_card_number(text: str) -> bool:
 
 
 def find_secret(text: str) -> str | None:
-    """A plain message if the text looks like it holds a password, a PIN, a one-time code, an API key or a
-    card number, otherwise None."""
+    """The shared refusal (SECRET_MESSAGE, or API_KEY_MESSAGE for a Claude API key) if the text looks like it
+    holds a password, a PIN, a one-time code, an API key or a card number, otherwise None."""
     if not text:
         return None
+    if _CLAUDE_KEY.search(text):
+        return API_KEY_MESSAGE
     if _API_KEY.search(text):
-        return ("This looks like it includes an API key. Please take it out. Connect your Claude API key on "
-                "your account page instead; the AI must not see it.")
+        return SECRET_MESSAGE
     if _SECRET_ASSIGN.search(text) or _PIN_DIGITS.search(text) or _SECRET_BARE.search(text):
-        return ("This looks like it includes a password or PIN. Please take it out. "
-                "This site never needs your passwords, and the AI must not see them.")
+        return SECRET_MESSAGE
     for m in _SECRET_IS.finditer(text):
         value = m.group("quoted") or (m.group("word") or "").rstrip(".,;!?")
         if m.group("quoted") or _SECRET_VALUE_CHARS.search(value):
-            return ("This looks like it includes a password or PIN. Please take it out. "
-                    "This site never needs your passwords, and the AI must not see them.")
+            return SECRET_MESSAGE
     if (_ONE_TIME.search(text) or _OTP_WORD.search(text)
             or (_SENT_CODE.search(text) and not _HARMLESS_CODE.search(text))):
-        return ("This looks like it includes a one-time code or security code. Please take it out. "
-                "This site never needs your codes, and the AI must not see them.")
+        return SECRET_MESSAGE
     if _has_card_number(text):
-        return ("This looks like it includes a card number. Please take it out. "
-                "This site never needs your card details, and the AI must not see them.")
+        return SECRET_MESSAGE
     return None
