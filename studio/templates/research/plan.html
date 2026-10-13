@@ -7,7 +7,7 @@
 <p class="panel">Written by the AI on {{ item.created_at|date_words }} from your question and the prior work. It is a plan for you to check, not a tested design. Pilot every survey and task with people like your participants before the real study.</p>
 {% if not is_latest %}<p>This is an earlier version. <a href="{{ stage_url }}">Read the latest study plan</a>.</p>{% endif %}
 {% set unmatched = citations.unmatched or [] %}
-<p>Checked by the site: each citation number in square brackets was compared with the numbered sources. {% if unmatched %}{{ unmatched|length }} could not be matched.{% elif citations.matched %}Every one matches a source, and each links to it.{% else %}The plan cites no numbered sources.{% endif %} Not checked: whether a source supports the sentence that cites it.</p>
+<p>Checked by the site: each citation number in square brackets was compared with the numbered sources. {% if unmatched %}These could not be matched: {% for n in unmatched %}[{{ n }}]{{ ', ' if not loop.last }}{% endfor %}.{% elif citations.matched %}Every one matches a source, and each links to it.{% else %}The plan cites no numbered sources.{% endif %} Not checked: whether a source supports the sentence that cites it.</p>
 {% if unmatched %}
 <h2>Citations the site could not match</h2>
 <p>The AI cited these numbers, but {% if item.sources %}there {{ 'is' if item.sources|length == 1 else 'are' }} only {{ item.sources|length }} numbered source{{ '' if item.sources|length == 1 else 's' }}{% else %}there are no numbered sources{% endif %}. Treat those claims as unsupported.</p>

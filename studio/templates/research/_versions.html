@@ -4,7 +4,7 @@
 <ul class="item-list">
 {% for v in versions %}
   {% set copy = ' (a copy of the version from ' ~ v.copy_of ~ ')' if v.copy_of else '' %}
-  <li>{% if item and v.id == item.id %}Version from {{ v.when }}{{ copy }}, on this page{% elif loop.first %}<a href="{{ stage_url }}">Latest version, from {{ v.when }}</a>{{ copy }}{% else %}<a href="{{ stage_url }}?version={{ v.id }}">Version from {{ v.when }}</a>{{ copy }}{% endif %}</li>
+  <li>{% if item and v.id == item.id %}Version {{ v.number }}{{ ' (latest)' if loop.first }}, from {{ v.when }}{{ copy }}, on this page{% elif loop.first %}<a href="{{ stage_url }}">Version {{ v.number }} (latest), from {{ v.when }}</a>{{ copy }}{% else %}<a href="{{ stage_url }}?version={{ v.id }}">Version {{ v.number }}, from {{ v.when }}</a>{{ copy }}{% endif %}</li>
 {% endfor %}
 </ul>
 {% endif %}

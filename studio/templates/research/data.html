@@ -1,12 +1,18 @@
 {% extends "base.html" %}
 {% from "_macros.html" import csrf_input, error_summary, field, textarea, post_button %}
 {% block content %}
+{% if kept_reason %}
+{# Said here instead of the general notice, so it can link to the notes and say that a chosen file is not kept. #}
+<div class="messages">
+<p class="message message-info" role="status">{% if kept_reason == 'signed_out' %}You were signed out before this was sent, so nothing was saved yet.{% else %}This form needed refreshing to keep your account safe, so nothing was saved yet.{% endif %} Your notes are back in the form. <a href="#field-notes">Go to your notes</a>. If you chose a CSV file, choose it again before you send the form, because a chosen file cannot be kept.</p>
+</div>
+{% endif %}
 <h1>{{ title }}</h1>
 <p class="lead">Keep notes here and upload a CSV file of your data. The site computes facts about the file itself. The AI can then describe patterns, labelled as its interpretation.</p>
 {{ error_summary(errors) }}
 <h2>Computed by the site</h2>
 {% if stats %}
-<p>From {{ meta.filename }}, uploaded {{ when(meta.uploaded_at) }}. The site counted and calculated these facts itself. They are not written by the AI. Numbers are rounded to 2 decimal places. The file itself is not kept: only these facts and the first {{ sample|length }} rows.</p>
+<p>From {{ meta.filename }}, uploaded {{ when(meta.uploaded_at) }}. Times are in UTC, the same as London time in winter. The site counted and calculated these facts itself. They are not written by the AI. Numbers are rounded to 2 decimal places. The file itself is not kept: only these facts and the first {{ sample|length }} rows.</p>
 <ul>
   <li>Rows of data, not counting the column names: {{ stats.rows }}</li>
   <li>Columns: {{ stats.columns }}</li>
@@ -44,10 +50,10 @@
 {% set n_cols = table_names|length %}
 <div class="table-scroll" role="region" aria-labelledby="first-rows-title" tabindex="0">
 <table>
-  <caption>The first {{ 'row' if n_rows == 1 else n_rows ~ ' rows' }} of {{ meta.filename }}, {% if stats.columns > n_cols %}the first {{ n_cols }} of {{ stats.columns }} columns{% else %}{{ 'its only column' if n_cols == 1 else 'all ' ~ n_cols ~ ' columns' }}{% endif %}</caption>
+  <caption>The first {{ 'row' if n_rows == 1 else n_rows ~ ' rows' }} of {{ meta.filename }}, {% if stats.columns > n_cols %}the first {{ n_cols }} of {{ stats.columns }} columns{% else %}{{ 'its only column' if n_cols == 1 else 'all ' ~ n_cols ~ ' columns' }}{% endif %}.{% if n_cols > 1 %} The first column, {{ table_names[0] }}, names each row and is read with each cell.{% endif %}</caption>
   <thead><tr>{% for name in table_names %}<th scope="col">{{ name }}</th>{% endfor %}</tr></thead>
   <tbody>
-  {% for row in table_rows %}<tr>{% for i in range(n_cols) %}<td>{{ row[i] if i < row|length else '' }}</td>{% endfor %}</tr>
+  {% for row in table_rows %}<tr>{% for i in range(n_cols) %}{% set cell = row[i] if i < row|length else '' %}{% if i == 0 and n_cols > 1 %}<th scope="row">{{ cell }}</th>{% else %}<td>{{ cell }}</td>{% endif %}{% endfor %}</tr>
   {% endfor %}
   </tbody>
 </table>
@@ -56,21 +62,23 @@
 {% else %}
 <p>No data file yet. Upload a CSV file with the form under the heading "Your notes and data file", and the site will count its rows and columns and work out averages.</p>
 {% endif %}
-<h2>The AI's interpretation</h2>
+<h2 id="ai-title" tabindex="-1">The AI's interpretation</h2>
 {% if interpretation_html %}
 <p class="panel">Written by the AI on {{ item.created_at|date_words }}, from {% if stats %}the computed facts, the first {{ sample|length }} rows of {{ meta.filename }} and your notes{% else %}your notes only, because no data file was uploaded{% endif %}. It is an interpretation, not a result. It may be wrong. Test any pattern with a statistical analysis before you report it.</p>
 {{ interpretation_html }}
 {% else %}
-<p>The AI has not described this data yet. Once you upload a file or save notes, it can describe patterns and suggest analyses.</p>
+<p>The AI has not described this data yet. Once you upload a file or save notes, it can describe patterns and suggest analyses.{% if not (stats or (notes and notes.body.strip())) %} <a href="#field-notes">Go to your notes and data file</a>.{% endif %}</p>
 {% endif %}
+{% if stats or (notes and notes.body.strip()) %}
 <p>The AI reads your saved notes and the facts computed by the site. This uses your Claude API key or your credits.</p>
 <div class="actions">
   {{ post_button('/research/' ~ project.id ~ '/data/describe', 'Ask the AI to describe the data again' if interpretation_html else 'Ask the AI to describe patterns') }}
 </div>
+{% endif %}
 <h2>Your notes and data file</h2>
 <form method="post" action="/research/{{ project.id }}/notes" enctype="multipart/form-data" novalidate>
   {{ csrf_input() }}
-  {% set notes_state = 'Your notes are not saved yet. ' if notes_unsaved else ('Last saved ' ~ when(notes.updated_at) ~ '. ' if notes else '') %}
+  {% set notes_state = 'Your notes are not saved yet. ' if notes_unsaved else ('Last saved ' ~ when(notes.updated_at) ~ (' (UTC, the same as London time in winter)' if not stats else '') ~ '. ' if notes else '') %}
   {{ textarea('notes', 'Notes', notes_value, rows=10, hint=notes_state ~ 'Anything about your study: what you did, what you noticed, results you already have. Saving replaces the previous notes.', error=errors.notes) }}
   {{ field('csv', 'CSV file', type='file', hint='A .csv file up to 200 KB, saved as UTF-8, with the column names in the first row. A new file replaces the facts in "Computed by the site".', error=errors.csv, extra='accept=".csv,text/csv"') }}
   <button type="submit" class="button button-primary">Save notes and file</button>

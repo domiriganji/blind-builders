@@ -2,7 +2,7 @@
 {% from "_macros.html" import csrf_input, error_summary, field, textarea, select %}
 {% block content %}
 <h1>{{ title }}</h1>
-<p class="lead">{{ doc.kind_name }}. {{ doc.word_text }}. {{ saved_line }}
+<p class="lead">{{ doc.kind_name }}. {{ doc.word_text }}. {{ saved_line }}{% if last_version %} Times are in UTC, the same as London time in winter.{% endif %}
 {% if doc.target %}Aiming for: {{ doc.target }}.{% endif %}</p>
 {% if last_version and (last_version.note or '').startswith('Drafted by the AI') %}
 <p class="panel">The AI wrote this draft. Nobody has checked it. Fill in everything in square brackets, and change anything that is not true before you {{ 'send' if is_cover_letter else 'share' }} it.</p>
@@ -24,8 +24,10 @@
 </ul>
 </nav>
 
-{# One form, so every AI button saves the text box first and nothing typed is lost. #}
-<form method="post" action="/write/{{ doc.id }}/save" novalidate>
+{# One form, so every AI button saves the text box first and nothing typed is lost.
+   data-saved-* hold what the site has stored for each field. enhance.js compares the fields with them before the
+   member leaves, so words put back after a problem (or a sign-out) count as not saved yet. #}
+<form method="post" action="/write/{{ doc.id }}/save" novalidate data-leave-guard{% for k in ('title', 'body', 'target', 'goal', 'instructions', 'notes') %} data-saved-{{ k }}="{{ stored[k] }}"{% endfor %}>
 {{ csrf_input() }}
 <section aria-labelledby="edit-title">
 <h2 id="edit-title">Edit your text</h2>
@@ -46,7 +48,7 @@
 <h3>Earlier suggestions</h3>
 <ul class="item-list">
 {% for b in batches %}
-  <li><a href="/write/{{ doc.id }}/suggestions/{{ b.id }}">Suggestions from {{ b.when }}: {{ b.goal_name }}</a>. {{ b.total }} in all, {% if b.waiting %}{{ b.waiting }} waiting for your decision{% else %}none waiting{% endif %}.</li>
+  <li><a href="/write/{{ doc.id }}/suggestions/{{ b.id }}">Set {{ b.number }}: {{ b.goal_name }}, {{ b.when }}</a>. {{ b.total }} in all, {% if b.waiting %}{{ b.waiting }} waiting for your decision{% else %}none waiting{% endif %}.</li>
 {% endfor %}
 </ul>
 {% endif %}

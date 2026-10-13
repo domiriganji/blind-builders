@@ -463,7 +463,9 @@ def test_export_markdown_and_text(user_client):
     md = user_client.get(f"/write/{doc_id}/export.md")
     assert md.status_code == 200 and md.headers["content-type"].startswith("text/markdown")
     assert 'attachment; filename="cost-study.md"' == md.headers["content-disposition"]
-    assert md.text.startswith("# Cost study\n\n# Methods")
+    # The title is the only level 1 heading; the member's headings follow from level 2.
+    assert md.text.startswith("# Cost study\n\n## Methods")
+    assert "\n### Results\n" in md.text and md.text.count("\n# ") == 0
     txt = user_client.get(f"/write/{doc_id}/export.txt")
     assert txt.headers["content-type"].startswith("text/plain")
     assert txt.text.startswith("Cost study\n\n") and "We paid $5" in txt.text
@@ -1094,15 +1096,17 @@ def test_reload_after_a_form_goes_back_to_the_document(user_client, fake_ai):
     assert suggestion_rows(batch_id)[0]["status"] == "pending" and body_of(doc_id) == BODY
 
 
-def test_edit_form_order_and_save_lands_on_the_text(user_client):
+def test_edit_form_order_and_save_lands_on_the_notice(user_client):
     doc_id = create_doc(user_client)
     page = user_client.get(f"/write/{doc_id}").text
     assert page.index('id="field-title"') < page.index('id="field-body"') < page.index('id="field-target"')
     r = post(user_client, f"/write/{doc_id}/save", {"body": "Text.", "title": "My essay", "target": ""},
              follow_redirects=False)
-    assert r.headers["location"] == f"/write/{doc_id}#edit-title"
+    # No fragment, so the page opens at "Saved as version 1", which gets the focus.
+    assert r.headers["location"] == f"/write/{doc_id}"
     page = user_client.get(f"/write/{doc_id}").text
-    assert re.search(r"Last saved by you on \d{1,2} [A-Z][a-z]+ \d{4} at \d\d:\d\d UTC\.", page)
+    assert re.search(r"Last saved by you on \d{1,2} [A-Z][a-z]+ \d{4}, \d\d:\d\d UTC\. "
+                     r"Times are in UTC, the same as London time in winter\.", page)
     assert not re.search(r"\d{4}-\d{2}-\d{2}", page.split("<main", 1)[1])
 
 
@@ -1213,7 +1217,9 @@ def test_exports_close_heading_gaps(user_client):
     tex = user_client.get(f"/write/{doc_id}/export.tex").text
     assert "\\section{Section}" in tex and "\\subsection{Part}" in tex
     txt = user_client.get(f"/write/{doc_id}/export.txt").text
-    assert txt == "Title again\n\nSection\n\nText.\n\nPart\n\nMore text.\n" and "#" not in txt
+    assert txt == "Title again\n\n1. Section\n\nText.\n\n1.1 Part\n\nMore text.\n" and "#" not in txt
+    md = user_client.get(f"/write/{doc_id}/export.md").text
+    assert md == "# Title again\n\n## Section\n\nText.\n\n### Part\n\nMore text.\n"
     export = user_client.get(f"/write/{doc_id}/export").text
     assert "File name: title-again.docx." in export and "Downloads folder" in export
 
@@ -1249,3 +1255,116 @@ def test_prompts_carry_only_task_rules():
     assert "never suggest euphemisms" in write_mod.SUGGEST_SYSTEM
     for system in (write_mod.SUGGEST_SYSTEM, write_mod.VENUES_SYSTEM, write_mod.COVER_LETTER_SYSTEM):
         assert "Put the summary first" not in system and "emoji" not in system
+
+
+# ----- final walk-through fixes ----------------------------------------------------------------
+
+def test_save_keeps_what_was_typed_for_the_ai(user_client):
+    doc_id = create_doc(user_client)
+    r = post(user_client, f"/write/{doc_id}/save", {"body": "Text.", "title": "My essay", "target": "",
+                                                    "goal": "clearer", "instructions": "Keep British spelling.",
+                                                    "notes": "I teach braille."}, follow_redirects=False)
+    assert r.headers["location"] == f"/write/{doc_id}"
+    page = user_client.get(f"/write/{doc_id}").text
+    assert ">Keep British spelling.</textarea>" in page and ">I teach braille.</textarea>" in page
+    assert '<option value="clearer" selected' in page
+    # Emptied boxes are emptied for good, and anything that looks like a card number is never kept.
+    post(user_client, f"/write/{doc_id}/save", {"body": "Text.", "title": "My essay", "target": "", "goal": "spelling",
+                                                "instructions": "", "notes": "4111 1111 1111 1111"})
+    page = user_client.get(f"/write/{doc_id}").text
+    assert "4111" not in page and ">Keep British spelling.</textarea>" not in page
+    with db.session() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM write_ai_fields WHERE doc_id = ?", (doc_id,)).fetchone()[0] == 0
+
+
+def test_document_form_carries_the_saved_values_for_the_leave_warning(user_client):
+    doc_id = create_doc(user_client)
+    save(user_client, doc_id, 'Saved "words".')
+    # The form comes back with a problem: the box shows the new words, the form still says what is saved.
+    r = post(user_client, f"/write/{doc_id}/save", {"body": "Unsaved words.", "title": "", "target": ""})
+    assert r.status_code == 400 and ">Unsaved words.</textarea>" in r.text
+    form = r.text.split('<form method="post" action="/write/', 1)[1].split(">", 1)[0]
+    assert "data-leave-guard" in form and 'data-saved-body="Saved &#34;words&#34;."' in form
+    assert 'data-saved-title="My essay"' in form and 'data-saved-instructions=""' in form
+
+
+def test_new_document_notice_gives_only_the_next_step(user_client):
+    r = post(user_client, "/write/new", {"title": "Letter", "kind": "article", "target": ""})
+    assert 'Write or paste your text in "Your text", then choose "Save my text".' in html.unescape(r.text)
+    assert "is ready" not in r.text
+    r = post(user_client, "/write/new", {"title": "", "kind": "article", "target": ""})
+    assert r.text.count("You can change it later.") == 1  # the hint only, not repeated by the error
+    assert "Enter a title for your document." in r.text
+
+
+def test_earlier_suggestions_are_numbered_and_lead_with_the_goal(user_client, fake_ai):
+    doc_id = create_doc(user_client)
+    save(user_client, doc_id, BODY)
+    first = ask_suggestions(user_client, doc_id, fake_ai, [])
+    second = ask_suggestions(user_client, doc_id, fake_ai, [])
+    page = user_client.get(f"/write/{doc_id}").text
+    assert re.search(rf'<a href="/write/{doc_id}/suggestions/{second}">Set 2: Fix spelling and grammar only, '
+                     r"\d{1,2} [A-Z][a-z]+ \d{4}, \d\d:\d\d UTC</a>", page)
+    assert f'<a href="/write/{doc_id}/suggestions/{first}">Set 1: Fix spelling and grammar only, ' in page
+    assert "Times are in UTC, the same as London time in winter." in page
+    assert "(UTC, the same as London time in winter)" in user_client.get(f"/write/{doc_id}/suggestions/{first}").text
+
+
+def test_accept_all_lists_what_would_change(user_client, fake_ai):
+    doc_id = create_doc(user_client)
+    save(user_client, doc_id, "teh one, teh two.")
+    batch_id = ask_suggestions(user_client, doc_id, fake_ai, [
+        {"original": "teh one", "proposed": "the one", "reason": "Spelling."},
+        {"original": "teh two", "proposed": "the two", "reason": "Spelling."},
+    ])
+    save(user_client, doc_id, "teh one, two.")  # suggestion 2 no longer fits
+    page = html.unescape(user_client.get(f"/write/{doc_id}/suggestions/{batch_id}/accept-all").text)
+    assert '<li>Suggestion 1 replaces "teh" with "the".</li>' in page
+    assert ('<li>Suggestion 2 replaces "teh" with "the". It no longer matches your text, so it would be left '
+            'out.</li>') in page
+
+
+def test_last_decision_offers_the_way_back(user_client, fake_ai):
+    doc_id = create_doc(user_client)
+    save(user_client, doc_id, BODY)
+    batch_id = ask_suggestions(user_client, doc_id, fake_ai, [
+        {"original": "teh mat", "proposed": "the mat", "reason": "Spelling."}])
+    base = f"/write/{doc_id}/suggestions/{batch_id}"
+    sid = suggestion_rows(batch_id)[0]["id"]
+    post(user_client, f"{base}/{sid}/reject")
+    page = user_client.get(base).text
+    progress = page.split('id="progress"', 1)[1].split("</div>", 1)[0]
+    assert f'Every suggestion is decided. <a href="/write/{doc_id}">Back to My essay</a>.' in progress
+    assert page.count(f'<a href="/write/{doc_id}">Back to My essay</a>') == 1
+
+
+def test_version_differences_say_what_changed_and_where(user_client):
+    doc_id = create_doc(user_client)
+    save(user_client, doc_id, "# Background\n\nMost apps assume you can see. Readers read teh words.")
+    save(user_client, doc_id, "# Background\n\nMost apps assume that you can see. Readers read the words.")
+    vid = versions_of(doc_id)[0]["id"]
+    page = html.unescape(user_client.get(f"/write/{doc_id}/versions/{vid}").text)
+    assert ('<strong>Where:</strong> In the section "Background", paragraph 1 of your current text.' in page)
+    assert ('<strong>Changed since this version:</strong> adds "that" after "assume"; replaces "teh" with "the".'
+            in page)
+    assert "Times are in UTC, the same as London time in winter." in page
+    only_old = write_mod.version_differences("One.\n\nTwo.", "One.")
+    assert only_old == [{"version": "Two.", "current": "", "place": "Paragraph 2 of this version", "change": ""}]
+
+
+def test_plain_text_export_keeps_numbers_the_member_wrote():
+    doc = {"title": "T", "body": "# 1. Intro\n\nText.\n\n# 2. End\n\nMore."}
+    assert write_mod.export_text(doc) == "T\n\n1. Intro\n\nText.\n\n2. End\n\nMore.\n"
+
+
+def test_places_to_publish_name_the_site_of_each_source(user_client, fake_ai):
+    doc_id = create_doc(user_client)
+    save(user_client, doc_id, BODY)
+    with db.session() as conn:
+        cur = conn.execute("INSERT INTO write_research (doc_id, kind, content_md, sources_json, created_at)"
+                           " VALUES (?, 'venues', 'Try the journal.', ?, ?)",
+                           (doc_id, '[{"url": "https://www.example.org/submit", "title": "Submission guidelines"}]',
+                            db.now()))
+        rid = cur.lastrowid
+    page = user_client.get(f"/write/{doc_id}/publish/{rid}").text
+    assert 'rel="noopener noreferrer">Submission guidelines</a> (example.org)' in page

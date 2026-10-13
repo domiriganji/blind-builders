@@ -689,9 +689,9 @@ def _versions(project_id: int, kind: str) -> list[dict]:
         rows = conn.execute("SELECT id, created_at, meta_json FROM research_items WHERE project_id = ? AND kind = ?"
                             " ORDER BY id DESC", (project_id, kind)).fetchall()
     out = []
-    for r in rows:
+    for i, r in enumerate(rows):
         copy_of = json.loads(r["meta_json"] or "{}").get("copy_of")
-        out.append({"id": r["id"], "when": _when(r["created_at"]),
+        out.append({"id": r["id"], "number": len(rows) - i, "when": _when(r["created_at"]),
                     "copy_of": _when(copy_of) if isinstance(copy_of, str) else ""})
     return out
 
@@ -1015,7 +1015,7 @@ def _run_data(ctx, ai, project_id: int, created_at: str) -> str:
     meta["interpreted_at"] = db.now()
     if not _save_item(project_id, "data", text, [], meta, owner=owner):
         return "/research"
-    return f"/research/{project_id}/data?done=1"
+    return f"/research/{project_id}/data?done=1#ai-title"
 
 
 def _run_draft(ctx, ai, project_id: int, created_at: str) -> str:
@@ -1096,8 +1096,9 @@ def _stage_page(request: Request, project_id: int, user: dict, slug: str, versio
             ctx["download_url"] = f"/research/{project_id}/{slug}.md?version={item['id']}"
             ctx["download_label"] = f"Download this version ({_when(item['created_at'])}) as Markdown"
             ctx["restore_label"] = f"Make this the current {short}"
+        # Every stage links each matching citation [n] to its source, and the source back to the text.
+        ctx["content_html"], ctx["cited_first"] = link_citations(ctx["content_html"], len(item["sources"]))
         if stage["key"] in ("plan", "draft"):
-            ctx["content_html"], ctx["cited_first"] = link_citations(ctx["content_html"], len(item["sources"]))
             citations = item["meta"].get("citations") or check_citations(item["content_md"], len(item["sources"]))
             ctx["citations"] = citations
             ctx["places"] = citation_places(item["content_md"], citations.get("unmatched") or [])
@@ -1284,7 +1285,7 @@ def _data_page(request: Request, project: dict, *, errors: dict | None = None, n
                   errors=errors or {}, status_code=status_code, sample_names=sample_names, sample=sample,
                   sample_columns=SAMPLE_COLUMNS, when=_when, names_text=names_text, column_facts=column_facts,
                   next_action=_next_action(pid, _stages(project), "data"), sources_ready=_sources_ready(pid),
-                  no_sources_note=NO_SOURCES_NOTE)
+                  no_sources_note=NO_SOURCES_NOTE, kept_note=False)
 
 
 @router.get("/{project_id}/data")
@@ -1400,6 +1401,31 @@ async def save_notes(request: Request, project_id: int, user: dict = Depends(req
 async def upload_csv(request: Request, project_id: int, user: dict = Depends(require_user)):
     """Upload a data file, and save the notes too if they were sent with it."""
     return await _save_notes_and_file(request, _project(project_id, user), file_required=True)
+
+
+@router.get("/{project_id}/notes")
+@router.get("/{project_id}/csv")
+@router.get("/{project_id}/data/describe")
+def back_to_data(project_id: int, user: dict = Depends(require_user)):
+    """A reload or a restored tab after the data form came back with a question lands here: go to the data page."""
+    _project(project_id, user)
+    return redirect(f"/research/{project_id}/data")
+
+
+@router.get("/{project_id}/draft/write")
+def back_to_draft(project_id: int, user: dict = Depends(require_user)):
+    _project(project_id, user)
+    return redirect(f"/research/{project_id}/draft")
+
+
+@router.get("/{project_id}/{slug}/restore")
+def back_to_stage(project_id: int, slug: str, user: dict = Depends(require_user)):
+    """The address the "Make this the current ..." button sends to: go to that stage's page."""
+    _project(project_id, user)
+    stage = STAGE_BY_SLUG.get(slug)
+    if stage is None or stage["key"] == "data":
+        raise HTTPException(status_code=404, detail="We could not find that page.")
+    return redirect(f"/research/{project_id}/{slug}")
 
 
 # ----- delete ----------------------------------------------------------------------------------

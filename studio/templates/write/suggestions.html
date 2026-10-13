@@ -3,12 +3,12 @@
 {% block content %}
 <h1>{{ title }}</h1>
 {% set made = n + batch.dropped_count %}
-<p class="lead">You asked the AI to "{{ batch.goal_name }}" on {{ batch.when }}. {% if n %}It made {{ n }} suggestion{{ '' if n == 1 else 's' }} you can use. You decide on each one. Your text changes only when you accept a suggestion, and each accepted change is saved as a version.{% elif made %}None of its suggestions could be used, so there is nothing to decide.{% else %}It made no suggestions.{% endif %}</p>
+<p class="lead">You asked the AI to "{{ batch.goal_name }}" on {{ batch.when }} (UTC, the same as London time in winter). {% if n %}It made {{ n }} suggestion{{ '' if n == 1 else 's' }} you can use. You decide on each one. Your text changes only when you accept a suggestion, and each accepted change is saved as a version.{% elif made %}None of its suggestions could be used, so there is nothing to decide.{% else %}It made no suggestions.{% endif %}</p>
 <div id="progress" tabindex="-1">
 {% if note and not note.place %}<p class="message message-{{ note.kind }}" role="status">{{ note.text }}</p>{% endif %}
 {% if n %}
 <p>{{ counts_sentence }}
-{% if next_pending %}<a href="#suggestion-{{ next_pending.number }}">Go to suggestion {{ next_pending.number }}, the next one to decide</a>.{% endif %}</p>
+{% if next_pending %}<a href="#suggestion-{{ next_pending.number }}">Go to suggestion {{ next_pending.number }}, the next one to decide</a>.{% else %}Every suggestion is decided. <a href="/write/{{ doc.id }}">Back to {{ doc.title }}</a>.{% endif %}</p>
 {% endif %}
 </div>
 {% if batch.dropped_count %}
@@ -80,5 +80,5 @@
 </section>
 {% endif %}
 
-<p><a href="/write/{{ doc.id }}">Back to {{ doc.title }}</a></p>
+{% if counts.pending or not n %}<p><a href="/write/{{ doc.id }}">Back to {{ doc.title }}</a></p>{% endif %}
 {% endblock %}

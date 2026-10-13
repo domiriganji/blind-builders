@@ -77,7 +77,7 @@ def test_create_validation_moves_focus_to_the_field(live, browser):
     page.get_by_role("button", name="Start the document").click()
     assert h1(page) == "Please check 1 answer: Start a new document"
     assert_page_ok(page, "create errors")
-    follow_error_link(page, "Enter a title for your document. You can change it later.",
+    follow_error_link(page, "Enter a title for your document.",
                       page.get_by_label("Title", exact=True))
     # A title that is too long is explained with the limit
     page.get_by_label("Title", exact=True).fill("x" * 201)
@@ -183,7 +183,7 @@ def test_write_suggest_accept_reject_and_versions(live, browser):
     page.get_by_role("link", name="Back to My essay").click()
     save_text(page, "A completely new text.")
     assert h1(page) == "My essay: saved as version 3"
-    page.get_by_role("link", name=re.compile(r"^Suggestions from .*Fix spelling and grammar only$")).first.click()
+    page.get_by_role("link", name=re.compile(r"^Set \d+: Fix spelling and grammar only, ")).first.click()
     assert h1(page) == "1 suggestion for My essay"
     assert "This no longer matches your text" in page.get_by_role("region", name="Suggestion 1 of 1").inner_text()
     assert_page_ok(page, "stale suggestion")
@@ -252,7 +252,7 @@ def test_export_venues_cover_letter_and_delete(live, browser):
     download = info.value
     assert download.suggested_filename == "screen-readers-in-class.md"
     with open(download.path(), encoding="utf-8") as fh:
-        assert fh.read().startswith("# Screen readers in class\n\n# Introduction")
+        assert fh.read().startswith("# Screen readers in class\n\n## Introduction")
     for name, filename in [("Download as a Word document (.docx)", "screen-readers-in-class.docx"),
                            ("Download as plain text (.txt)", "screen-readers-in-class.txt"),
                            ("Download as a web page (.html)", "screen-readers-in-class.html"),

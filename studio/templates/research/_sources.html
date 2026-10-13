@@ -1,11 +1,14 @@
 {# The numbered sources of a research result. Each item has the id source-n, so a citation [n] in the text links
    to it, and a source the text cites links back to its first citation (cite-n). #}
+{# The site a link goes to, so a member knows whether it is the publisher, a blog or a preprint server:
+   "https://www.example.org/a" -> "example.org". #}
+{% macro site_of(url) %}{% set h = url.split('/')[2].split('@')[-1].split(':')[0].lower() %}{{ h[4:] if h.startswith('www.') else h }}{% endmacro %}
 {% macro numbered_sources(sources, heading, cited_first) %}
 {% if sources %}
 <section aria-labelledby="sources-title">
 <h2 id="sources-title">{{ heading }} ({{ sources|length }})</h2>
 <ol class="sources">
-{% for s in sources %}<li id="source-{{ loop.index }}" tabindex="-1">{% if s.url and (s.url.startswith('https://') or s.url.startswith('http://')) %}<a href="{{ s.url }}" rel="noopener noreferrer">{{ s.title or s.url }}</a>{% else %}{{ s.title or s.url }}{% endif %}{% if s.quote %}<br><span class="quote">"{{ s.quote }}"</span>{% endif %}{% if loop.index in cited_first %}<br><a href="#cite-{{ loop.index }}">Back to [{{ loop.index }}] in the text</a>{% endif %}</li>{% endfor %}
+{% for s in sources %}<li id="source-{{ loop.index }}" tabindex="-1">{% if s.url and (s.url.startswith('https://') or s.url.startswith('http://')) %}<a href="{{ s.url }}" rel="noopener noreferrer">{{ s.title or s.url }}</a>{% if s.title %} ({{ site_of(s.url) }}){% endif %}{% else %}{{ s.title or s.url }}{% endif %}{% if s.quote %}<br><span class="quote">"{{ s.quote }}"</span>{% endif %}{% if loop.index in cited_first %}<br><a href="#cite-{{ loop.index }}">Back to [{{ loop.index }}] in the text</a>{% endif %}</li>{% endfor %}
 </ol>
 </section>
 {% endif %}
