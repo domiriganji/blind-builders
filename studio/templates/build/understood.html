@@ -16,6 +16,8 @@
 {% if stored.title_suggested %}<p>You did not give a title, so the AI suggested this one: {{ project.title }}.</p>{% endif %}
 <h2>Who it is for</h2>
 <p>{{ spec.audience or 'The AI did not say.' }}</p>
+<h2>How it will feel to visitors</h2>
+<p>{{ spec.look_and_feel or 'The AI did not say.' }}</p>
 <h2>Pages ({{ spec.pages|length }})</h2>
 {% for page in spec.pages %}
 <h3>{{ page.name }}</h3>

@@ -1,4 +1,5 @@
 """Build: describe it, check what the AI understood, build, check, preview, download, change, delete."""
+import base64
 import io
 import json
 import re
@@ -7,10 +8,11 @@ import zipfile
 import pytest
 from fastapi.testclient import TestClient
 
-from studio import db
+from studio import db, visual_check
 from studio.a11y_check import check_html
 from studio.ai import AIError
 from studio.features import build
+from studio.visual_check import PageCheck, Problem, Screenshot, VisualReport
 
 from .conftest import post, register
 
@@ -32,7 +34,8 @@ SPEC_2 = dict(SPEC, summary="A menu website in naira for Kemi's food stall.", qu
 
 INDEX_V1 = """<!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><title>Kemi Kitchen</title><link rel="stylesheet" href="style.css"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kemi Kitchen</title><link rel="stylesheet" href="style.css"></head>
 <body><main>
 <h1>Kemi Kitchen menu</h1>
 <p>Small chops: 1200 naira</p>
@@ -41,7 +44,7 @@ INDEX_V1 = """<!doctype html>
 </html>
 """
 ABOUT_BAD = """<!doctype html>
-<html><head><title>About</title></head>
+<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>About</title></head>
 <body><main><h1>About Kemi</h1><p>We cook every day.</p></main></body></html>
 """
 FILES_V1 = [
@@ -51,6 +54,72 @@ FILES_V1 = [
 ]
 GENERATED = {"files": FILES_V1, "summary": "I built a **menu** page and an about page.",
              "how_to_use": "Open index.html.", "not_done": ["I guessed the opening hours."]}
+
+
+# ----- a stand-in for the site's visual checks (studio/visual_check.py runs a real browser) ------------
+
+PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+CONTRAST_BUILDER = ('Some text is hard to read for many people because it does not stand out enough from what is '
+                    'behind it, for example "Opening hours".')
+CONTRAST_FIX = ("index.html at 390px wide (phone): 1 piece of text is below WCAG AA contrast: body > p: text #bbbbbb "
+                "on #ffffff, 1.92:1, needs 4.5:1. Darken the text colour in style.css.")
+REVIEW_OK = {"verdict": "looks_finished",
+             "summary_for_builder": "It looks finished and welcoming, and it is easy to read on a phone and a computer.",
+             "problems": []}
+REVIEW_NEEDS_WORK = {"verdict": "needs_work",
+                     "summary_for_builder": "It works, but the menu feels crowded on a phone.",
+                     "problems": [{"page": "index.html", "builder_text": "The menu feels crowded on a phone.",
+                                   "fix_text": "Give .menu li 12px of padding and set the text to #1a1a1a."}]}
+
+
+def visual_report(files=None, problems=()):
+    """A report shaped like visual_check.check_site's: every HTML page on a phone and a computer, with
+    pictures. `problems` go on index.html at the phone size."""
+    paths = sorted((p for p in (files or {"index.html": ""}) if p.endswith(".html")), key=lambda p: p != "index.html")
+    report = VisualReport()
+    for path in paths:
+        for size in visual_check.SIZES:
+            found = list(problems) if (path == "index.html" and size["name"] == "phone") else []
+            kinds = [k for k in visual_check.CHECKS if size["name"] == "phone" or k not in visual_check.PHONE_ONLY]
+            report.pages.append(PageCheck(path=path, size=size["name"], width=size["width"], height=size["height"],
+                                          problems=found, passed=[k for k in kinds if k not in {p.kind for p in found}]))
+            report.screenshots.append(Screenshot(path=path, size=size["name"], width=size["width"], height=100,
+                                                 png=PNG))
+    return report
+
+
+def contrast_problem():
+    return Problem(kind="contrast", count=1, examples=['"Opening hours"'], builder_text=CONTRAST_BUILDER,
+                   fix_text=CONTRAST_FIX)
+
+
+class FakeVisual:
+    """Stands in for visual_check.available and check_site. Queue reports (or functions of the files) in
+    .reports; when the queue is empty, every check passes."""
+
+    def __init__(self):
+        self.is_available = True
+        self.reports: list = []
+        self.calls: list[dict] = []
+
+    def available(self) -> bool:
+        return self.is_available
+
+    def check_site(self, files, **kwargs):
+        self.calls.append(dict(files))
+        if self.reports:
+            report = self.reports.pop(0)
+            return report(files) if callable(report) else report
+        return visual_report(files)
+
+
+@pytest.fixture(autouse=True)
+def fake_visual(monkeypatch, fake_ai):
+    fake = FakeVisual()
+    monkeypatch.setattr(build.visual_check, "available", fake.available)
+    monkeypatch.setattr(build.visual_check, "check_site", fake.check_site)
+    fake_ai.on("build.design_review", REVIEW_OK)
+    return fake
 
 
 def changed_files():
@@ -84,6 +153,10 @@ def start_project(client, fake_ai, title="Kemi Kitchen", kind="website"):
 def build_v1(client, fake_ai, **kwargs):
     project_id, _ = start_project(client, fake_ai, **kwargs)
     fake_ai.on("build.generate", GENERATED)
+    # Other test files use this helper with the real visual checks: answer the AI's look at the pictures and
+    # the one repair, in case the server can run them.
+    fake_ai.responses.setdefault("build.design_review", REVIEW_OK)
+    fake_ai.responses.setdefault("build.visual_repair", GENERATED)
     r = post(client, f"/build/{project_id}/understand", {"action": "build", "corrections": ""})
     assert str(r.url).endswith(f"/build/{project_id}/v/1"), r.url
     return project_id, r
@@ -796,3 +869,348 @@ def test_secret_in_title_is_refused_even_when_the_idea_is_empty(user_client, fak
     r = post(user_client, "/build/new", {"title": "my password is hunter2", "kind": "website", "idea": ""})
     assert r.status_code == 400
     assert 'href="#field-title"' in r.text and 'href="#field-idea"' in r.text
+
+
+# ----- how it looks to sighted visitors ------------------------------------------------------------
+
+def look_section(text: str) -> str:
+    """The version page's "How it looks to sighted visitors" section, as HTML."""
+    return re.search(r"<h2>How it looks to sighted visitors</h2>(.*?)<h2>Checked by the site</h2>", text, re.S).group(1)
+
+
+def plain(page: str) -> str:
+    import html
+    return " ".join(html.unescape(re.sub(r"<[^>]+>", " ", page)).split())
+
+
+def repaired_files():
+    """What the one automatic repair returns: the first files with darker text."""
+    files = json.loads(json.dumps(FILES_V1))
+    files[2]["content"] = "body { font-size: 1.2rem; color: #1a1a1a; }\n"
+    return {"files": files, "summary": "I made the text darker.", "how_to_use": "Open index.html.", "not_done": []}
+
+
+def saved_version(project_id, number=1):
+    with db.session() as conn:
+        return dict(conn.execute("SELECT * FROM build_versions WHERE project_id = ? AND number = ?",
+                                 (project_id, number)).fetchone())
+
+
+def test_when_every_visual_check_passes_there_is_no_repair(user_client, fake_ai, fake_visual):
+    project_id, r = build_v1(user_client, fake_ai)
+    assert_page_ok(r)
+    text = r.text
+    # Right after the summary line, before the accessibility details.
+    assert text.index('class="lead"') < text.index("How it looks to sighted visitors") < text.index(
+        "<h2>Checked by the site</h2>")
+    section = plain(look_section(text))
+    assert "Checked by the site on a phone and a computer: passed all 7 visual checks." in section
+    assert "Passed: Text stands out clearly from what is behind it, so it is easy to read." in section
+    assert "An AI looked at pictures of the pages" in section
+    assert "This is the AI's opinion, not a check by the site." in section
+    assert REVIEW_OK["summary_for_builder"] in section
+    assert "In the AI's opinion, it looks finished." in section
+    assert "Fixed before you saw it" not in section
+    assert calls_for(fake_ai, "build.visual_repair") == []
+    assert len(calls_for(fake_ai, "build.design_review")) == 1
+    assert len(fake_visual.calls) == 1
+    # The Not checked list says a person has not looked, and links to a sighted check.
+    assert "but no person has looked" in text
+    assert "Ask a sighted person to check how it looks" in text
+    assert "kind=sighted" in text and "/checks/new?url=http%3A%2F%2Ftestserver%2Fbuild%2Fp%2F" in text
+    assert "The site opens each page in a browser to check how it looks" in text
+    assert "The site reads the files but does not run them." not in text
+    stored = saved_version(project_id)
+    assert json.loads(stored["visual_json"])["passed_checks"] == list(visual_check.CHECKS)
+    assert json.loads(stored["design_review_json"])["verdict"] == "looks_finished"
+    assert json.loads(stored["repaired_json"]) == {}
+
+
+def test_the_repair_runs_once_when_the_checks_find_problems(user_client, fake_ai, fake_visual):
+    fake_visual.reports = [lambda files: visual_report(files, [contrast_problem()])]  # then everything passes
+    fake_ai.on("build.visual_repair", repaired_files())
+    project_id, r = build_v1(user_client, fake_ai)
+    assert_page_ok(r)
+    repairs = calls_for(fake_ai, "build.visual_repair")
+    assert len(repairs) == 1
+    assert CONTRAST_FIX in repairs[0]["prompt"]
+    assert 'path="index.html"' in repairs[0]["prompt"] and "Small chops: 1200 naira" in repairs[0]["prompt"]
+    assert repairs[0]["max_tokens"] == 64000 and "WCAG AA" in repairs[0]["system"]
+    assert len(fake_visual.calls) == 2  # the first files, then the repaired ones
+    assert len(calls_for(fake_ai, "build.design_review")) == 2
+    # The repaired files are the ones saved; the AI's summary of the build is kept.
+    stored = saved_version(project_id)
+    assert "#1a1a1a" in json.loads(stored["files_json"])["style.css"]
+    assert stored["ai_summary"] == GENERATED["summary"]
+    assert json.loads(stored["repaired_json"])["fixed"] == 1
+    section = plain(look_section(r.text))
+    assert "passed all 7 visual checks" in section
+    assert "Fixed before you saw it: the AI fixed 1 problem the checks found." in section
+    assert "#1a1a1a" not in r.text and "#bbbbbb" not in r.text
+
+
+def test_the_repair_never_runs_twice_and_remaining_problems_are_listed(user_client, fake_ai, fake_visual):
+    fake_visual.reports = [lambda files: visual_report(files, [contrast_problem()]),
+                           lambda files: visual_report(files, [contrast_problem()])]
+    fake_ai.on("build.visual_repair", repaired_files())
+    project_id, r = build_v1(user_client, fake_ai)
+    assert_page_ok(r)
+    assert len(calls_for(fake_ai, "build.visual_repair")) == 1
+    section = plain(look_section(r.text))
+    assert "passed 6 of 7 visual checks. It found 1 problem:" in section
+    assert CONTRAST_BUILDER in section and "Where: index.html, on a phone" in section
+    assert "Not passed: Text stands out clearly" in section
+    assert "tried once to fix what the checks found, but the problems are still there" in section
+    # The fix button covers what is left, with the technical instruction for the AI.
+    assert "Fix the problems the checks found" in r.text
+    fake_ai.on("build.change", changed_files())
+    post(user_client, f"/build/{project_id}/v/1/fix")
+    prompt = calls_for(fake_ai, "build.change")[0]["prompt"]
+    assert CONTRAST_FIX in prompt and "Add a lang attribute" in prompt
+
+
+def test_fix_button_appears_for_visual_problems_alone(user_client, fake_ai, fake_visual):
+    project_id, _ = start_project(user_client, fake_ai)
+    fake_visual.reports = [lambda files: visual_report(files, [contrast_problem()]),
+                           lambda files: visual_report(files, [contrast_problem()])]
+    fake_ai.on("build.generate", dict(GENERATED, files=[{"path": "index.html", "content": INDEX_V1}]))
+    fake_ai.on("build.visual_repair", dict(GENERATED, files=[{"path": "index.html", "content": INDEX_V1}]))
+    r = post(user_client, f"/build/{project_id}/understand", {"action": "build"})
+    assert "The checks found 1 problem in how the pages look." in r.text
+    assert "Fix the problems the checks found" in r.text
+    fake_ai.on("build.change", dict(GENERATED, files=[{"path": "index.html", "content": INDEX_V1}]))
+    r = post(user_client, f"/build/{project_id}/v/1/fix")
+    assert str(r.url).endswith(f"/build/{project_id}/v/2")
+    assert CONTRAST_FIX in calls_for(fake_ai, "build.change")[0]["prompt"]
+
+
+@pytest.mark.parametrize("answer", [
+    dict(GENERATED, files=[{"path": "index.html", "content": INDEX_V1}, {"path": "../evil.html", "content": "x"}]),
+    AIError("The AI is busy right now (rate limit). Please try again in a minute."),
+])
+def test_a_failed_repair_keeps_the_first_files(user_client, fake_ai, fake_visual, answer):
+    fake_visual.reports = [lambda files: visual_report(files, [contrast_problem()])]
+    fake_ai.on("build.visual_repair", answer)
+    project_id, r = build_v1(user_client, fake_ai)
+    assert_page_ok(r)
+    assert len(calls_for(fake_ai, "build.visual_repair")) == 1
+    assert len(fake_visual.calls) == 1  # nothing new to check
+    stored = saved_version(project_id)
+    assert json.loads(stored["files_json"]) == {f["path"]: f["content"] for f in FILES_V1}
+    section = plain(look_section(r.text))
+    assert "this version keeps the files it made first" in section
+    assert CONTRAST_BUILDER in section
+
+
+def test_a_repair_that_breaks_accessibility_is_not_kept(user_client, fake_ai, fake_visual):
+    fake_visual.reports = [lambda files: visual_report(files, [contrast_problem()])]
+    worse = json.loads(json.dumps(FILES_V1))
+    worse[0]["content"] = INDEX_V1.replace('<html lang="en">', "<html>")
+    fake_ai.on("build.visual_repair", dict(GENERATED, files=worse))
+    project_id, r = build_v1(user_client, fake_ai)
+    assert json.loads(saved_version(project_id)["files_json"])["index.html"] == INDEX_V1
+    assert "were not better, so this version keeps the files it made first" in plain(look_section(r.text))
+    assert len(calls_for(fake_ai, "build.design_review")) == 1  # no second look at files that were not kept
+
+
+def test_the_ai_review_asking_for_work_leads_to_one_repair(user_client, fake_ai, fake_visual):
+    answers = [REVIEW_NEEDS_WORK, REVIEW_OK]
+    fake_ai.on("build.design_review", lambda **kwargs: answers.pop(0))
+    fake_ai.on("build.visual_repair", repaired_files())
+    project_id, r = build_v1(user_client, fake_ai)
+    assert_page_ok(r)
+    repairs = calls_for(fake_ai, "build.visual_repair")
+    assert len(repairs) == 1 and "Give .menu li 12px of padding" in repairs[0]["prompt"]
+    section = plain(look_section(r.text))
+    assert "Improved before you saw it" in section
+    assert REVIEW_OK["summary_for_builder"] in section
+
+
+def test_ai_review_that_still_asks_for_work_is_shown_as_its_opinion(user_client, fake_ai, fake_visual):
+    fake_ai.on("build.design_review", REVIEW_NEEDS_WORK)
+    fake_ai.on("build.visual_repair", repaired_files())
+    project_id, r = build_v1(user_client, fake_ai)
+    assert len(calls_for(fake_ai, "build.visual_repair")) == 1
+    section = plain(look_section(r.text))
+    assert "In the AI's opinion, it still needs some work." in section
+    assert "What the AI thinks could still be better: The menu feels crowded on a phone." in section
+    assert "12px of padding" not in r.text  # the instruction for the AI is not shown to the member
+
+
+def test_the_review_prompt_holds_pictures_and_the_purpose(user_client, fake_ai, fake_visual):
+    project_id, _ = start_project(user_client, fake_ai)
+    files = FILES_V1 + [{"path": f"p{i}.html", "content": INDEX_V1} for i in range(4)]
+    fake_ai.on("build.generate", dict(GENERATED, files=files))
+    post(user_client, f"/build/{project_id}/understand", {"action": "build"})
+    call = calls_for(fake_ai, "build.design_review")[0]
+    blocks = call["prompt"]
+    assert isinstance(blocks, list)
+    images = [b for b in blocks if b["type"] == "image"]
+    assert len(images) == 6
+    assert all(b["source"] == {"type": "base64", "media_type": "image/png",
+                               "data": base64.b64encode(PNG).decode()} for b in images)
+    labels = [b["text"] for b in blocks if b["type"] == "text"]
+    assert labels[0].startswith("Picture 1: index.html on a phone")
+    assert labels[1].startswith("Picture 2: index.html on a computer")
+    assert SPEC["audience"] in labels[-1] and "Kemi Kitchen" in labels[-1]
+    assert "The site's own measurements found no problems." in labels[-1]
+    assert "never name colours" in call["system"].lower() and "blind" in call["system"]
+    assert call["schema"]["properties"]["verdict"]["enum"] == ["looks_finished", "needs_work"]
+
+
+def test_a_review_the_ai_cannot_give_still_saves_the_version(user_client, fake_ai, fake_visual):
+    fake_ai.on("build.design_review", AIError("The AI declined this request."))
+    project_id, r = build_v1(user_client, fake_ai)
+    assert_page_ok(r)
+    section = plain(look_section(r.text))
+    assert "passed all 7 visual checks" in section
+    assert "No AI looked at pictures of this version, because the AI could not answer: The AI declined" in section
+    assert calls_for(fake_ai, "build.visual_repair") == []
+
+
+def test_without_a_browser_the_look_is_not_checked_and_the_page_says_so(user_client, fake_ai, fake_visual):
+    fake_visual.is_available = False
+    project_id, r = build_v1(user_client, fake_ai)
+    assert_page_ok(r)
+    assert fake_visual.calls == []
+    assert calls_for(fake_ai, "build.design_review") == [] and calls_for(fake_ai, "build.visual_repair") == []
+    section = plain(look_section(r.text))
+    assert build.LOOK_UNAVAILABLE in section
+    assert "No AI looked at pictures of this version, because the site could not take any." in section
+    assert "Ask a sighted person to check how it looks" in r.text
+    assert "The site reads the files but does not run them." in r.text
+    assert json.loads(saved_version(project_id)["visual_json"]) == {"available": False}
+
+
+def test_versions_made_before_the_look_was_checked_say_so(user_client, fake_ai):
+    project_id, _ = build_v1(user_client, fake_ai)
+    with db.session() as conn:
+        conn.execute("UPDATE build_versions SET visual_json = '{}', design_review_json = '{}', repaired_json = '{}'")
+    r = user_client.get(f"/build/{project_id}/v/1")
+    assert_page_ok(r)
+    assert build.LOOK_NOT_RUN in plain(look_section(r.text))
+    assert "An AI looked at pictures" not in r.text
+
+
+def test_the_look_is_checked_again_after_a_change(user_client, fake_ai, fake_visual):
+    project_id, _ = build_v1(user_client, fake_ai)
+    fake_visual.reports = [lambda files: visual_report(files, [contrast_problem()])]
+    fake_ai.on("build.visual_repair", dict(changed_files(), summary="Darker text."))
+    fake_ai.on("build.change", changed_files())
+    r = post(user_client, f"/build/{project_id}/v/1/change", {"request": "Small chops now cost 1500."})
+    assert_page_ok(r)
+    assert h1(r) == "Kemi Kitchen: version 2 is ready"
+    assert len(calls_for(fake_ai, "build.visual_repair")) == 1
+    assert "Fixed before you saw it: the AI fixed 1 problem the checks found." in plain(look_section(r.text))
+    assert len(fake_visual.calls) == 3
+
+
+def test_builder_facing_words_never_name_colours(user_client, fake_ai, fake_visual):
+    sentences = [build.LOOK_NOT_RUN, build.LOOK_UNAVAILABLE, build.JS_NOT_CHECKED_WITH_LOOK, build.FEEL_LABEL,
+                 build.FEEL_HINT, build._repair_sentence(2, 3, 1), build._repair_sentence(0, 1, 1),
+                 build._repair_sentence(0, 0, 0)] + list(visual_check.CHECKS.values())
+    for sentence in sentences:
+        assert not visual_check.names_a_colour(sentence), sentence
+    fake_visual.reports = [lambda files: visual_report(files, [contrast_problem()]),
+                           lambda files: visual_report(files, [contrast_problem()])]
+    fake_ai.on("build.visual_repair", repaired_files())
+    _, r = build_v1(user_client, fake_ai)
+    section = plain(look_section(r.text))
+    assert section and not visual_check.names_a_colour(section), section
+    not_checked = plain(re.search(r"<h2>Not checked</h2>(.*?)</ul>", r.text, re.S).group(1))
+    assert not visual_check.names_a_colour(not_checked)
+
+
+# ----- how it should feel ------------------------------------------------------------------------
+
+def test_the_feel_is_asked_for_on_the_form(user_client):
+    r = user_client.get("/build")
+    assert build.FEEL_LABEL in r.text and build.FEEL_HINT in r.text
+    assert 'name="feel"' in r.text and "(optional)" in re.search(r'for="field-feel">(.*?)</label>', r.text, re.S).group(1)
+
+
+def test_the_feel_is_validated(user_client, fake_ai):
+    r = post(user_client, "/build/new", {"kind": "website", "idea": "A menu.", "feel": "x" * 201})
+    assert r.status_code == 400
+    assert h1(r) == "Build a website, app, tool or game: please fix the problems"
+    assert 'href="#field-feel"' in r.text and "201 characters" in r.text
+    r = post(user_client, "/build/new", {"kind": "website", "idea": "A menu.", "feel": "my password is hunter2"})
+    assert r.status_code == 400 and 'href="#field-feel"' in r.text and "never needs them" in r.text
+    assert fake_ai.calls == []
+    with db.session() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM build_projects").fetchone()[0] == 0
+
+
+def test_the_feel_is_stored_and_sent_to_the_ai(user_client, fake_ai):
+    fake_ai.on("build.understand", dict(SPEC, look_and_feel="Warm and welcoming, like a family food stall."))
+    r = post(user_client, "/build/new", {"title": "Kemi Kitchen", "kind": "website", "idea": "A menu.",
+                                         "feel": "Friendly and calm"})
+    assert_page_ok(r)
+    project_id = int(re.search(r"/build/(\d+)$", str(r.url)).group(1))
+    with db.session() as conn:
+        assert conn.execute("SELECT feel FROM build_projects").fetchone()[0] == "Friendly and calm"
+    assert "<feel>Friendly and calm</feel>" in calls_for(fake_ai, "build.understand")[0]["prompt"]
+    # What the AI understood: how it will feel, under its own heading; the person's words shown back.
+    assert r.text.index("Who it is for") < r.text.index("<h2>How it will feel to visitors</h2>") < r.text.index(
+        "Pages (")
+    assert "Warm and welcoming, like a family food stall." in r.text
+    assert "How it should feel, in your words: Friendly and calm" in r.text
+    fake_ai.on("build.generate", GENERATED)
+    post(user_client, f"/build/{project_id}/understand", {"action": "build"})
+    assert "<feel>Friendly and calm</feel>" in calls_for(fake_ai, "build.generate")[0]["prompt"]
+    assert "Warm and welcoming" in calls_for(fake_ai, "build.generate")[0]["prompt"]
+    assert "<feel>Friendly and calm</feel>" in calls_for(fake_ai, "build.design_review")[0]["prompt"][-1]["text"]
+    fake_ai.on("build.change", changed_files())
+    post(user_client, f"/build/{project_id}/v/1/change", {"request": "Small chops now cost 1500."})
+    assert "<feel>Friendly and calm</feel>" in calls_for(fake_ai, "build.change")[0]["prompt"]
+
+
+def test_without_a_feel_the_ai_chooses(user_client, fake_ai):
+    start_project(user_client, fake_ai)
+    assert "the person did not say" in calls_for(fake_ai, "build.understand")[0]["prompt"]
+
+
+def test_look_and_feel_missing_from_the_ai_is_plain(user_client, fake_ai):
+    _, r = start_project(user_client, fake_ai)
+    assert_page_ok(r)
+    assert re.search(r"<h2>How it will feel to visitors</h2>\s*<p>The AI did not say.</p>", r.text)
+
+
+def test_the_prompts_hold_the_design_rules(user_client, fake_ai):
+    assert "look_and_feel" in build.UNDERSTAND_SYSTEM and "Never name colours" in build.UNDERSTAND_SYSTEM
+    assert build.UNDERSTAND_SCHEMA["properties"]["look_and_feel"] == {"type": "string"}
+    assert "look_and_feel" in build.UNDERSTAND_SCHEMA["required"]
+    for system in (build.GENERATE_SYSTEM, build.CHANGE_SYSTEM):
+        for rule in ("polished, modern visual look", "WCAG AA contrast", "base font size 16 to 18px",
+                     "System font", "320px phones", "visual hierarchy", "at least 44px tall", "focus outlines",
+                     "separate style.css", "never name colours"):
+            assert rule in system, rule
+        # Every accessibility rule is still there.
+        assert "exactly one <h1>" in system and 'role="status"' in system and "No external scripts" in system
+    project_id, _ = build_v1(user_client, fake_ai)
+    assert "WCAG AA contrast" in calls_for(fake_ai, "build.generate")[0]["system"]
+
+
+def test_seed_adds_the_new_columns_to_an_older_database(tmp_path):
+    import sqlite3
+
+    from studio.app import create_app
+    from studio.config import Settings
+    path = tmp_path / "old.db"
+    conn = sqlite3.connect(path)
+    conn.executescript("""
+        CREATE TABLE build_projects (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, title TEXT NOT NULL DEFAULT '',
+            kind TEXT NOT NULL, idea TEXT NOT NULL, status TEXT NOT NULL, spec_json TEXT,
+            share_token TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+        CREATE TABLE build_versions (id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL, number INTEGER NOT NULL,
+            files_json TEXT NOT NULL, request_text TEXT NOT NULL DEFAULT '', ai_summary TEXT NOT NULL DEFAULT '',
+            how_to_use TEXT NOT NULL DEFAULT '', diff_json TEXT NOT NULL DEFAULT '{}',
+            checks_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL, UNIQUE (project_id, number));
+    """)
+    conn.close()
+    create_app(Settings(secret_key="k", db_path=path, jobs_inline=True, base_url="http://testserver"))
+    with db.session() as conn:
+        projects = {r["name"] for r in conn.execute("PRAGMA table_info(build_projects)")}
+        versions = {r["name"] for r in conn.execute("PRAGMA table_info(build_versions)")}
+    assert "feel" in projects
+    assert {"visual_json", "design_review_json", "repaired_json"} <= versions

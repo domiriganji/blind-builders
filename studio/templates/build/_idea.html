@@ -5,6 +5,7 @@
 {% for para in project.idea.split('\n') if para.strip() %}<p>{{ para }}</p>
 {% endfor %}
 </div>
+{% if project.feel %}<p>How it should feel, in your words: {{ project.feel }}</p>{% endif %}
 {% if stored.corrections %}
 <h3>What you added or corrected</h3>
 <ol>{% for c in stored.corrections %}<li>{{ c }}</li>{% endfor %}</ol>
