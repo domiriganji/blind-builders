@@ -5,7 +5,7 @@
 <h2>Getting started</h2>
 <ol>
   <li><a href="/register">Create a free account</a> and save your recovery code.</li>
-  <li>{% if pay.free %}Use the AI: on this site it is free for members{% if pay.free_limit %}, up to {{ pay.free_limit }} each a month{% endif %}.{% else %}Connect a Claude API key from Anthropic. A typical task costs from {{ pay.cost_low }} to {{ pay.cost_high }}.{% endif %} <a href="/pricing">Read how paying works</a>.</li>
+  <li>{% if pay.free %}Use the AI: on this site it is free for members{% if pay.free_limit %}, up to {{ pay.free_limit }} each a month{% endif %}.{% else %}Connect a Claude API key from Anthropic. A typical task costs from {{ pay.cost_low }} to {{ pay.cost_high }}. <a href="/learn/claude-api-key">Getting your Claude API key, step by step</a> goes through each step.{% endif %} <a href="/pricing">Read how paying works</a>.</li>
   <li>Read <a href="/learn/start-here">Start here</a>, a short guide to the site.</li>
 </ol>
 <h2>Built around how you work</h2>

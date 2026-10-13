@@ -145,7 +145,7 @@ def test_report_summary_counts(client):
     expected = "3 members: 2 worked, 1 partly worked. Tools used: NVDA, TalkBack"
     assert expected in r.text
     assert expected in client.get("/find", params={"q": "Seeing AI"}).text
-    assert "Blind or low vision since: later in life" in r.text and "Language: Arabic" in r.text
+    assert "Blind or low vision since: Later in life" in r.text and "Language: Arabic" in r.text
     assert "lost sight" not in r.text.lower() and "Sight:" not in r.text
     assert "Reads menus well." in r.text
     assert "What members say (4 reports)" in r.text

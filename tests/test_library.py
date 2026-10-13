@@ -363,3 +363,28 @@ def test_library_dates_read_as_words(user_client):
     main = user_client.get(f"/library/tool/{tid}").text.split("<main", 1)[1]
     assert not re.search(r"\d{4}-\d{2}-\d{2}", main)
     assert re.search(r"Reported by Member \w+ on \d{1,2} [A-Z][a-z]+ \d{4}\.", main)
+
+
+def test_the_sight_question_is_the_same_on_the_profile_find_and_library(user_client):
+    """docs/VOICE.md, 4.14: one label and the same three answers everywhere, and report forms start from the
+    member's profile answer."""
+    from studio.features import account
+    assert find.SIGHT_LABEL == "Blind or low vision since"
+    assert find.SIGHT_ONSETS == account.SIGHT_ONSET == [
+        ("birth", "Birth or early childhood"), ("later", "Later in life"), ("prefer_not", "Prefer not to say")]
+    base = {"display_name": "Amina", "language": "en", "verbosity": "summary_first"}
+    post(user_client, "/account/profile", dict(base, sight_onset="birth", vision="low_vision"))
+    assert "Blind or low vision since: Birth or early childhood" in user_client.get("/account").text
+    tid = tool_id("QuickMail")
+    for page in (f"/find/tool/{tid}", f"/library/tool/{tid}"):
+        text = user_client.get(page).text
+        assert '<label for="field-sight_onset">Blind or low vision since' in text, page
+        assert '<option value="birth" selected>Birth or early childhood</option>' in text, page
+    r = post(user_client, f"/find/tool/{tid}/report", {"outcome": "worked", "sight_onset": "birth", "back": "library"})
+    assert "Blind or low vision since: Birth or early childhood." in r.text
+    # An answer from before these choices shows no line, never a raw stored value.
+    with db.session() as conn:
+        conn.execute("UPDATE tool_reports SET sight_onset = 'low_vision' WHERE tool_id = ?", (tid,))
+    text = user_client.get(f"/library/tool/{tid}").text
+    assert "Blind or low vision since:" not in text and "low_vision" not in text
+    assert "lost sight" not in text.lower() and "when your sight changed" not in text.lower()

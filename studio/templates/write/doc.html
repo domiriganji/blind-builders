@@ -4,10 +4,10 @@
 <h1>{{ title }}</h1>
 <p class="lead">{{ doc.kind_name }}. {{ doc.word_text }}. {{ saved_line }}
 {% if doc.target %}Aiming for: {{ doc.target }}.{% endif %}</p>
-{% if is_cover_letter %}
-{% if last_version and last_version.note == 'Drafted by the AI' %}
-<p class="panel">The AI wrote this draft. Nobody has checked it. Fill in everything in square brackets, and change anything that is not true before you send it.</p>
+{% if last_version and (last_version.note or '').startswith('Drafted by the AI') %}
+<p class="panel">The AI wrote this draft. Nobody has checked it. Fill in everything in square brackets, and change anything that is not true before you {{ 'send' if is_cover_letter else 'share' }} it.</p>
 {% endif %}
+{% if is_cover_letter %}
 <p>This letter is a new document. {% if drafted_for %}Your text "<a href="/write/{{ drafted_for.id }}">{{ drafted_for.title }}</a>" is unchanged.{% else %}The text it was drafted for is unchanged.{% endif %}</p>
 {% endif %}
 {{ error_summary(errors) }}
