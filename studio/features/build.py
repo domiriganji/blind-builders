@@ -717,7 +717,8 @@ def compute_diff(old: dict[str, str], new: dict[str, str]) -> list[dict]:
 
 
 WORD_CHANGE_MAX = 120  # longest changed part, in characters, that is worth saying in one sentence
-_TOKEN_RE = re.compile(r"\S+|\s+")
+# Words, spaces, and the marks of HTML markup on their own, so a changed word is not quoted with the markup around it.
+_TOKEN_RE = re.compile(r"[^\s<>=\"']+|\s+|[<>=\"']")
 
 
 def word_change(old_line: str, new_line: str) -> tuple[str, str] | None:
@@ -744,11 +745,13 @@ def word_change(old_line: str, new_line: str) -> tuple[str, str] | None:
 
 def _word_change_sentence(line_number: int, change: tuple[str, str]) -> str:
     old_part, new_part = change
+    # Quotation marks inside quotation marks hide where the words start and end, so then there are none.
+    q = "" if '"' in old_part + new_part else '"'
     if not old_part:
-        return f'In line {line_number}, "{new_part}" was added.'
+        return f'In line {line_number}, {q}{new_part}{q} was added.'
     if not new_part:
-        return f'In line {line_number}, "{old_part}" was removed.'
-    return f'In line {line_number}, "{old_part}" became "{new_part}".'
+        return f'In line {line_number}, {q}{old_part}{q} was removed.'
+    return f'In line {line_number}, {q}{old_part}{q} became {q}{new_part}{q}.'
 
 
 def changed_lines(old: dict[str, str], new: dict[str, str]) -> list[dict]:
@@ -970,12 +973,19 @@ def _found_text(errors: int, warnings: int) -> str:
     return " and ".join(parts) or "no problems"
 
 
-def _check_sentence(checks: dict) -> str:
+def _check_sentence(checks: dict, look_problems: int = 0) -> str:
+    """The first sentence about a version. `look_problems` counts what the check of how it looks found, so the
+    count of problems to fix that follows it adds up."""
     errors, warnings = _check_counts(checks)
     pages = len(checks.get("pages", []))
     found = _found_text(errors, warnings)
-    return (f"{_plural(checks.get('file_count', 0), 'file')}, {_size(checks.get('total_bytes', 0))} in total. "
-            f"The site's machine checks looked at {_plural(pages, 'page')} and found {found}.")
+    sentence = (f"{_plural(checks.get('file_count', 0), 'file')}, {_size(checks.get('total_bytes', 0))} in total. "
+                f"The site's machine checks looked at {_plural(pages, 'page')} and found {found}")
+    if look_problems:
+        more = " more" if errors else ""
+        sentence += (f", and the check of how it looks on a phone and a computer found {look_problems}{more} "
+                     f"{'problem' if look_problems == 1 else 'problems'} to fix")
+    return sentence + "."
 
 
 def _preview_url(project: dict, number: int, path: str = "index.html", request: Request | None = None) -> str:
@@ -1174,6 +1184,7 @@ def _understand(ctx, ai, project_id: int, token: str) -> str:
                           "Please try again.")
         stored["spec"] = spec
         stored["applied"] = len(stored["corrections"])
+        stored["read_again"] = had_spec  # a new read-back after corrections, which the page says it is
         title = project["title"]
         if not title:
             title = spec["suggested_title"] or "Untitled project"
@@ -1436,7 +1447,28 @@ def _generate(ctx, ai, project_id: int, token: str, additions: list[str]) -> str
     return f"/build/{project_id}/v/{number}"
 
 
-def _change(ctx, ai, project_id: int, token: str, base_number: int, request_text: str) -> str:
+def _set_failed_change(project_id: int, token: str, change: dict | None) -> None:
+    """Keep (or forget, with None) the words of a change the AI could not finish, so the version page puts them
+    back in The change you want."""
+    with db.session() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT spec_json FROM build_projects WHERE id = ? AND share_token = ?",
+                           (project_id, token)).fetchone()
+        if row is None:
+            return
+        stored = _stored_json(row["spec_json"])
+        if change is None and "failed_change" not in stored:
+            return
+        if change is None:
+            stored.pop("failed_change")
+        else:
+            stored["failed_change"] = change
+        conn.execute("UPDATE build_projects SET spec_json = ? WHERE id = ? AND share_token = ?",
+                     (json.dumps(stored), project_id, token))
+
+
+def _change(ctx, ai, project_id: int, token: str, base_number: int, request_text: str, typed: bool = False) -> str:
+    """typed: the member wrote request_text, so if the change does not finish, their words are kept."""
     project = _project_row(project_id, token)
     if project is None:
         raise AIError(DELETED_MESSAGE)
@@ -1456,6 +1488,8 @@ def _change(ctx, ai, project_id: int, token: str, base_number: int, request_text
         number = _save_version(project_id, token, files, about, request_text, base, base_number, look)
     except BaseException:
         _set_status(project_id, "ready", token)
+        if typed:
+            _set_failed_change(project_id, token, {"number": base_number, "text": request_text})
         raise
     return f"/build/{project_id}/v/{number}"
 
@@ -1498,7 +1532,7 @@ def _project_page(request: Request, user: dict, project: dict, *, values: dict |
         elif busy and project["status"] == "understanding":
             about = "the AI is reading your corrections"
         else:
-            about = "here is what I understood"
+            about = "here is what I understood now" if stored.get("read_again") else "here is what I understood"
     else:
         template = "build/waiting.html"
         about = "the AI is reading your idea" if busy else "the AI has not read your idea yet"
@@ -1641,11 +1675,28 @@ def _look_context(version: dict, describe_colours: bool = False) -> dict:
         lines = [{"label": text, "state": "failed" if kind in failed else
                   "passed" if kind in passed and complete else "partial"}
                  for kind, text in visual_check.CHECKS.items()]
+        unknown_contrast = sum(int(page.get("unknown_contrast") or 0) for page in pages)
+        unknown_images = sum(int(page.get("unknown_images") or 0) for page in pages)
+        # A pass covers only what the site could measure; the rest is under Not checked (docs/VOICE.md 4.8).
+        scoped = {"contrast": (unknown_contrast, "For the text the site could measure: it stands out clearly from "
+                               "what is behind it, so it is easy to read. "
+                               + ("1 more piece of text could not be measured" if unknown_contrast == 1 else
+                                  f"{unknown_contrast} more pieces of text could not be measured")
+                               + "; see Not checked"),
+                  "broken_image": (unknown_images, "Every picture that finished loading loads. "
+                                   + ("1 more was" if unknown_images == 1 else f"{unknown_images} more were")
+                                   + " still loading; see Not checked")}
+        for kind, line in zip(visual_check.CHECKS, lines):
+            if kind in scoped and scoped[kind][0] and line["state"] == "passed":
+                line["label"] = scoped[kind][1]
         n_passed = sum(line["state"] == "passed" for line in lines)
+        on_measured = ", on what it could measure" if unknown_contrast or unknown_images else ""
         if complete and not problems and n_passed == total:
-            sentence = f"Checked by the site on a phone and a computer: passed all {total} visual checks."
+            sentence = (f"Checked by the site on a phone and a computer: passed all {total} visual "
+                        f"checks{on_measured}.")
         elif complete:
-            sentence = f"Checked by the site on a phone and a computer: passed {n_passed} of {total} visual checks."
+            sentence = (f"Checked by the site on a phone and a computer: passed {n_passed} of {total} visual "
+                        f"checks{on_measured}.")
         else:
             sentence = ("Checked by the site on a phone and a computer, but not every page could be measured, so no "
                         "check is passed on every page. " + (error + " " if error else "") +
@@ -1655,8 +1706,7 @@ def _look_context(version: dict, describe_colours: bool = False) -> dict:
             sentence += f" It found {_plural(len(problems), 'problem')}:"
         look.update(
             state="checked", sentence=sentence, problems=problems, unchecked_pages=unchecked, check_lines=lines,
-            unknown_contrast=sum(int(page.get("unknown_contrast") or 0) for page in pages),
-            unknown_images=sum(int(page.get("unknown_images") or 0) for page in pages),
+            unknown_contrast=unknown_contrast, unknown_images=unknown_images,
             skipped_pages=visual.get("skipped_pages", []))
     if review.get("state") == "done":
         shown = review_for_member(review, describe_colours)
@@ -1770,16 +1820,41 @@ def _version_context(project: dict, version: dict, describe_colours: bool = Fals
         chosen_additions=_chosen_for_v1(project) if version["number"] == 1 else None,
         files=files, checks=checks, pages=pages, not_checked=not_checked, unchecked_files=unchecked_files,
         not_done=checks.get("not_done", []), error_count=errors, warning_count=warnings,
-        check_sentence=_check_sentence(checks),
+        check_sentence=_check_sentence(checks, len(look["problems"])),
         diff_base=diff.get("base", 0), diff_lines=[describe_diff_entry(e) for e in diff_entries],
         diff_count=len(diff_entries),
     )
+
+
+SCREEN_READER_NOT_CHECKED = "How a real screen reader reads the page, in speech and in braille (ask for a peer check)."
+
+
+def _peer_checked(ctx: dict, checks: list[dict]) -> None:
+    """Not checked says what members have checked in Peer checks, so the report never says nobody has checked
+    something that the next section lists as checked (docs/VOICE.md 4.8)."""
+    screen = sum(c.get("screen_reader_done", 0) for c in checks)
+    sighted = sum(c.get("sighted_done", 0) for c in checks)
+    ctx["peer_screen_done"], ctx["peer_sighted_done"] = screen, sighted
+    if screen:
+        who = "1 member has" if screen == 1 else f"{screen} members have"
+        ctx["not_checked"] = [
+            (f"How a real screen reader reads the page: the site cannot check this, but {who} tried it with a "
+             "screen reader, braille display or magnifier. What they found is in Peer checks of this version.")
+            if item == SCREEN_READER_NOT_CHECKED else item for item in ctx["not_checked"]]
 
 
 def _version_page(request: Request, project: dict, version: dict, *, values: dict | None = None,
                   errors: dict | None = None, status_code: int = 200, note: str = ""):
     user = current_user(request) or {}
     ctx = _version_context(project, version, bool(user.get("describe_colours")))
+    peer = peer_checks(project, version["number"])
+    _peer_checked(ctx, peer)
+    # The words of a change that did not finish come back in its box, once the member returns to this version.
+    failed = _load_spec(project).get("failed_change") or {}
+    change_back = (not values and not errors and failed.get("number") == version["number"]
+                   and bool(failed.get("text")))
+    if change_back:
+        values = {"request": failed["text"]}
     settings = request.app.state.settings
     number = version["number"]
     preview = _preview_url(project, number, request=request)
@@ -1802,7 +1877,7 @@ def _version_page(request: Request, project: dict, version: dict, *, values: dic
     busy = _is_busy(project)
     return render(request, "build/version.html", title=title, project=project, version=version,
                   preview_url=preview, checks_link=checks_link, sighted_link=sighted_link, latest_number=latest,
-                  peer_checks=peer_checks(project, number), busy=busy,
+                  peer_checks=peer, busy=busy, change_back=change_back,
                   values=values or {}, errors=errors or {}, status_code=status_code, **ctx)
 
 
@@ -1908,8 +1983,9 @@ async def _submit_change(request: Request, user: dict, project: dict, version: d
         return _version_page(request, project, version, values={"request": request_text},
                              note=f"is unchanged: {AI_NOT_AVAILABLE_TITLE}")
     _set_status(project["id"], "changing", project["share_token"])
+    _set_failed_change(project["id"], project["share_token"], None)  # a new change replaces words kept from before
     job_id = jobs.submit(user["id"], "build.change", f"Changing {_display_title(project)}", _change, ai,
-                         project["id"], project["share_token"], version["number"], request_text,
+                         project["id"], project["share_token"], version["number"], request_text, typed,
                          back_url=f"/build/{project['id']}/v/{version['number']}",
                          dedupe_key=job_key(project), item_ref=job_key(project))
     return redirect(jobs.job_url(job_id))

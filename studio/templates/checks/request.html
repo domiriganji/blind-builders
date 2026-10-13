@@ -16,7 +16,8 @@
 <p class="meta">Written by the member who asked for the check.</p>
 <div class="panel">{{ literal(req.what_to_try) }}</div>
 <h2>Where</h2>
-<p><a href="{{ req.url }}" rel="noopener noreferrer">Open {{ req.title }} (the member's own page)</a></p>
+{% if gone %}<p>{{ 'You' if is_owner else 'The member' }} deleted this project, so the page no longer opens.</p>
+{% else %}<p><a href="{{ req.url }}" rel="noopener noreferrer">Open {{ req.title }} ({% if is_owner %}your page{% else %}the member's own page{% endif %})</a></p>{% endif %}
 <p class="meta">Address: {{ req.url }}</p>
 <p>This page was made by a member, not by this site. Never type your password for this site, or any other password or card number, into it.</p>
 

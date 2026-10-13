@@ -1477,7 +1477,10 @@ def test_while_the_ai_works_the_read_back_shows_a_status_not_a_form(user_client,
     assert r.status_code == 409
     assert_page_ok_status(r)
     assert h1(r) == "Kemi Kitchen: the AI is already working on it, so your words were not sent"
-    assert "Your words, not sent" in r.text and "<p>Ten dishes.</p>" in r.text
+    assert "Your words, not sent" in r.text
+    # In a read-only box with a Copy button (enhance.js), not loose paragraphs.
+    assert re.search(r'<textarea id="unsent-words"[^>]*readonly data-copy-name="your words">Ten dishes\.</textarea>',
+                     r.text)
     assert len(calls_for(fake_ai, "build.understand")) == 1
 
 
@@ -1605,8 +1608,11 @@ def test_indentation_survives_in_the_numbered_lines():
 
 @pytest.mark.parametrize("old, new, expected", [
     ("<p>Small chops: 1,200 naira</p>", "<p>Small chops: 1,500 naira</p>", ("1,200", "1,500")),
-    ("<p>We are open every day of the week</p>", "<p>We are open every day of the year</p>", ("week</p>", "year</p>")),
-    ("<p>Open daily</p>", "<p>Open daily from nine</p>", None),  # too little of the line stayed the same
+    ("<p>We are open every day of the week</p>", "<p>We are open every day of the year</p>", ("week", "year")),
+    ("<p>Open daily</p>", "<p>Open daily from nine</p>", ("", "from nine")),
+    ("<p>Open</p>", "<p>Open from nine until late at night</p>", None),  # too little of the line stayed the same
+    # Markup next to a changed word is not part of the change.
+    ('    <p class="price">1,200 per month</p>', '    <p class="price">1,500 per month</p>', ("1,200", "1,500")),
     ("<li>Jollof rice</li>", "<li>Fried rice and plantain</li>", None),  # most of the line changed
     ("same", "same", None),
 ])
@@ -1648,4 +1654,116 @@ def test_job_titles_make_sense_in_the_list_of_work(user_client, fake_ai):
 
 def test_the_corrections_hint_says_build_goes_straight_ahead(user_client, fake_ai):
     _, r = start_project(user_client, fake_ai)
-    assert "the AI builds with your words straight away" in r.text
+    # The button's name has a colon, so it is quoted where it sits inside a sentence.
+    assert ("choose the button &#34;This is right: build it&#34;, the AI builds with your words at once."
+            in r.text)
+
+
+# ----- final walk-through ---------------------------------------------------------------------
+
+def test_ticks_come_back_after_being_signed_out_and_the_button_is_not_offered_to_copy(user_client, fake_ai):
+    project_id, _ = start_project(user_client, fake_ai)
+    from .conftest import csrf
+    token = csrf(user_client)
+    with db.session() as conn:  # signed out on every device, for example in another tab
+        conn.execute("UPDATE users SET session_epoch = session_epoch + 1")
+    r = user_client.post(f"/build/{project_id}/understand",
+                         data={"action": "update", "corrections": "Make the heading bigger.", "add_1": "yes",
+                               "csrf_token": token},
+                         headers={"referer": f"http://testserver/build/{project_id}"}, follow_redirects=False)
+    assert r.status_code == 303
+    r = post(user_client, "/login", {"email": "amina@example.com", "password": "correct horse battery",
+                                     "next": f"/build/{project_id}"})
+    assert_page_ok(r)
+    assert "Your words are back in the form." in r.text
+    assert "Your words from before" not in r.text  # nothing left over to copy: no button value, no tick value
+    assert "checked" in checkbox_tag(r.text, "add_1") and "checked" not in checkbox_tag(r.text, "add_0")
+    assert "Make the heading bigger.</textarea>" in r.text
+
+
+def test_a_new_read_back_says_it_is_new(user_client, fake_ai):
+    project_id, r = start_project(user_client, fake_ai)
+    assert "This is the AI's new read-back" not in r.text
+    fake_ai.on("build.understand", SPEC_2)
+    r = post(user_client, f"/build/{project_id}/understand", {"action": "update", "corrections": "Prices are in naira."})
+    assert h1(r) == "Kemi Kitchen: here is what I understood now"
+    assert ("This is the AI's new read-back. It has read your correction, listed near the end of this page "
+            "under What you added or corrected.") in r.text
+
+
+def test_a_change_that_does_not_finish_puts_the_request_back(user_client, fake_ai):
+    project_id, _ = build_v1(user_client, fake_ai)
+    fake_ai.on("build.change", AIError("The AI service is busy right now, so nothing was changed."))
+    r = post(user_client, f"/build/{project_id}/v/1/change", {"request": "Add the Saturday run time."})
+    assert "This did not finish" in r.text
+    r = user_client.get(f"/build/{project_id}/v/1")
+    assert_page_ok(r)
+    assert "The AI could not finish your change, so nothing was changed." in r.text
+    assert "Add the Saturday run time.</textarea>" in r.text
+    # Sending a change replaces the kept words; a change that works leaves the box empty again.
+    fake_ai.on("build.change", changed_files())
+    post(user_client, f"/build/{project_id}/v/1/change", {"request": "Small chops now cost 1500."})
+    r = user_client.get(f"/build/{project_id}/v/1")
+    assert "The AI could not finish your change" not in r.text and "Add the Saturday run time." not in r.text
+
+
+def test_the_first_sentence_counts_the_look_problems_too(user_client, fake_ai, fake_visual):
+    fake_visual.reports.append(visual_report(problems=[contrast_problem()]))
+    fake_ai.on("build.visual_repair", GENERATED)
+    fake_visual.reports.append(visual_report(problems=[contrast_problem()]))
+    project_id, r = build_v1(user_client, fake_ai)
+    lead = re.search(r'<p class="lead">(.*?)</p>', r.text, re.S).group(1)
+    assert ("found 1 problem to fix, and the check of how it looks on a phone and a computer found 1 more problem "
+            "to fix. The AI can try to fix the 2 problems") in lead
+
+
+def test_contrast_passes_only_for_the_text_the_site_could_measure(user_client, fake_ai, fake_visual):
+    def report(files):
+        out = visual_report(files)
+        out.pages[0].unknown_contrast = 12
+        return out
+    fake_visual.reports.append(report)
+    project_id, r = build_v1(user_client, fake_ai)
+    assert "passed all 7 visual checks, on what it could measure." in r.text
+    assert "Passed: Text stands out clearly" not in r.text
+    assert ("For the text the site could measure: it stands out clearly from what is behind it, so it is easy to "
+            "read. 12 more pieces of text could not be measured; see Not checked.") in r.text
+    assert "Whether 12 pieces of text are easy to read." in r.text
+
+
+def test_not_checked_says_what_peer_checkers_have_checked(user_client, fake_ai):
+    project_id, r = build_v1(user_client, fake_ai)
+    assert "Nobody has checked these yet:" in r.text
+    url = "https://testserver" + build._preview_path({"share_token": share_token(project_id)}, 1)
+    with db.session() as conn:
+        asker = conn.execute("SELECT id FROM users").fetchone()[0]
+        conn.execute("INSERT INTO users (email, display_name, password_hash, pseudonym, created_at)"
+                     " VALUES ('c@example.com', 'C', 'x', 'Member C1', '2026-01-01')")
+        checker = conn.execute("SELECT id FROM users WHERE email = 'c@example.com'").fetchone()[0]
+        cur = conn.execute("INSERT INTO check_requests (requester_id, title, url, what_to_try, max_checks, status,"
+                           " created_at, wanted) VALUES (?, 'Kemi', ?, 'Order', 3, 'open', '2026-01-01', 'both')",
+                           (asker, url))
+        conn.execute("INSERT INTO check_reports (request_id, checker_id, screen_reader, browser, device,"
+                     " heard_first, task_result, record_hash, created_at) VALUES (?, ?, 'JAWS', 'Edge', 'PC',"
+                     " 'Menu', 'could_not', 'h', '2026-01-01')", (cur.lastrowid, checker))
+        request_id = cur.lastrowid
+    r = user_client.get(f"/build/{project_id}/v/1")
+    section = re.search(r"<h2>Not checked</h2>.*?<h2", r.text, re.S).group()
+    assert "Nobody has checked these yet" not in section
+    assert "How a real screen reader reads the page: the site cannot check this, but 1 member has tried it" in section
+    assert "How it looks to a sighted person." in section  # no sighted check yet
+    # The request links straight to its record once a check has come in.
+    assert f'<a href="/checks/{request_id}/record">Kemi: the check record</a>.' in r.text
+
+
+def test_an_older_version_says_it_is_older_in_its_heading_and_at_the_form_only(user_client, fake_ai):
+    project_id, _ = build_v1(user_client, fake_ai)
+    fake_ai.on("build.change", changed_files())
+    post(user_client, f"/build/{project_id}/v/1/change", {"request": "Small chops now cost 1500."})
+    r = user_client.get(f"/build/{project_id}/v/1")
+    assert "This is not the latest version." not in r.text
+    assert "<strong>This is an older version.</strong>" in r.text
+    # Link names end before the next words begin.
+    assert "Open the preview of version 1</a>. <span" in r.text
+    r = user_client.get(f"/build/{project_id}")
+    assert re.search(r'>Version 2</a>:\s*<span class="meta">', r.text)

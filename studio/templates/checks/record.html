@@ -3,7 +3,7 @@
 {% from "checks/_text.html" import literal %}
 {% block content %}
 <h1>{{ title }}</h1>
-<p>Asked by {{ req.asker }} on {{ req.created_at|date_words }}. {{ req.done }} of {{ req.max_checks }} checks done; the request is {{ 'open' if req.status == 'open' else 'closed' }}.</p>
+<p>Asked by {{ 'you' if is_owner else req.asker }} on {{ req.created_at|date_words }}. {{ req.done }} of {{ req.max_checks }} checks done; the request is {{ 'open' if req.status == 'open' else 'closed' }}.</p>
 {% for para in summary %}<p class="lead">{{ para }}</p>{% endfor %}
 {% if chain_problems %}
 <div class="error-summary">
@@ -23,7 +23,7 @@
 {% endif %}
 
 <h2>What was asked</h2>
-<p>{{ wanted_sentence }} Checkers were asked to open <a href="{{ req.url }}" rel="noopener noreferrer">{{ req.title }} (the member's own page)</a> and try this. The task is in the words of the member who asked:</p>
+<p>{{ wanted_sentence }} Checkers were asked to open {% if gone %}{{ req.title }}{% else %}<a href="{{ req.url }}" rel="noopener noreferrer">{{ req.title }} ({% if is_owner %}your page{% else %}the member's own page{% endif %})</a>{% endif %} and try this.{% if gone %} {{ 'You' if is_owner else 'The member' }} deleted this project, so the page no longer opens.{% endif %} The task is in the words of the member who asked:</p>
 <div class="panel">{{ literal(req.what_to_try) }}</div>
 <p class="meta">Address: {{ req.url }}</p>
 
@@ -77,7 +77,8 @@
 {% endif %}
 
 <h2>Not checked</h2>
-<p>This is what the checks above do not cover, based on what checkers typed.</p>
+{% if reports %}<p>This is what the checks above do not cover, based on what checkers typed.</p>
+{% else %}<p>Nobody has checked this yet, so none of this is covered:</p>{% endif %}
 <ul>
 {% if not_checked.sighted_checks %}
 <li>How it looks was checked by {{ '1 sighted person' if not_checked.sighted_checks == 1 else not_checked.sighted_checks ~ ' sighted people' }}; their answers are above. Each looked on one screen and did not record which, so it may come across differently on other phones or computers.</li>
@@ -96,7 +97,7 @@
 
 <h2>About the fingerprints</h2>
 <p>Each check has a fingerprint: a code made from everything in the check and from the check before it. If anyone changes or removes a check, the fingerprints stop matching, and this page tells you. (Technical: SHA-256, covering the request's name, address and task.)</p>
-<p>On its own, the chain cannot show whether the newest check was removed, and someone able to rewrite the whole database could recompute every fingerprint. If you saved the last fingerprint, compare it with the list below: if it is still there, nothing before it has changed.</p>
+{% if reports %}<p>On its own, the chain cannot show whether the newest check was removed, and someone able to rewrite the whole database could recompute every fingerprint. If you saved the last fingerprint, compare it with the list below: if it is still there, nothing before it has changed.</p>{% endif %}
 {% if reports %}
 <h3>Fingerprints, for checking the record only (64 characters each)</h3>
 <ul>
@@ -104,5 +105,6 @@
 {% endfor %}
 </ul>
 {% endif %}
+{% if is_owner %}<p><a href="/checks/{{ req.id }}">Your request page, to share its addresses or close it</a></p>{% endif %}
 <p><a href="/checks">Back to Peer checks</a></p>
 {% endblock %}

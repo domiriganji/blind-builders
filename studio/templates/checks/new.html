@@ -11,7 +11,11 @@
   {{ textarea('what_to_try', 'What should checkers try?', values.what_to_try, required=true, rows=5, hint='Describe one task, for example: find the price of a chocolate cake and add it to the basket. If it needs an account, ask checkers to make their own test account.', error=errors.what_to_try) }}
   {{ radios('wanted', 'Who should check it', wanted_options, values.wanted, hint='Sighted people tell you whether the page looks finished and works for sighted visitors. They need a free account on this site; once your request is open, its page gives you an address to send them.', error=errors.wanted) }}
   {{ select('max_checks', 'How many checks do you want?', count_options, values.max_checks, required=true, hint='Each check comes from a different person. More checks usually means more screen readers, devices and points of view.', error=errors.max_checks) }}
+  {% if rewards_offered %}
   {{ select('reward_cents', 'Reward for each check', reward_options, values.reward_cents, required=true, hint="Credits are the site's money, in US dollars. The full amount for all the checks is set aside from your credits now. Each checker is paid when they send their check, and anything not paid comes back if you close the request early. Your credits now: " ~ balance ~ ".", error=errors.reward_cents) }}
+  {% else %}
+  <input type="hidden" name="reward_cents" value="0">
+  {% endif %}
   <button type="submit" class="button button-primary">Ask for the check</button>
 </form>
 <p><a href="/checks">Back to Peer checks</a></p>

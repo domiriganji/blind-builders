@@ -14,8 +14,8 @@
 <h2>All versions ({{ versions|length }})</h2>
 <ol reversed class="item-list">
 {% for v in versions %}
-  <li><a href="/build/{{ project.id }}/v/{{ v.number }}">Version {{ v.number }}</a>
-    <span class="meta">{{ v.created_at|date_words }}. {{ v.request_text|truncate(160) }}</span></li>
+  <li><a href="/build/{{ project.id }}/v/{{ v.number }}">Version {{ v.number }}</a>:
+    <span class="meta">{{ v.created_at|date_words }}. {% set asked = v.request_text|truncate(160) %}{{ asked }}{% if asked and asked[-1] not in '.!?' %}.{% endif %}</span></li>
 {% endfor %}
 </ol>
 {% include "build/_idea.html" %}

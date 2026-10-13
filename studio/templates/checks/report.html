@@ -8,7 +8,7 @@
 <h2>The task</h2>
 <p>{{ wanted_sentence }}</p>
 <div class="panel">{{ literal(req.what_to_try) }}</div>
-<p><a href="{{ req.url }}" rel="noopener noreferrer">Open {{ req.title }} (the member's own page)</a></p>
+<p><a href="{{ req.url }}" rel="noopener noreferrer">Open {{ req.title }} (the member's own page)</a>.</p>
 <p>This page was made by a member, not by this site. Never type your password for this site, or any other password or card number, into it.</p>
 <h2>Your check</h2>
 <form method="post" action="/checks/{{ req.id }}/report" novalidate>
@@ -34,7 +34,7 @@
   <h3>{{ 'How it looks' if only_one else 'If you are sighted and looked at how it appears' }}</h3>
   <p>The member who asked may not see the page. Answer as a visitor or customer would see it.</p>
   {% for name, question, _ in look_questions %}
-  {{ radios(name, question, answer_options, values[name], error=errors[name]) }}
+  {{ radios(name, question, look_answer_options[name], values[name], error=errors[name]) }}
   {% endfor %}
   {{ textarea('improve', 'What would make it better?', values.improve, rows=6, hint='Say what a visitor would notice and why it matters, for example: the prices are hard to read on a phone, or the order button sits on top of the menu. The member may not see the page, so say what effect something has, not only what it looks like.', error=errors.improve) }}
   {% endif %}
