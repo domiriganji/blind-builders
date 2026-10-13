@@ -3,12 +3,12 @@
 {% block content %}
 <h1>{{ title }}</h1>
 {{ error_summary(errors) }}
+{% set back = 'find' %}
 {% include "find/_facts.html" %}
 {% if tool.made_by_blind %}
 <p>{% if tool.needs_upkeep %}Members say this tool needs help after an update. {% endif %}<a href="/library/tool/{{ tool.id }}">See {{ tool.name }} in the Tool library</a>, where members report problems after updates and volunteer to help.</p>
 {% endif %}
 {% set report_action = '/find/tool/' ~ tool.id ~ '/report' %}
-{% set back = 'find' %}
 {% include "find/_reports.html" %}
 <h2>More</h2>
 <ul>

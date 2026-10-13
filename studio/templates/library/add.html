@@ -1,18 +1,17 @@
 {% extends "base.html" %}
-{% from "_macros.html" import csrf_input, error_summary, field, textarea, select %}
+{% from "_macros.html" import csrf_input, error_summary %}
 {% block content %}
 <h1>{{ title }}</h1>
 {{ error_summary(errors) }}
-<p class="lead">Add a tool, app, add-on or mod that a blind or low-vision person made, so others can find it and help keep it working. If its web address is already on the site, you will be taken to that entry instead.</p>
+<p class="lead">Add a tool, app, add-on or mod that a blind or low-vision person made, so others can find it and help keep it working. If its web address is already on the site, you will go to that entry instead.</p>
 <form method="post" action="/library/add" novalidate>
   {{ csrf_input() }}
-  {{ field('name', "Tool's name", values.name, required=true, error=errors.name) }}
-  {{ field('url', 'Web address', values.url, type='url', required=true, hint="The tool's own page or code repository, starting with https://.", error=errors.url) }}
-  {{ textarea('description', 'What it does', values.description, hint='One plain sentence.', error=errors.description, rows=3, required=true) }}
-  {{ select('category', 'Category', category_pairs, values.category, error=errors.category, required=true) }}
-  {{ field('maintainer', 'Who maintains it', values.maintainer, hint='The person or group who keeps it working, if you know.', error=errors.maintainer) }}
+  {% set url_hint = "The tool's own page or code repository, for example github.com/name/tool." %}
+  {% set maintainer_label = 'Who maintains it' %}
+  {% set maintainer_hint = 'The person or group who keeps it working, if you know.' %}
+  {% include "find/_tool_fields.html" %}
   {#- Written out instead of the checkbox macro so the box itself is described by its error. -#}
-  {% if errors.made_by_blind %}<p class="field-error" id="error-made_by_blind"><span class="visually-hidden">Error: </span>{{ errors.made_by_blind }}</p>{% endif %}
+  {% if errors.made_by_blind %}<p class="field-error" id="error-made_by_blind"><span class="visually-hidden">Please check: </span>{{ errors.made_by_blind }}</p>{% endif %}
   <div class="field choice">
     <input type="checkbox" id="field-made_by_blind" name="made_by_blind" value="yes"{% if values.made_by_blind %} checked{% endif %} aria-describedby="{% if errors.made_by_blind %}error-made_by_blind {% endif %}hint-made_by_blind"{% if errors.made_by_blind %} aria-invalid="true"{% endif %}>
     <label for="field-made_by_blind">A blind or low-vision person made this</label>
@@ -20,5 +19,6 @@
   </div>
   <button type="submit" class="button button-primary">Add the tool to the library</button>
 </form>
+<p>You can change or remove the entry later, until another member reports on it.</p>
 <p><a href="/library">Back to the Tool library</a></p>
 {% endblock %}

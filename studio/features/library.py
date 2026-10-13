@@ -1,23 +1,24 @@
 """Tool library: tools that blind and low-vision people made for each other, and keeping them working
-when screen readers, operating systems and AI tools update. There are no staff: members report what
-broke, volunteer to help, and mark problems fixed. The tables are defined in find.py."""
+when screen readers, operating systems and AI tools update. Members report what broke, volunteer to help,
+and mark problems fixed; there are no staff. The tables are defined in find.py."""
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from .. import db
-from ..web import checked_form, current_user, flash, redirect, render, require_user
-from .find import (CATEGORY_PAIRS, KEEP, OUTCOMES, SECRET_MESSAGE, SIGHT_ONSETS, clean, find_by_url,
-                   insert_member_tool, long_message, looks_secret, report_defaults, report_summaries, reports_for,
-                   too_long, tool_or_404, validate_tool)
+from ..web import checked_form, current_user, date_words, error_title, flash, redirect, render, require_user
+from .find import (CATEGORY_PAIRS, KEEP, OUTCOMES, PUBLIC_SECRET_MESSAGE, SIGHT_LABEL, SIGHT_ONSETS, can_change,
+                   clean, find_by_url, insert_member_tool, long_message, looks_secret, pop_done, report_defaults,
+                   report_summaries, reports_for, saved_at, set_done, too_long, tool_or_404, validate_tool)
 
 router = APIRouter(prefix="/library")
 NAV = {"label": "Tool library", "url": "/library",
-       "description": "Tools that blind people made for each other, and help to keep them working when screen readers and apps update."}
+       "description": "Tools that blind and low-vision people made for each other, and help to keep them working when screen readers and apps update."}
 SCHEMA = ""
 
 FILTERS = [("all", "All"), ("upkeep", "Need help after an update")]
 PROBLEM_MAX, AFTER_MAX, SKILLS_MAX = 3000, 200, 1000
+ADD_TITLE = "Add a tool a blind or low-vision person made"
 
 
 def _upkeep(tool_id: int) -> dict:
@@ -29,7 +30,7 @@ def _upkeep(tool_id: int) -> dict:
             "SELECT v.*, u.pseudonym FROM upkeep_volunteers v JOIN users u ON u.id = v.user_id"
             " WHERE v.tool_id = ? ORDER BY v.id", (tool_id,)).fetchall()]
     for p in problems:
-        p["date"] = p["created_at"][:10]
+        p["date"] = date_words(p["created_at"])
     return {"open": [p for p in problems if p["status"] == "open"],
             "resolved": [p for p in problems if p["status"] == "resolved"],
             "volunteers": volunteers}
@@ -42,6 +43,10 @@ def _library_tool_or_redirect(tool_id: int):
     return tool, None
 
 
+def library_title(tool: dict) -> str:
+    return f"{tool['name']} in the Tool library"
+
+
 def render_library_tool(request: Request, tool: dict, *, report_values: dict | None = None,
                         report_errors: dict | None = None, problem_values: dict | None = None,
                         problem_errors: dict | None = None, volunteer_values: dict | None = None,
@@ -52,9 +57,11 @@ def render_library_tool(request: Request, tool: dict, *, report_values: dict | N
     for p in upkeep["open"]:
         p["can_resolve"] = bool(user) and (p["user_id"] == user["id"] or tool["added_by"] == user["id"])
     any_errors = report_errors or problem_errors or volunteer_errors
-    title = tool["name"] + (": please fix the problems" if any_errors else "")
+    done = pop_done(request, "library", tool["id"])
+    title = error_title(library_title(tool), any_errors) if any_errors else (done or library_title(tool))
     return render(
         request, "library/tool.html", title=title, tool=tool, upkeep=upkeep, my_volunteer=my_volunteer,
+        can_change=can_change(tool, user), sight_label=SIGHT_LABEL,
         reports=reports_for(tool["id"]), summary=report_summaries([tool["id"]])[tool["id"]],
         values=report_values if report_values is not None else report_defaults(user),
         errors=report_errors or {}, problem_values=problem_values or {}, problem_errors=problem_errors or {},
@@ -80,7 +87,7 @@ def index(request: Request, show: str = "all"):
 
 @router.get("/add")
 def add_form(request: Request, user: dict = Depends(require_user)):
-    return render(request, "library/add.html", title="Add a tool a blind person made",
+    return render(request, "library/add.html", title=ADD_TITLE,
                   values={"category": "Other"}, errors={}, category_pairs=CATEGORY_PAIRS)
 
 
@@ -92,16 +99,19 @@ async def add_tool(request: Request, user: dict = Depends(require_user)):
         existing = find_by_url(values["url"])
         if existing:
             if existing["made_by_blind"]:
-                flash(request, f"{existing['name']} is already in the Tool library. Here is its entry.", "info")
+                set_done(request, "library", existing["id"], f"Already in the Tool library: {existing['name']}")
+                flash(request, "It has this web address, so it was not added again.", "info")
                 return redirect(f"/library/tool/{existing['id']}")
-            flash(request, f"{existing['name']} is already in the directory with this address, but nobody has "
-                           "recorded that a blind or low-vision person made it. Here is its entry.", "info")
+            set_done(request, "find", existing["id"], f"Already in the directory: {existing['name']}")
+            flash(request, "It has this web address, but nobody has recorded that a blind or low-vision person "
+                           "made it, so it is not in the Tool library.", "info")
             return redirect(f"/find/tool/{existing['id']}")
     if errors:
-        return render(request, "library/add.html", title="Add a tool a blind person made: please fix the problems",
+        return render(request, "library/add.html", title=error_title(ADD_TITLE, errors),
                       values=values, errors=errors, category_pairs=CATEGORY_PAIRS, status_code=400)
     tool_id = insert_member_tool(values, user["id"])
-    flash(request, f"{values['name']} is now in the Tool library. Thank you.", "success")
+    set_done(request, "library", tool_id, f"Added to the Tool library: {values['name']}")
+    flash(request, f"{values['name']} is now in the Tool library{saved_at(values)}. Thank you.", "success")
     return redirect(f"/library/tool/{tool_id}")
 
 
@@ -151,13 +161,13 @@ async def report_problem(request: Request, tool_id: int, user: dict = Depends(re
     elif too_long(values, "problem", PROBLEM_MAX):
         errors["problem"] = long_message(PROBLEM_MAX)
     elif looks_secret(values["problem"]):
-        errors["problem"] = SECRET_MESSAGE
+        errors["problem"] = PUBLIC_SECRET_MESSAGE
     if not values["after_update"]:
         errors["after_update"] = "Say which update it broke after, for example NVDA 2026.1 or iOS 27. Write 'not sure' if you do not know."
     elif too_long(values, "after_update", AFTER_MAX):
         errors["after_update"] = long_message(AFTER_MAX) + " The name and number of the update is enough."
     elif looks_secret(values["after_update"]):
-        errors["after_update"] = SECRET_MESSAGE
+        errors["after_update"] = PUBLIC_SECRET_MESSAGE
     if errors:
         return render_library_tool(request, tool, problem_values=values, problem_errors=errors, status_code=400)
     with db.session() as conn:
@@ -170,10 +180,12 @@ async def report_problem(request: Request, tool_id: int, user: dict = Depends(re
                          (tool_id, user["id"], values["problem"], values["after_update"], db.now()))
         conn.execute("UPDATE tools SET needs_upkeep = 1 WHERE id = ?", (tool_id,))
     if same is None:
-        flash(request, "Your problem report is saved. Members who volunteer for this tool can now see it.", "success")
+        set_done(request, "library", tool_id, f"Your problem report is saved: {tool['name']}")
+        flash(request, "Members who volunteer for this tool can now read it under Open problems.", "success")
     else:
-        flash(request, "You already reported this problem. It is listed once.", "info")
-    return redirect(f"/library/tool/{tool_id}#problems-title")
+        set_done(request, "library", tool_id, f"You already reported this problem: {tool['name']}")
+        flash(request, "It is listed once, so nothing changed.", "info")
+    return redirect(f"/library/tool/{tool_id}")
 
 
 @router.post("/tool/{tool_id}/problem/{problem_id}/resolve")
@@ -189,11 +201,12 @@ async def resolve_problem(request: Request, tool_id: int, problem_id: int, user:
                                   (tool_id,)).fetchone()["n"]
         if not still_open:
             conn.execute("UPDATE tools SET needs_upkeep = 0 WHERE id = ?", (tool_id,))
-    message = "The problem is marked as fixed."
-    if not still_open:
-        message += " No open problems are left for this tool."
-    flash(request, message, "success")
-    return redirect(f"/library/tool/{tool_id}#problems-title")
+    set_done(request, "library", tool_id, f"Problem marked as fixed: {tool['name']}")
+    if still_open:
+        flash(request, f"{still_open} open {'problem is' if still_open == 1 else 'problems are'} left.", "info")
+    else:
+        flash(request, "No open problems are left for this tool.", "success")
+    return redirect(f"/library/tool/{tool_id}")
 
 
 @router.post("/tool/{tool_id}/volunteer")
@@ -209,7 +222,7 @@ async def volunteer(request: Request, tool_id: int, user: dict = Depends(require
     elif too_long(values, "skills", SKILLS_MAX):
         errors["skills"] = long_message(SKILLS_MAX)
     elif looks_secret(values["skills"]):
-        errors["skills"] = SECRET_MESSAGE
+        errors["skills"] = PUBLIC_SECRET_MESSAGE
     if errors:
         return render_library_tool(request, tool, volunteer_values=values, volunteer_errors=errors, status_code=400)
     with db.session() as conn:
@@ -218,19 +231,23 @@ async def volunteer(request: Request, tool_id: int, user: dict = Depends(require
         conn.execute("INSERT INTO upkeep_volunteers (tool_id, user_id, skills, created_at) VALUES (?, ?, ?, ?)"
                      " ON CONFLICT (tool_id, user_id) DO UPDATE SET skills = excluded.skills",
                      (tool_id, user["id"], values["skills"], db.now()))
-    flash(request, "Your skills are updated." if existed else
-          "Thank you. You are on the list of members helping keep this tool working.", "success")
-    return redirect(f"/library/tool/{tool_id}#volunteers-title")
+    if existed:
+        set_done(request, "library", tool_id, f"How you can help is updated: {tool['name']}")
+    else:
+        set_done(request, "library", tool_id, f"You are on the helper list: {tool['name']}")
+        flash(request, "Thank you for helping.", "success")
+    return redirect(f"/library/tool/{tool_id}")
 
 
 @router.post("/tool/{tool_id}/volunteer/remove")
 async def stop_volunteering(request: Request, tool_id: int, user: dict = Depends(require_user)):
     await checked_form(request)
-    tool_or_404(tool_id)
+    tool = tool_or_404(tool_id)
     with db.session() as conn:
         cur = conn.execute("DELETE FROM upkeep_volunteers WHERE tool_id = ? AND user_id = ?", (tool_id, user["id"]))
     if cur.rowcount:
-        flash(request, "You are no longer on the list for this tool.", "success")
+        set_done(request, "library", tool_id, f"You are off the helper list: {tool['name']}")
     else:
-        flash(request, "You were not on the list for this tool, so nothing changed.", "info")
-    return redirect(f"/library/tool/{tool_id}#volunteers-title")
+        set_done(request, "library", tool_id, f"You were not on the helper list: {tool['name']}")
+        flash(request, "Nothing changed.", "info")
+    return redirect(f"/library/tool/{tool_id}")

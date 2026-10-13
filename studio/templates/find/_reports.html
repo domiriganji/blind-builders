@@ -1,4 +1,4 @@
-{# Member reports and the "Did it work for you?" form. Needs: tool, reports, summary, values, errors, outcomes, sight_onsets, report_action, back. #}
+{# Member reports and the "Did it work for you?" form. Needs: tool, reports, summary, values, errors, outcomes, sight_onsets, sight_label, report_action, back. #}
 {% from "_macros.html" import csrf_input, field, textarea, select %}
 <h2 id="reports-title">What members say ({{ reports|length }} {{ 'report' if reports|length == 1 else 'reports' }})</h2>
 <p>{{ summary }}.{% if reports %} When a member reports more than once, only their latest report counts here; all reports are listed below, newest first.{% endif %}</p>
@@ -9,19 +9,20 @@
     <h3>{{ r.pseudonym }}: {{ r.outcome_text }}</h3>
     <p class="meta">
       {%- set bits = [] -%}
-      {%- if r.screen_reader %}{% set _ = bits.append('Screen reader: ' ~ r.screen_reader) %}{% endif -%}
+      {%- if r.screen_reader %}{% set _ = bits.append('Tools used: ' ~ r.screen_reader) %}{% endif -%}
       {%- if r.device %}{% set _ = bits.append('Device: ' ~ r.device) %}{% endif -%}
-      {%- if r.sight_text %}{% set _ = bits.append('Sight: ' ~ r.sight_text) %}{% endif -%}
+      {%- if r.sight_text %}{% set _ = bits.append(sight_label ~ ': ' ~ r.sight_text) %}{% endif -%}
       {%- if r.language %}{% set _ = bits.append('Language: ' ~ r.language) %}{% endif -%}
       {% set _ = bits.append('Reported ' ~ r.date) %}{{ bits|join('. ') }}.</p>
     {% if r.note %}{{ r.note|markdown|shift_headings(3) }}{% endif %}
+    {% if user and r.user_id == user.id %}<p><a href="/find/tool/{{ tool.id }}/reports/{{ r.id }}/delete?back={{ back }}">Delete your report: {{ r.outcome_text }}, {{ r.date }}</a></p>{% endif %}
   </li>
 {% endfor %}
 </ul>
 {% endif %}
-<h2 id="report-form-title">Did it work for you?</h2>
+<h2 id="report-form-title" tabindex="-1">Did it work for you?</h2>
 {% if user %}
-<p>Tell other members how it went. Your report shows your code name, {{ user.pseudonym }}, not your real name.</p>
+<p>{% if back == 'library' %}Use this to say how {{ tool.name }} works for you in general. {% endif %}Your report shows your code name, {{ user.pseudonym }}, not your real name. If you report again, your new report counts instead of your earlier one.</p>
 <form method="post" action="{{ report_action }}" novalidate>
   {{ csrf_input() }}
   <input type="hidden" name="back" value="{{ back }}">
@@ -29,18 +30,18 @@
       choice, which can take focus; a fieldset cannot. -#}
   <fieldset class="field{% if errors.outcome %} has-error{% endif %}"{% if errors.outcome %} aria-describedby="error-outcome"{% endif %}>
     <legend>How did it go?</legend>
-    {% if errors.outcome %}<p class="field-error" id="error-outcome"><span class="visually-hidden">Error: </span>{{ errors.outcome }}</p>{% endif %}
+    {% if errors.outcome %}<p class="field-error" id="error-outcome"><span class="visually-hidden">Please check: </span>{{ errors.outcome }}</p>{% endif %}
     {% for value, text in outcomes %}
     {% set rid = 'field-outcome' if loop.first else 'field-outcome-' ~ loop.index %}
     <div class="choice"><input type="radio" id="{{ rid }}" name="outcome" value="{{ value }}"{% if value == values.outcome %} checked{% endif %}{% if errors.outcome %} aria-invalid="true"{% endif %}><label for="{{ rid }}">{{ text }}</label></div>
     {% endfor %}
   </fieldset>
-  {{ field('screen_reader', 'Screen reader you used', values.screen_reader, hint='For example NVDA, JAWS, VoiceOver, TalkBack or none.', error=errors.screen_reader) }}
-  {{ field('device', 'Device you used', values.device, hint='For example a cheap Android phone, an iPhone or a Windows laptop.', error=errors.device) }}
-  {{ select('sight_onset', 'When did you become blind or low vision?', sight_onsets, values.sight_onset or 'prefer_not', hint='This helps people whose experience is like yours. You do not have to say.', error=errors.sight_onset) }}
+  {{ field('screen_reader', 'Screen reader, braille display or magnifier you used', values.screen_reader, hint='For example NVDA with a Focus 40 braille display, VoiceOver, TalkBack, ZoomText, or none.', error=errors.screen_reader) }}
+  {{ field('device', 'Device you used', values.device, hint='For example a low-cost Android phone, an iPhone or a Windows laptop.', error=errors.device) }}
+  {{ select('sight_onset', sight_label, sight_onsets, values.sight_onset or 'prefer_not', hint='Shown with your report, so members with a similar history can compare.', error=errors.sight_onset) }}
   {{ field('language', 'Language you used it in', values.language, hint='For example English, Arabic or Spanish.', error=errors.language) }}
   {{ textarea('note', 'What happened', values.note, hint='What worked, what did not, and any tips for others.', error=errors.note, rows=5) }}
-  <button type="submit" class="button button-primary">Save my report</button>
+  <button type="submit" class="button button-primary">Save how it worked for me</button>
 </form>
 {% else %}
 <p><a href="/login?next={{ request.url.path|urlencode }}">Sign in to tell others whether it worked for you</a>. Anyone can read reports without signing in.</p>

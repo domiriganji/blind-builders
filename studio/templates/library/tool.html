@@ -3,7 +3,16 @@
 {% block content %}
 <h1>{{ title }}</h1>
 {{ error_summary(errors or problem_errors or volunteer_errors) }}
-<p><strong>Status:</strong> {% if upkeep.open %}needs help after an update. {{ upkeep.open|length }} open {{ 'problem' if upkeep.open|length == 1 else 'problems' }}{% else %}no open problems reported{% endif %}. {{ upkeep.volunteers|length }} {{ 'member is' if upkeep.volunteers|length == 1 else 'members are' }} helping keep it working.</p>
+<p><strong>Status:</strong> {% if upkeep.open %}needs help after an update. {{ upkeep.open|length }} open {{ 'problem' if upkeep.open|length == 1 else 'problems' }}{% else %}no open problems reported{% endif %}. {% if upkeep.volunteers %}{{ upkeep.volunteers|length }} {{ 'member is' if upkeep.volunteers|length == 1 else 'members are' }} helping keep it working.{% else %}No volunteers yet.{% endif %}</p>
+<nav aria-label="On this page">
+  <p>What you can do here:</p>
+  <ul>
+    <li><a href="#problem-form-title">Report a problem after an update</a></li>
+    <li><a href="#volunteer-form-title">I can help keep this working</a></li>
+    <li><a href="#report-form-title">Did it work for you?</a></li>
+  </ul>
+</nav>
+{% set back = 'library' %}
 {% include "find/_facts.html" %}
 
 <h2 id="problems-title">Open problems ({{ upkeep.open|length }})</h2>
@@ -23,14 +32,14 @@
 <p>No member has reported a problem that is still open.</p>
 {% endif %}
 
-<h2 id="problem-form-title">Report a problem after an update</h2>
+<h2 id="problem-form-title" tabindex="-1">Report a problem after an update</h2>
+<p>Use this if it worked before and an update broke it. To say how it works for you in general, use Did it work for you? below.</p>
 {% if user %}
-<p>Did it stop working after your screen reader, phone, computer or an AI tool updated? Tell the members who help keep it working.</p>
 <form method="post" action="/library/tool/{{ tool.id }}/problem" novalidate>
   {{ csrf_input() }}
   {{ textarea('problem', 'What broke', problem_values.problem, hint='What you did, what you expected and what happened instead.', error=problem_errors.problem, rows=4, required=true) }}
   {{ field('after_update', 'After which update', problem_values.after_update, hint="For example NVDA 2026.1, iOS 27, Android 17 or Claude Code 2.1.208. Write 'not sure' if you do not know.", error=problem_errors.after_update, required=true) }}
-  <button type="submit" class="button button-primary">Report the problem</button>
+  <button type="submit" class="button button-primary">Send the problem to helpers</button>
 </form>
 {% else %}
 <p><a href="/login?next={{ request.url.path|urlencode }}">Sign in to report a problem</a>.</p>
@@ -45,7 +54,8 @@
 <p>Nobody has volunteered yet. You could be the first.</p>
 {% endif %}
 
-<h2 id="volunteer-form-title">I can help keep this working</h2>
+<h2 id="volunteer-form-title" tabindex="-1">I can help keep this working</h2>
+<p>Use this to offer your skills for when the tool needs fixing.</p>
 {% if user %}
 {% if my_volunteer %}<p>You are on the list as {{ user.pseudonym }}. You can change what you said below.</p>{% endif %}
 <form method="post" action="/library/tool/{{ tool.id }}/volunteer" novalidate>
@@ -67,7 +77,6 @@
 {% endif %}
 
 {% set report_action = '/find/tool/' ~ tool.id ~ '/report' %}
-{% set back = 'library' %}
 {% include "find/_reports.html" %}
 
 <h2>More</h2>

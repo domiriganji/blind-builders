@@ -1,18 +1,30 @@
 {% extends "base.html" %}
 {% from "_macros.html" import csrf_input, field, select, textarea %}
+{% macro pager(label) %}
+{#- Numbered pages with big, well-spaced targets (the button classes give 44 pixels, .actions the gaps). -#}
+<nav aria-label="{{ label }}" class="actions">
+  {% if prev_url %}<a class="button button-secondary" href="{{ prev_url }}">Previous page ({{ page - 1 }} of {{ pages }})</a>{% endif %}
+  {% for url in page_urls %}<a class="button button-secondary" href="{{ url }}"{% if loop.index == page %} aria-current="page"{% endif %}>Page {{ loop.index }}</a>{% endfor %}
+  {% if next_url %}<a class="button button-secondary" href="{{ next_url }}">Next page ({{ page + 1 }} of {{ pages }})</a>{% endif %}
+</nav>
+{% endmacro %}
 {% block content %}
 <h1>{{ title }}</h1>
-<p class="lead">Before you build something, see whether it already exists and whether it worked for blind people like you. Members report whether each tool worked with their screen reader and device. Nobody on the site tests the tools; the reports come from members.</p>
+<p class="lead">Before you build something, see whether it already exists and whether it worked for other members. Members report how each tool worked with their own screen reader, braille display or magnifier. Nobody on the site tests the tools; the reports come from members.</p>
 
-<h2>Search the directory</h2>
-<form method="get" action="/find">
-  {{ field('q', 'What are you looking for?', q, type='search', hint='A few words, for example: describe photos, NVDA, podcast.') }}
+<h2 id="search-title">Search the directory</h2>
+<form method="get" action="/find" role="search" aria-labelledby="search-title">
+  {{ field('q', 'What are you looking for?', q, type='search', hint='A few words, for example: describe photos, NVDA, podcast.', mark_optional=false) }}
   {{ select('category', 'Category', [('', 'All categories')] + category_pairs, category) }}
-  <button type="submit" class="button button-primary">Search</button>
+  <button type="submit" class="button button-primary">Search the directory</button>
 </form>
+<p><a href="/find/ask{{ ('?need=' ~ (q|urlencode)) if q else '' }}">Not in the directory? Ask the AI to search the web</a></p>
 
 <h2 id="results-title">{% if searching %}Tools that match your search ({{ total }}){% else %}All tools in the directory ({{ total }}){% endif %}</h2>
-{% if pages > 1 %}<p>Page {{ page }} of {{ pages }}. Tools are in alphabetical order.</p>{% endif %}
+{% if pages > 1 %}
+<p>Page {{ page }} of {{ pages }}. Tools are in alphabetical order.</p>
+{{ pager('Pages of tools') }}
+{% endif %}
 {% if tools %}
 <ul class="item-list">
 {% for t in tools %}
@@ -26,14 +38,7 @@
 {% else %}
 <p>No tools in the directory match. Try fewer words or another category, or ask the AI to search the web below.</p>
 {% endif %}
-{% if prev_url or next_url %}
-<nav aria-label="Pages of results">
-  <ul>
-    {% if prev_url %}<li><a href="{{ prev_url }}">Previous page of tools</a></li>{% endif %}
-    {% if next_url %}<li><a href="{{ next_url }}">Next page of tools</a></li>{% endif %}
-  </ul>
-</nav>
-{% endif %}
+{% if pages > 1 %}{{ pager('Pages of tools, after the list') }}{% endif %}
 {% if searching %}<p><a href="/find">Show all tools</a></p>{% endif %}
 
 <h2 id="ask-title">Ask the AI to search the web</h2>
@@ -44,6 +49,7 @@
   {{ textarea('need', 'What do you want to do or make?', q, hint='For example: an app that reads restaurant menus aloud in Arabic.', rows=3, required=true) }}
   <button type="submit" class="button button-primary">Search the web</button>
 </form>
+<p>It usually takes one to three minutes. You will get a page that says what is happening, then the result.</p>
 {% else %}
 <p><a href="/login?next=/find/ask">Sign in to ask the AI to search the web</a>.</p>
 {% endif %}
@@ -51,13 +57,13 @@
 {% if searches %}
 <h2>Your earlier web searches</h2>
 <ul>
-{% for s in searches %}<li><a href="/find/search/{{ s.id }}">{{ s.need }}</a> ({{ s.created_at[:10] }})</li>{% endfor %}
+{% for s in searches %}<li><a href="/find/search/{{ s.id }}">{{ s.need }}</a> ({{ s.created_at|date_words }})</li>{% endfor %}
 </ul>
 {% endif %}
 
 <h2>Help the directory grow</h2>
 <ul>
   <li><a href="/find/add">Add a tool you know to the directory</a></li>
-  <li><a href="/library">See the Tool library: tools blind people made for each other</a></li>
+  <li><a href="/library">See the Tool library: tools blind and low-vision people made for each other</a></li>
 </ul>
 {% endblock %}

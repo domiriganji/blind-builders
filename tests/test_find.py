@@ -83,11 +83,11 @@ def test_index_lists_every_tool_in_pages(client):
     assert f"<h1>Find before you build: page 1 of {pages}</h1>" in r.text
     assert f"<title>Find before you build: page 1 of {pages} – " in r.text
     assert f"All tools in the directory ({len(SEED)})" in r.text
-    assert "Next page of tools" in r.text and "Page 1 of" in r.text
+    assert f"Next page (2 of {pages})" in r.text and "Page 1 of" in r.text
     assert r.text.count('<h3><a href="/find/tool/') == find.PAGE_SIZE
     last = client.get("/find?page=99")
     assert f"<h1>Find before you build: page {pages} of {pages}</h1>" in last.text
-    assert "Previous page of tools" in last.text and "Next page of tools" not in last.text
+    assert f"Previous page ({pages - 1} of {pages})" in last.text and "Next page (" not in last.text
     assert "No member has reported on this yet" in r.text
 
 
@@ -121,7 +121,7 @@ def test_tool_page_shows_facts_and_link(client):
     tid = tool_id("QuickMail")
     r = client.get(f"/find/tool/{tid}")
     assert r.status_code == 200
-    assert "<h1>QuickMail</h1>" in r.text
+    assert "<h1>QuickMail: member reports</h1>" in r.text
     assert 'href="https://github.com/kellylford/QuickMail" rel="noopener noreferrer"' in r.text
     assert "The site's research says a blind or low-vision person made this." in r.text
     assert "See QuickMail in the Tool library" in r.text
@@ -141,11 +141,12 @@ def test_report_summary_counts(client):
     post(client, f"/find/tool/{tid}/report", {"outcome": "worked", "screen_reader": "TalkBack"})
     switch_user(client, "c@example.com", "C")
     r = post(client, f"/find/tool/{tid}/report", {"outcome": "partly", "screen_reader": "nvda"})
-    assert r.status_code == 200 and "Your report is saved" in r.text
-    expected = "3 members: 2 worked, 1 partly worked. Screen readers: NVDA, TalkBack"
+    assert r.status_code == 200 and "<h1>Your report is saved: Seeing AI</h1>" in r.text
+    expected = "3 members: 2 worked, 1 partly worked. Tools used: NVDA, TalkBack"
     assert expected in r.text
     assert expected in client.get("/find", params={"q": "Seeing AI"}).text
-    assert "Sight: lost sight later in life" in r.text and "Language: Arabic" in r.text
+    assert "Blind or low vision since: later in life" in r.text and "Language: Arabic" in r.text
+    assert "lost sight" not in r.text.lower() and "Sight:" not in r.text
     assert "Reads menus well." in r.text
     assert "What members say (4 reports)" in r.text
     assert find.report_summaries([tid])[tid] == expected
@@ -169,12 +170,14 @@ def test_report_validation(user_client):
     tid = tool_id("Glide")
     r = post(user_client, f"/find/tool/{tid}/report", {"note": "no outcome"})
     assert r.status_code == 400
-    assert "Glide: please fix the problems" in r.text and 'href="#field-outcome"' in r.text
+    assert "<h1>Please check 1 answer: Glide: member reports</h1>" in r.text and 'href="#field-outcome"' in r.text
     assert "no outcome" in r.text  # the note is kept
     r = post(user_client, f"/find/tool/{tid}/report", {"outcome": "worked", "sight_onset": "sometimes"})
     assert r.status_code == 400 and 'href="#field-sight_onset"' in r.text
+    assert "Choose one of the listed answers for Blind or low vision since, or choose Prefer not to say." in r.text
     r = post(user_client, f"/find/tool/{tid}/report", {"outcome": "worked", "note": "My card is 4111 1111 1111 1111"})
-    assert r.status_code == 400 and "card number, password or one-time code" in r.text
+    assert r.status_code == 400 and find.PUBLIC_SECRET_MESSAGE.replace('"', "&#34;") in r.text
+    assert "Everyone can read this page." in r.text and "My card is 4111" in r.text  # kept, so it can be edited
     assert count("SELECT COUNT(*) FROM tool_reports") == 0
 
 
@@ -204,7 +207,8 @@ def test_add_tool_and_duplicate_url(user_client):
                                         "description": "A kitchen scale app that speaks.", "category": "Everyday tasks",
                                         "maintainer": "Sam"})
     assert r.status_code == 200
-    assert "<h1>Talking Scale</h1>" in r.text and "Talking Scale is now in the directory" in r.text
+    assert "<h1>Added to the directory: Talking Scale</h1>" in r.text
+    assert "Talking Scale is now in the directory. Thank you." in r.text
     assert "added by Member" in r.text
     new_id = tool_id("Talking Scale")
     assert str(r.url).endswith(f"/find/tool/{new_id}")
@@ -215,25 +219,25 @@ def test_add_tool_and_duplicate_url(user_client):
     r = post(user_client, "/find/add", {"name": "Copy", "url": "http://www.scale.example.org/app/",
                                         "description": "", "category": ""})
     assert str(r.url).endswith(f"/find/tool/{new_id}")
-    assert "already in the directory" in r.text
+    assert "<h1>Already in the directory: Talking Scale</h1>" in r.text and "it was not added again" in r.text
     assert count("SELECT COUNT(*) FROM tools WHERE name = 'Copy'") == 0
     # A researched tool's address also counts.
     r = post(user_client, "/find/add", {"name": "QM", "url": "https://github.com/kellylford/QuickMail",
                                         "description": "x", "category": "Other"})
-    assert "<h1>QuickMail</h1>" in r.text
+    assert "<h1>Already in the directory: QuickMail</h1>" in r.text
 
 
 def test_add_tool_validation(user_client):
     r = post(user_client, "/find/add", {"name": "", "url": "javascript:alert(1)", "description": "", "category": "Nope"})
     assert r.status_code == 400
-    assert "Add a tool to the directory: please fix the problems" in r.text
+    assert "<h1>Please check 4 answers: Add a tool to the directory</h1>" in r.text
     for name in ("name", "url", "description", "category"):
         assert f'href="#field-{name}"' in r.text
     r = post(user_client, "/find/add", {"name": "X", "url": "ftp://example.org", "description": "d", "category": "Other"})
-    assert r.status_code == 400 and "starts with http:// or https://" in r.text
+    assert r.status_code == 400 and "for example example.com/tool or https://example.com/tool" in r.text
     r = post(user_client, "/find/add", {"name": "X", "url": "https://example.org", "description": "my password is hunter2",
                                         "category": "Other"})
-    assert r.status_code == 400 and "card number, password or one-time code" in r.text
+    assert r.status_code == 400 and "password, PIN, code, card number or API key" in r.text
     assert count("SELECT COUNT(*) FROM tools WHERE source = 'member'") == 0
 
 
@@ -252,6 +256,11 @@ def test_url_helpers():
     assert not find.valid_url("javascript:alert(1)")
     assert not find.valid_url("https://exa mple.org")
     assert not find.valid_url("example.org")
+    assert find.with_scheme("example.org/tool") == "https://example.org/tool"
+    assert find.with_scheme("www.Example.org") == "https://www.Example.org"
+    assert find.with_scheme("https://example.org") == "https://example.org"
+    for unchanged in ("not a web address", "javascript:alert(1)", "ftp://example.org", "localhost", "a@b.org"):
+        assert find.with_scheme(unchanged) == unchanged
     assert find.norm_url("HTTP://WWW.Example.org/a/") == find.norm_url("https://example.org/a")
     assert find.norm_url("https://example.org/a?b=1") != find.norm_url("https://example.org/a")
 
@@ -296,7 +305,10 @@ def test_ai_search_journey(user_client, fake_ai):
     assert fake_ai.purposes() == ["find.search", "find.extract"]
     kind, _, kwargs = fake_ai.calls[0]
     assert kind == "research" and NEED in kwargs["prompt"] and "NVDA" in kwargs["prompt"]
-    assert "screen reader" in kwargs["system"] and "No emoji" in kwargs["system"]
+    assert "braille display" in kwargs["system"] and "who tested it and how" in kwargs["system"]
+    # The shared member note is added by the AI client; the section prompt does not repeat it.
+    for repeated in ("No emoji", "uses a screen reader", "Put the summary first", "blind people"):
+        assert repeated not in kwargs["system"] and repeated not in fake_ai.calls[1][2]["system"]
     assert "Menu Reader: https://menu.example.org/about" in fake_ai.calls[1][2]["prompt"]
     schema = fake_ai.calls[1][2]["schema"]
     assert schema["additionalProperties"] is False
@@ -311,31 +323,54 @@ def test_ai_search_journey(user_client, fake_ai):
     assert "In our directory." in page and "Read member reports on AI Content Describer" in page
     assert "Add Menu Reader to the directory" in page
     assert "Bad Link" not in page and "javascript:" not in page
-    assert "Web pages the AI used (2)" in page
+    assert "Web pages the AI used (2)" in page and ">Source: Menu Reader</a>" in page
     assert len(re.findall(r"<h1[ >]", page)) == 1
     # The search is listed on the index for its owner.
     assert f'href="/find/search/{search_id}"' in user_client.get("/find").text
 
 
-def test_add_candidate_to_directory(user_client, fake_ai):
+def test_add_candidate_opens_a_filled_in_form_first(user_client, fake_ai):
     run_search(user_client, fake_ai)
     search_id = count("SELECT MAX(id) FROM find_searches")
+    page = user_client.get(f"/find/search/{search_id}").text
+    assert f'href="/find/add?search={search_id}&amp;candidate=1">Add Menu Reader to the directory</a>' in page
+    # The old button address opens the same form; nothing is added yet.
     r = post(user_client, f"/find/search/{search_id}/add", {"candidate": "1"})
-    assert r.status_code == 200 and "<h1>Menu Reader</h1>" in r.text
+    assert r.status_code == 200 and "<h1>Add Menu Reader to the directory</h1>" in r.text
+    assert 'value="https://menu.example.org"' in r.text and ">Reads restaurant menus aloud.</textarea>" in r.text
+    assert count("SELECT COUNT(*) FROM tools WHERE name = 'Menu Reader'") == 0
+    # Kept as the AI wrote it, the description says so.
+    r = post(user_client, "/find/add", {"name": "Menu Reader", "url": "https://menu.example.org",
+                                        "description": "Reads restaurant menus aloud.", "category": "Everyday tasks",
+                                        "search": str(search_id), "candidate": "1"})
+    assert r.status_code == 200 and "<h1>Added to the directory: Menu Reader</h1>" in r.text
     assert "Description written by the AI during a web search; not checked." in r.text
     with db.session() as conn:
         row = conn.execute("SELECT * FROM tools WHERE name = 'Menu Reader'").fetchone()
     assert row["source"] == "member" and row["added_by"] == user_id() and row["url"] == "https://menu.example.org"
+    assert row["category"] == "Everyday tasks"
     page = user_client.get(f"/find/search/{search_id}").text
     assert "Add Menu Reader to the directory" not in page and "Read member reports on Menu Reader" in page
-    # Adding again, or adding one that was already there, shows the existing entry.
+    # Adding one that is already there shows the existing entry.
     r = post(user_client, f"/find/search/{search_id}/add", {"candidate": "1"})
-    assert "already in the directory" in r.text
+    assert "<h1>Already in the directory: Menu Reader</h1>" in r.text
     assert count("SELECT COUNT(*) FROM tools WHERE name = 'Menu Reader'") == 1
     r = post(user_client, f"/find/search/{search_id}/add", {"candidate": "0"})
-    assert "<h1>AI Content Describer</h1>" in r.text
+    assert "<h1>Already in the directory: AI Content Describer</h1>" in r.text
     assert post(user_client, f"/find/search/{search_id}/add", {"candidate": "9"}).status_code == 404
     assert post(user_client, f"/find/search/{search_id}/add", {"candidate": "x"}).status_code == 404
+    assert user_client.get(f"/find/add?search={search_id}&candidate=9").status_code == 404
+
+
+def test_a_description_the_member_rewrote_is_theirs(user_client, fake_ai):
+    run_search(user_client, fake_ai)
+    search_id = count("SELECT MAX(id) FROM find_searches")
+    post(user_client, "/find/add", {"name": "Menu Reader", "url": "https://menu.example.org",
+                                    "description": "Reads menus aloud with TalkBack.", "category": "Other",
+                                    "search": str(search_id), "candidate": "1"})
+    with db.session() as conn:
+        assert conn.execute("SELECT description FROM tools WHERE name = 'Menu Reader'").fetchone()[0] == \
+            "Reads menus aloud with TalkBack."
 
 
 def test_search_results_belong_to_their_owner(client, fake_ai):
@@ -345,6 +380,9 @@ def test_search_results_belong_to_their_owner(client, fake_ai):
     switch_user(client, "other@example.com", "Other")
     assert client.get(f"/find/search/{search_id}").status_code == 404
     assert post(client, f"/find/search/{search_id}/add", {"candidate": "1"}).status_code == 404
+    assert client.get(f"/find/add?search={search_id}&candidate=1").status_code == 404
+    assert post(client, "/find/add", {"name": "Menu Reader", "url": "https://menu.example.org", "description": "d",
+                                      "category": "Other", "search": str(search_id), "candidate": "1"}).status_code == 404
     assert f'href="/find/search/{search_id}"' not in client.get("/find").text
     assert count("SELECT COUNT(*) FROM tools WHERE name = 'Menu Reader'") == 0
     post(client, "/logout")
@@ -363,7 +401,7 @@ def test_ask_page_prefills_need(client):
 
 def test_ask_validation(user_client, fake_ai):
     r = post(user_client, "/find/ask", {"need": "hi"})
-    assert r.status_code == 400 and "Ask the AI what already exists: please fix the problems" in r.text
+    assert r.status_code == 400 and "<h1>Please check 1 answer: Ask the AI what already exists</h1>" in r.text
     r = post(user_client, "/find/ask", {"need": "x" * 600})
     assert r.status_code == 400 and "Keep it under" in r.text
     r = post(user_client, "/find/ask", {"need": "pay with card 4111 1111 1111 1111 please"})
@@ -411,13 +449,14 @@ def assert_h1_is_title(html: str) -> str:
     return h1
 
 
-def test_every_error_page_h1_says_please_fix(user_client, fake_ai):
+def test_every_error_page_h1_counts_the_answers_to_check(user_client, fake_ai):
     tid = tool_id("Glide")
     for url, data in [("/find/add", {"name": ""}), ("/find/ask", {"need": "hi"}),
                       (f"/find/tool/{tid}/report", {"note": "x"})]:
         r = post(user_client, url, data)
         assert r.status_code == 400
-        assert assert_h1_is_title(r.text).endswith(": please fix the problems"), url
+        assert re.match(r"Please check \d+ answers?: ", assert_h1_is_title(r.text)), url
+        assert "please fix" not in r.text.lower() and "Error: " not in r.text, url
 
 
 def test_search_page_h1_says_what_was_found(client):
@@ -459,7 +498,7 @@ def test_a_report_sent_twice_is_saved_once(user_client):
     data = {"outcome": "partly", "screen_reader": "TalkBack", "note": "Slow to start."}
     post(user_client, f"/find/tool/{tid}/report", data)
     r = post(user_client, f"/find/tool/{tid}/report", data)
-    assert "This report was already saved" in r.text
+    assert "<h1>Your report was already saved: Glide</h1>" in r.text and "It is listed once" in r.text
     assert count("SELECT COUNT(*) FROM tool_reports") == 1
     post(user_client, f"/find/tool/{tid}/report", {**data, "outcome": "worked"})
     assert count("SELECT COUNT(*) FROM tool_reports") == 2  # a changed report is a new report
@@ -572,7 +611,7 @@ def test_seed_corrections_reach_an_existing_directory(client):
 def test_unreadable_web_addresses_get_an_error_not_a_crash(user_client):
     for url in ("http://[broken/x", "https://example.org:99999/", "https://:80/"):
         r = post(user_client, "/find/add", {"name": "X", "url": url, "description": "d", "category": "Other"})
-        assert r.status_code == 400 and "starts with http:// or https://" in r.text, url
+        assert r.status_code == 400 and "for example example.com/tool" in r.text, url
         r = post(user_client, "/library/add", {"name": "X", "url": url, "description": "d", "category": "Other",
                                                "made_by_blind": "yes"})
         assert r.status_code == 400, url
@@ -598,3 +637,165 @@ def test_seed_facts_follow_the_research_corrections():
     assert "could not confirm" in by_name["PiccyBot"]["description"]
     assert "prototype" in by_name["Envision"]["description"]
     assert "building had just started" in by_name["acter"]["description"]
+
+
+# ----- ease of use: titles that say what happened, fixing your own entries ---------------------
+
+def test_after_a_report_the_title_says_it_is_saved_and_the_page_opens_at_the_top(user_client):
+    tid = tool_id("Glide")
+    r = post(user_client, f"/find/tool/{tid}/report", {"outcome": "worked"}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == f"/find/tool/{tid}"  # no #fragment
+    page = user_client.get(r.headers["location"]).text
+    assert assert_h1_is_title(page) == "Your report is saved: Glide"
+    assert "Thank you for letting other members know." in page
+    # The outcome is said once; the page then has its usual name again.
+    assert assert_h1_is_title(user_client.get(f"/find/tool/{tid}").text) == "Glide: member reports"
+
+
+def test_find_and_library_pages_of_one_tool_have_different_names(client):
+    tid = tool_id("QuickMail")
+    find_h1 = assert_h1_is_title(client.get(f"/find/tool/{tid}").text)
+    library_h1 = assert_h1_is_title(client.get(f"/library/tool/{tid}").text)
+    assert find_h1 == "QuickMail: member reports" and library_h1 == "QuickMail in the Tool library"
+
+
+def test_a_web_address_without_https_is_completed(user_client):
+    r = post(user_client, "/find/add", {"name": "Talking Scale", "url": "scale.example.org/app",
+                                        "description": "A kitchen scale app that speaks.", "category": "Other"})
+    assert r.status_code == 200 and "<h1>Added to the directory: Talking Scale</h1>" in r.text
+    assert "Talking Scale is now in the directory, at https://scale.example.org/app. Thank you." in r.text
+    with db.session() as conn:
+        assert conn.execute("SELECT url FROM tools WHERE name = 'Talking Scale'").fetchone()[0] == \
+            "https://scale.example.org/app"
+    # With another answer to check, the address is shown exactly as typed.
+    r = post(user_client, "/find/add", {"name": "", "url": "other.example.org", "description": "d", "category": "Other"})
+    assert r.status_code == 400 and 'value="other.example.org"' in r.text
+
+
+def test_the_member_who_added_a_tool_can_change_it(user_client):
+    post(user_client, "/find/add", {"name": "Talking Scale", "url": "https://scale.example.org/app",
+                                    "description": "A kitchen scale app.", "category": "Other"})
+    tid = tool_id("Talking Scale")
+    page = user_client.get(f"/find/tool/{tid}").text
+    assert f'href="/find/tool/{tid}/change?back=find">Change the details of Talking Scale</a>' in page
+    r = user_client.get(f"/find/tool/{tid}/change")
+    assert assert_h1_is_title(r.text) == "Change the details of Talking Scale"
+    assert 'value="https://scale.example.org/app"' in r.text and "Keep it as it is and go back" in r.text
+    r = post(user_client, f"/find/tool/{tid}/change", {"name": "Talking Scale", "url": "", "description": "",
+                                                       "category": "Other", "back": "find"})
+    assert r.status_code == 400
+    assert assert_h1_is_title(r.text) == "Please check 2 answers: Change the details of Talking Scale"
+    r = post(user_client, f"/find/tool/{tid}/change", {"name": "Talking Kitchen Scale", "url": "scale.example.org/v2",
+                                                       "description": "A kitchen scale app that speaks.",
+                                                       "category": "Everyday tasks", "back": "find"})
+    assert assert_h1_is_title(r.text) == "Your changes are saved: Talking Kitchen Scale"
+    assert "The web address is saved as https://scale.example.org/v2." in r.text
+    with db.session() as conn:
+        row = conn.execute("SELECT * FROM tools WHERE id = ?", (tid,)).fetchone()
+    assert (row["name"], row["url"], row["category"]) == ("Talking Kitchen Scale", "https://scale.example.org/v2",
+                                                          "Everyday tasks")
+    # Another entry's address is refused.
+    r = post(user_client, f"/find/tool/{tid}/change", {"name": "X", "url": "https://github.com/kellylford/QuickMail",
+                                                       "description": "d", "category": "Other"})
+    assert r.status_code == 400 and "QuickMail already has this web address" in r.text
+
+
+def test_the_member_who_added_a_tool_can_remove_it_after_a_confirmation(user_client):
+    post(user_client, "/find/add", {"name": "Talking Scale", "url": "https://scale.example.org/app",
+                                    "description": "A kitchen scale app.", "category": "Other"})
+    tid = tool_id("Talking Scale")
+    post(user_client, f"/find/tool/{tid}/report", {"outcome": "worked"})  # their own report does not block it
+    r = user_client.get(f"/find/tool/{tid}/remove")
+    assert assert_h1_is_title(r.text) == "Remove Talking Scale from the directory"
+    assert "with what you wrote about it there. This cannot be undone." in r.text
+    assert "Keep it and go back" in r.text and count("SELECT COUNT(*) FROM tools WHERE id = ?", (tid,)) == 1
+    r = post(user_client, f"/find/tool/{tid}/remove")
+    assert str(r.url).endswith("/find")
+    assert assert_h1_is_title(r.text) == "Removed from the directory: Talking Scale"
+    assert count("SELECT COUNT(*) FROM tools WHERE id = ?", (tid,)) == 0
+    assert count("SELECT COUNT(*) FROM tool_reports WHERE tool_id = ?", (tid,)) == 0
+
+
+def test_only_the_adder_can_change_and_only_until_others_join(client):
+    register(client, "adder@example.com", "Adder")
+    post(client, "/find/add", {"name": "Talking Scale", "url": "https://scale.example.org/app",
+                               "description": "A kitchen scale app.", "category": "Other"})
+    tid = tool_id("Talking Scale")
+    switch_user(client, "other@example.com", "Other")
+    assert "Change the details of" not in client.get(f"/find/tool/{tid}").text
+    assert client.get(f"/find/tool/{tid}/change").status_code == 404
+    assert post(client, f"/find/tool/{tid}/remove").status_code == 404
+    assert client.get(f"/find/tool/{tool_id('QuickMail')}/change").status_code == 404  # research entries
+    post(client, f"/find/tool/{tid}/report", {"outcome": "partly"})
+    post(client, "/logout")
+    post(client, "/login", {"email": "adder@example.com", "password": "correct horse battery"})
+    assert "Change the details of" not in client.get(f"/find/tool/{tid}").text
+    r = post(client, f"/find/tool/{tid}/remove")
+    assert "can no longer be changed or removed here" in r.text
+    assert count("SELECT COUNT(*) FROM tools WHERE id = ?", (tid,)) == 1
+
+
+def test_members_can_delete_their_own_report(client):
+    tid = tool_id("Glide")
+    register(client, "a@example.com", "A")
+    post(client, f"/find/tool/{tid}/report", {"outcome": "did_not_work"})
+    rid = count("SELECT MAX(id) FROM tool_reports")
+    page = client.get(f"/find/tool/{tid}").text
+    assert f'href="/find/tool/{tid}/reports/{rid}/delete?back=find">Delete your report: It did not work for me, ' in page
+    r = client.get(f"/find/tool/{tid}/reports/{rid}/delete")
+    assert assert_h1_is_title(r.text) == "Delete your report on Glide"
+    assert "This cannot be undone." in r.text and "Keep it and go back" in r.text
+    switch_user(client, "b@example.com", "B")
+    assert "Delete your report" not in client.get(f"/find/tool/{tid}").text
+    assert client.get(f"/find/tool/{tid}/reports/{rid}/delete").status_code == 404
+    assert post(client, f"/find/tool/{tid}/reports/{rid}/delete").status_code == 404
+    post(client, "/logout")
+    post(client, "/login", {"email": "a@example.com", "password": "correct horse battery"})
+    r = post(client, f"/find/tool/{tid}/reports/{rid}/delete", {"back": "find"})
+    assert assert_h1_is_title(r.text) == "Your report is deleted: Glide"
+    assert count("SELECT COUNT(*) FROM tool_reports") == 0
+
+
+def test_directory_search_is_a_named_search_with_numbered_pages(client):
+    register(client)
+    r = client.get("/find")
+    pages = (len(SEED) + find.PAGE_SIZE - 1) // find.PAGE_SIZE
+    assert '<form method="get" action="/find" role="search" aria-labelledby="search-title">' in r.text
+    assert re.search(r'<label for="field-q">What are you looking for\?</label>', r.text)  # not "(optional)"
+    assert ">Search the directory</button>" in r.text and ">Search</button>" not in r.text
+    assert r.text.count('aria-label="Pages of tools') == 2  # before and after the list
+    assert '<a class="button button-secondary" href="/find" aria-current="page">Page 1</a>' in r.text
+    assert f'href="/find?page={pages}">Page {pages}</a>' in r.text
+    assert "It usually takes one to three minutes." in r.text
+    r = client.get("/find", params={"q": "talking scale"})
+    assert '<a href="/find/ask?need=talking%20scale">Not in the directory? Ask the AI to search the web</a>' in r.text
+
+
+def test_tool_forms_do_not_offer_the_members_own_name(user_client):
+    for path in ("/find/add", "/library/add"):
+        page = user_client.get(path).text
+        for name in ("name", "url"):
+            assert re.search(rf'<input id="field-{name}" name="{name}"[^>]*autocomplete="off"', page), (path, name)
+
+
+def test_report_form_welcomes_braille_and_magnifier_users_and_dates_read_as_words(user_client):
+    tid = tool_id("Glide")
+    page = user_client.get(f"/find/tool/{tid}").text
+    assert "Screen reader, braille display or magnifier you used" in page and "ZoomText" in page
+    assert "low-cost Android phone" in page and "cheap" not in page
+    assert '<label for="field-sight_onset">Blind or low vision since <span class="optional">(optional)</span>' in page
+    assert ">Birth or early childhood<" in page and ">Later in life<" in page
+    assert ">Save how it worked for me</button>" in page
+    post(user_client, f"/find/tool/{tid}/report", {"outcome": "worked"})
+    main = user_client.get(f"/find/tool/{tid}").text.split("<main", 1)[1]
+    assert not re.search(r"\d{4}-\d{2}-\d{2}", main)
+    assert re.search(r"Reported \d{1,2} [A-Z][a-z]+ \d{4}\.", main)
+
+
+def test_find_pages_use_respectful_words(user_client):
+    pages = [user_client.get(p).text for p in ("/find", "/find/add", "/find/ask", f"/find/tool/{tool_id('Glide')}")]
+    for page in pages:
+        for phrase in ("like you", "lost sight", "blind people made", "please fix", "cheap"):
+            assert phrase not in page, phrase
+    assert "whether it worked for other members" in pages[0]
+    assert "tools blind and low-vision people made for each other" in pages[0]

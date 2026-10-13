@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% from "_macros.html" import post_button, sources_list %}
+{% from "_macros.html" import sources_list %}
 {% block content %}
 <h1>{{ title }}</h1>
 <h2>Summary</h2>
-<p>Written by the AI on {{ search.created_at[:10] }} after searching the web.</p>
+<p>Written by the AI on {{ search.created_at|date_words }} after searching the web.</p>
 {% if search.result_md %}{{ search.result_md|markdown|shift_headings(2) }}{% else %}<p>The AI did not write a summary this time. The tools it found, if any, are listed below.</p>{% endif %}
 <div class="panel">
 <p><strong>What was checked:</strong> nothing. The AI found these tools on the web and its notes may be wrong or out of date. Nobody on this site has checked them. Where members have tried a tool and reported on it, their reports are shown below.</p>
@@ -22,8 +22,7 @@
     {% if c.tool_id %}
     <p><strong>In our directory.</strong> {{ c.summary }}. <a href="/find/tool/{{ c.tool_id }}">Read member reports on {{ c.name }}</a></p>
     {% else %}
-    <p>Not in our directory yet, so no member has reported on it.</p>
-    {{ post_button('/find/search/' ~ search.id ~ '/add', 'Add ' ~ c.name ~ ' to the directory', hidden={'candidate': loop.index0}) }}
+    <p>Not in our directory yet, so no member has reported on it. <a href="/find/add?search={{ search.id }}&amp;candidate={{ loop.index0 }}">Add {{ c.name }} to the directory</a> (you check the details first).</p>
     {% endif %}
   </li>
 {% endfor %}
@@ -32,7 +31,7 @@
 <p>The AI did not find any tools with a web address for this need. That does not prove nothing exists. Try describing it another way, or <a href="/help/ask?title={{ ('Does a tool exist for: ' ~ search.need)|urlencode }}">ask the community</a>.</p>
 {% endif %}
 
-{{ sources_list(search.sources, 2, 'Web pages the AI used') }}
+{{ sources_list(sources, 2, 'Web pages the AI used') }}
 
 <h2>What next</h2>
 <ul>

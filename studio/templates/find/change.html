@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf_input, error_summary, checkbox %}
+{% block content %}
+<h1>{{ title }}</h1>
+{{ error_summary(errors) }}
+<p class="lead">Your changes show for everyone as soon as you save them.</p>
+<form method="post" action="/find/tool/{{ tool.id }}/change" novalidate>
+  {{ csrf_input() }}
+  <input type="hidden" name="back" value="{{ back }}">
+  {% include "find/_tool_fields.html" %}
+  {{ checkbox('made_by_blind', 'A blind or low-vision person made this', values.made_by_blind, hint='Tick only if you know. Tools made by blind or low-vision people also appear in the Tool library.') }}
+  <button type="submit" class="button button-primary">Save my changes</button>
+</form>
+<p><a href="/{{ back }}/tool/{{ tool.id }}">Keep it as it is and go back</a></p>
+{% endblock %}

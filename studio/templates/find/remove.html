@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% from "_macros.html" import post_button %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p class="lead">This removes {{ tool.name }} from the directory{% if tool.made_by_blind %} and the Tool library{% endif %} for everyone{% if has_own_words %}, with what you wrote about it there{% endif %}. This cannot be undone.</p>
+<div class="actions">
+  {{ post_button('/find/tool/' ~ tool.id ~ '/remove', 'Remove ' ~ tool.name, 'primary') }}
+  <a href="/{{ back }}/tool/{{ tool.id }}">Keep it and go back</a>
+</div>
+{% endblock %}
