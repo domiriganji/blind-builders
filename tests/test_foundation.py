@@ -497,6 +497,23 @@ def test_expired_form_comes_back_with_the_words_in_it(user_client):
     assert "never kept anywhere" not in page
 
 
+def test_words_sent_from_another_website_are_never_kept(user_client):
+    """A form another website sends (a forged form) never puts its text in a member's forms."""
+    evil = {"origin": "https://evil.example", "referer": "https://evil.example/page"}
+    r = user_client.post("/account/profile", data=_profile_form("Planted Words", "stale-token"), headers=evil,
+                         follow_redirects=False)
+    assert r.status_code == 400 and "Planted Words" not in r.text
+    assert "Planted Words" not in user_client.get("/account/profile").text
+    with db.session() as conn:
+        conn.execute("UPDATE users SET session_epoch = session_epoch + 1")  # signed out
+    user_client.post("/account/profile", data=_profile_form("Planted Again", "x"), headers=evil)
+    post(user_client, "/login", {"email": "amina@example.com", "password": "correct horse battery",
+                                 "next": "/account/profile"})
+    assert "Planted Again" not in user_client.get("/account/profile").text
+    with db.session() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM kept_forms").fetchone()[0] == 0
+
+
 def test_expired_form_without_a_page_to_return_to_shows_the_words(user_client):
     data = {"csrf_token": "stale-token", "idea": "A quiz about rivers, " * 300}
     r = user_client.post("/build/new", data=data)

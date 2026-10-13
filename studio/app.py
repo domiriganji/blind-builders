@@ -140,9 +140,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     for m in modules:
         app.include_router(m.router)
 
+    def _from_another_site(request: Request) -> bool:
+        """True if the browser says the form was sent from another website. Browsers send Origin with every
+        form POST; words from another site are never kept, so no site can put text in a member's forms."""
+        origin = request.headers.get("origin")
+        if origin is None:
+            referer = request.headers.get("referer")
+            return bool(referer) and urlparse(referer).netloc != request.url.netloc
+        return urlparse(origin).netloc != request.url.netloc
+
     @app.exception_handler(LoginRequired)
     async def login_required(request: Request, exc: LoginRequired):
-        if request.method == "POST":
+        if request.method == "POST" and not _from_another_site(request):
             # Signed out before the form was sent: keep the member's words, to put back after signing in.
             try:
                 form = await request.form()
@@ -172,6 +181,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return "", ""
 
     async def form_expired(request: Request, exc: FormExpired):
+        if _from_another_site(request):
+            exc.form = {}  # never keep or show words another website sent
         page = _same_site_referer(request)
         if "studio_session" not in request.cookies:
             heading = "This form needs refreshing: nothing was saved"
