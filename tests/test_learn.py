@@ -204,7 +204,11 @@ def test_question_journey_answer_helpful_once_and_mark_answered(client):
     register(client, "amina@example.com", "Amina")
     qid = ask(client)
     page = client.get(f"/help/q/{qid}")
+    assert h1s(page.text) == ["Your question is posted: NVDA does not read my preview"]
+    # What happened is said once: a reload shows the question's own heading.
+    page = client.get(f"/help/q/{qid}")
     assert h1s(page.text) == ["NVDA does not read my preview"]
+    assert "Members can now read and answer it." not in page.text
     assert '<p class="lead">Not answered yet.</p>' in page.text and "0 answers" not in page.text
     assert "using NVDA on a Windows laptop." in page.text
     assert "Get a suggested answer from the AI while you wait" in page.text
@@ -356,7 +360,7 @@ def test_only_one_ai_answer_even_if_saved_twice(user_client, fake_ai):
         with pytest.raises(Exception):
             conn.execute("INSERT INTO help_answers (question_id, user_id, body, is_ai, created_at)"
                          " VALUES (?, ?, 'Two', 1, 'now')", (qid, user_id()))
-    assert learn._write_ai_answer(Ctx(), fake_ai, qid, user_id(), "s", "p") == f"/help/q/{qid}?done=ai#answers"
+    assert learn._write_ai_answer(Ctx(), fake_ai, qid, user_id(), "s", "p") == f"/help/q/{qid}/ai-ready"
     assert len(answers_for(qid)) == 1 and len(fake_ai.calls) == 1
 
 
@@ -523,9 +527,10 @@ def test_after_each_action_the_heading_says_what_happened(client, fake_ai):
     switch_user(client, "c@example.com", "Cy")
     r = post(client, f"/help/q/{qid}/answers/{answer_id}/helpful")
     assert h1s(r.text) == ["You marked an answer as helpful: Where is the preview"]
-    # Only the site's own words can appear: anything else in ?done= is ignored.
+    # Nothing in the address can make the heading claim something happened.
     r = client.get(f"/help/q/{qid}?done=%3Cscript%3EYou%20won")
     assert h1s(r.text) == ["Where is the preview"] and "<script>You won" not in r.text
+    assert h1s(client.get(f"/help/q/{qid}?done=helpful").text) == ["Where is the preview"]
 
 
 def test_without_ai_the_heading_says_no_answer_was_written(no_ai_app):
@@ -797,3 +802,56 @@ def test_guides_follow_the_voice_guide(slug):
         assert words not in text, f"{slug}: {words!r}"
     assert not re.search(r"\b(January|February|March|April|May|June|July|August|September|October|November|"
                          r"December) \d{1,2}, \d{4}", text), f"{slug}: write dates as '18 June 2026'"
+
+
+def test_after_an_action_the_address_has_no_fragment_and_is_not_replayed(client, fake_ai):
+    """A #fragment made the browser scroll after enhance.js focused the notice, so focus dropped to the page
+    body (final walk-through). And the outcome lived in ?done=, so a reload or a shared link said it again."""
+    fake_ai.on("help.ai_answer", "Try browse mode.")
+    register(client, "a@example.com", "Amina")
+    qid = ask(client, title="Where is the preview")
+    switch_user(client, "b@example.com", "Bo")
+    r = post(client, f"/help/q/{qid}/answer", {"body": "It is on the result page."}, follow_redirects=False)
+    assert r.headers["location"] == f"/help/q/{qid}"
+    page = client.get(r.headers["location"])
+    assert h1s(page.text) == ["Your answer is posted: Where is the preview"]
+    assert 'role="status">Thank you for helping. Your answer is under Answers.</p>' in page.text
+    assert h1s(client.get(f"/help/q/{qid}").text) == ["Where is the preview"]  # a reload
+    answer_id = answers_for(qid)[0]["id"]
+    switch_user(client, "c@example.com", "Cy")
+    r = post(client, f"/help/q/{qid}/answers/{answer_id}/helpful", follow_redirects=False)
+    assert r.headers["location"] == f"/help/q/{qid}"
+    r = post(client, f"/help/q/{qid}/answers/{answer_id}/helpful", follow_redirects=False)
+    assert r.headers["location"] == f"/help/q/{qid}"
+    # The job page's link for the AI's answer says it once, to the asker only.
+    assert client.get(f"/help/q/{qid}/ai-ready", follow_redirects=False).headers["location"] == f"/help/q/{qid}"
+    post(client, "/logout")
+    post(client, "/login", {"email": "a@example.com", "password": "correct horse battery"})
+    r = post(client, f"/help/q/{qid}/ai")
+    assert h1s(r.text) == ["The AI&#39;s suggested answer is ready: Where is the preview"]
+    assert "No member has checked it." in r.text and "#" not in str(r.url)
+    switch_user(client, "d@example.com", "Di")
+    assert h1s(client.get(f"/help/q/{qid}/ai-ready").text) == ["Where is the preview"]
+
+
+def test_answers_heading_counts_member_answers_without_a_sad_zero(client, fake_ai):
+    fake_ai.on("help.ai_answer", "Try browse mode.")
+    register(client, "a@example.com", "Amina")
+    qid = ask(client, title="Where is the preview")
+    page = client.get(f"/help/q/{qid}").text
+    assert "Answers (0)" not in page and "No answers yet." not in page and 'id="answers"' not in page
+    r = post(client, f"/help/q/{qid}/ai")
+    assert '<h2 id="answers">Answers</h2>' in r.text  # the AI's suggestion is not counted as a member answer
+    switch_user(client, "b@example.com", "Bo")
+    r = post(client, f"/help/q/{qid}/answer", {"body": "It is on the result page."})
+    assert '<h2 id="answers">Answers (1)</h2>' in r.text
+
+
+def test_first_website_guide_describes_the_checks_the_result_page_shows(client):
+    """The result page shows checks in a browser ("How it looks on screen", with contrast), so the guide must
+    not say the checks never look at the screen or check colour contrast (docs/VOICE.md 4.8)."""
+    page = client.get("/learn/first-website").text
+    assert "Checks on the code" in page and "Checks in a browser" in page and "How it looks on screen" in page
+    assert "text that stands out clearly from what is behind it" in page
+    assert "look at the screen" not in page and "colour contrast" not in page
+    assert "whether buttons do what their names say" in page

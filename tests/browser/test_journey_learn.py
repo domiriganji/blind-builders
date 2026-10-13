@@ -192,6 +192,9 @@ def test_ask_get_an_ai_answer_answer_and_mark_helpful(live, browser):
     helper.get_by_role("button", name="Post your answer").click()
     helper.wait_for_load_state()
     assert_heading(helper, f"Your answer is posted: {title}")
+    # No #fragment: focus stays on the notice that says what happened, which is on screen.
+    assert "#" not in helper.url
+    expect(helper.locator("main .messages")).to_be_focused()
     expect(helper.get_by_role("heading", level=3, name="Answer from Ben")).to_be_visible()
     # no "This helped me" for your own answer; the AI's answer has its own, clearly named button
     expect(helper.get_by_role("button", name="This helped me (answer 1, from Ben)")).to_have_count(0)
@@ -212,6 +215,9 @@ def test_ask_get_an_ai_answer_answer_and_mark_helpful(live, browser):
     ben_button.click()
     reader.wait_for_load_state()
     assert_heading(reader, f"You marked an answer as helpful: {title}")
+    assert "#" not in reader.url
+    expect(reader.locator("main .messages")).to_be_focused()
+    assert reader.evaluate("window.scrollY") < 200  # the notice and the h1 are on screen
     expect(reader.get_by_text("1 member found this helpful.")).to_be_visible()
     expect(reader.get_by_text("You marked this answer as helpful.")).to_be_visible()
     audit(reader, problems, "question after marking helpful")

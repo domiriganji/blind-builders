@@ -150,7 +150,10 @@ def test_tool_page_shows_dated_research_and_sources(client):
     # The research is a plain lead sentence, then a list of short sentences.
     assert "<p>Claude Code has a screen reader mode.</p>" in page.text
     assert "<li>Known gap: costs are shown only when you exit.</li>" in page.text
-    assert "<li>It needs version 2.1.181 or later and was officially released on 20 July 2026.</li>" in page.text
+    # The two version numbers in the research and its sources are told apart.
+    assert "<li>It first appeared in version 2.1.181, so any version from then on has it.</li>" in page.text
+    assert "<li>The release notes first listed it in version 2.1.208, on 14 July 2026.</li>" in page.text
+    assert "Claude Code version 2.1.208 release notes, the first to list screen reader mode" in page.text
     # "No reports" is said once, under the h1; the section only says what to do next.
     assert page.text.count("reports yet") == 1 and "No member reports yet." in page.text
     assert "<h2>Member reports</h2>" in page.text
@@ -172,9 +175,12 @@ def test_member_reports_and_it_appears_everywhere(user_client):
     page = user_client.get("/ai-tools/claude-code")
     assert 'name="tool_version"' in page.text and 'value="NVDA"' in page.text  # screen reader prefilled
     r = report(user_client)
-    assert r.status_code == 303 and r.headers["location"].startswith("/ai-tools/claude-code#report-")
+    # No #fragment: the browser would scroll past the focused notice, so focus would drop to the page body.
+    assert r.status_code == 303 and r.headers["location"] == "/ai-tools/claude-code"
     page = user_client.get("/ai-tools/claude-code")
     assert "is published" in page.text
+    assert ('role="status">Your report on Claude Code (terminal) version 2.1.296 is published. It is under Member '
+            'reports, with the reports on version 2.1.296.</p>') in page.text
     assert "<h2>Member reports: 1</h2>" in page.text
     assert "<h3>Version 2.1.296: 1 report</h3>" in page.text
     assert "You can tell when it has finished: yes" in page.text
@@ -184,12 +190,12 @@ def test_member_reports_and_it_appears_everywhere(user_client):
     assert "<strong>NVDA+6</strong>" in page.text  # member text rendered as Markdown
     today = date_words(datetime.now(timezone.utc).strftime("%Y-%m-%d"))
     assert f"Reported on {today} by you" in page.text
-    assert "Member verdict in the last 90 days: 0 usable, 1 with workarounds, 0 not usable" in page.text
+    assert "Member verdict in the last 90 days: 1 usable with workarounds." in page.text
     assert not re.search(r"\d{4}-\d{2}-\d{2}", page.text.split("<main", 1)[1])  # dates in words
     assert not check_html(page.text).errors
     index = user_client.get("/ai-tools")
     row = table_row(index.text, "Claude Code (terminal)")
-    assert row.endswith(f"0 usable, 1 with workarounds, 0 not usable. Latest report: {today}.")
+    assert row.endswith(f"1 usable with workarounds. Latest report: {today}.")  # no sad "0 usable"
     assert "1 member report in the last 90 days" in index.text
 
 
@@ -255,6 +261,9 @@ def test_form_starts_from_the_members_own_report(user_client):
     report(user_client, tool_version="2.1.296", changes_reviewable="yes", note="Newest note.")
     page = user_client.get("/ai-tools/claude-code").text
     assert "This form starts with your report for version 2.1.296." in page
+    # The checks hold the earlier answers, so the page does not say they start at Not tested.
+    assert "Your earlier answers are filled in. Change any that are different now." in page
+    assert "start at Not tested" not in page
     assert 'name="tool_version" type="text" value="2.1.296"' in page
     assert 'name="changes_reviewable" value="yes" checked' in page and "Newest note.</textarea>" in page
     # Each own report has a link to change it, which starts the form from that report.
@@ -263,11 +272,16 @@ def test_form_starts_from_the_members_own_report(user_client):
     assert f'href="/ai-tools/claude-code?edit={old_id}#report-form-title">Change your report for version 2.1.290</a>' in page
     page = user_client.get(f"/ai-tools/claude-code?edit={old_id}").text
     assert "This form starts with your report for version 2.1.290." in page
+    # Changing a report is its own page: its own title and h1, and a form heading that can take focus.
+    assert "<h1>Change your report on Claude Code (terminal) version 2.1.290</h1>" in page
+    assert ('<h2 id="report-form-title" tabindex="-1">Change your report on Claude Code (terminal) version '
+            '2.1.290</h2>') in page
     assert 'name="overall" value="not_usable" checked' in page and "Old note.</textarea>" in page
     # Another tool starts with the screen reader and operating system from the newest report, nothing else.
     page = user_client.get("/ai-tools/cursor").text
     assert 'name="os" type="text" value="Windows 11"' in page and 'value="2026.2"' in page
     assert 'name="tool_version" type="text" value=""' in page and "starts with your report" not in page
+    assert "The six checks start at Not tested. Change the ones you tried." in page
     # Someone else's report id, or nonsense, starts from the member's own newest report.
     assert "for version 2.1.296." in user_client.get("/ai-tools/claude-code?edit=abc").text
 
@@ -355,11 +369,11 @@ def test_table_summary_counts_only_last_90_days(user_client):
     insert_report("cursor", uid, "not_usable", days_ago=91, version="3.10")
     insert_report("cursor", uid, "not_usable", days_ago=300, version="2.0")
     row = table_row(user_client.get("/ai-tools").text, "Cursor")
-    assert "2 usable, 0 with workarounds, 0 not usable" in row
+    assert "2 usable." in row and "0 " not in row.replace("2026", "")
     insert_report("lovable", uid, "usable", days_ago=120)
     assert "No reports in the last 90 days" in table_row(user_client.get("/ai-tools").text, "Lovable")
     page = user_client.get("/ai-tools/cursor")
-    assert "Member verdict in the last 90 days: 2 usable, 0 with workarounds, 0 not usable" in page.text
+    assert "Member verdict in the last 90 days: 2 usable." in page.text
 
 
 def test_reports_grouped_by_version_newest_first(client):
@@ -382,13 +396,15 @@ def test_group_by_version_and_regression_helpers():
         return {"tool_version": version, "overall": overall, "date": date}
     groups = ai_tools.group_by_version([r("2.0", "usable"), r("V2.0 ", "usable"), r("1.9", "not_usable")])
     assert [g["version"] for g in groups] == ["2.0", "1.9"]
-    assert groups[0]["verdict"] == "2 usable, 0 with workarounds, 0 not usable"
+    assert groups[0]["verdict"] == "2 usable"
     assert ai_tools.regression_notice(groups) == ""  # newer version is better, no notice
     assert ai_tools.regression_notice(groups[:1]) == ""
     worse = ai_tools.group_by_version([r("2.0", "not_usable"), r("1.9", "usable")])
     assert "version 2.0" in ai_tools.regression_notice(worse)
     assert ai_tools.verdict_text({"usable": 4, "usable_with_workarounds": 1, "not_usable": 0}) == \
-        "4 usable, 1 with workarounds, 0 not usable"
+        "4 usable, 1 usable with workarounds"
+    assert ai_tools.verdict_text({"usable": 0, "usable_with_workarounds": 2, "not_usable": 1}) == \
+        "2 usable with workarounds, 1 not usable"
     assert ai_tools.verdict_text({"usable": 0, "usable_with_workarounds": 0, "not_usable": 0}) == "No reports yet"
 
 
@@ -648,3 +664,17 @@ def test_seeded_facts_match_the_research():
     assert "date could not be confirmed" in notes["codex-desktop"]
     # PR 20564 made the setting turn every animation off; detection came on 16 September 2026.
     assert "tui.animations=false turns every animation off" in notes["codex-cli"]
+
+
+def test_report_form_hint_is_said_once_per_group(user_client):
+    """A group's hint is on its fieldset and on one radio only, not after every option; the Overall hint is on
+    "Usable with workarounds", the option it explains. An error is still tied to every radio."""
+    page = user_client.get("/ai-tools/claude-code").text
+    assert page.count('aria-describedby="hint-turn_end"') == 2  # the fieldset and the first radio
+    assert page.count('aria-describedby="hint-overall"') == 2
+    assert re.search(r'value="usable_with_workarounds"[^>]*aria-describedby="hint-overall"', page)
+    assert not re.search(r'value="not_usable"[^>]*aria-describedby="hint-overall"', page)
+    r = report(user_client, overall="")
+    assert r.status_code == 400
+    assert len(re.findall(r'aria-describedby="[^"]*error-overall"', r.text)) == 4  # the fieldset and every radio
+    assert not check_html(r.text).errors

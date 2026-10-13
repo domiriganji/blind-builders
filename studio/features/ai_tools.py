@@ -21,7 +21,7 @@ from fastapi.responses import JSONResponse
 
 from .. import db
 from ..sensitive import PUBLIC_SUFFIX, SECRET_MESSAGE, find_secret
-from ..web import checked_form, current_user, date_words, error_title, redirect, render, require_user
+from ..web import checked_form, current_user, date_words, error_title, flash, redirect, render, require_user
 
 router = APIRouter(prefix="/ai-tools")
 NAV = {"label": "AI tools report", "url": "/ai-tools",
@@ -185,11 +185,14 @@ def _empty_counts() -> dict:
 
 
 def verdict_text(counts: dict) -> str:
-    """Plain summary like '4 usable, 1 with workarounds, 0 not usable', or 'No reports yet'."""
+    """Plain summary like '4 usable, 1 usable with workarounds', or 'No reports yet'. Only verdicts members
+    gave are listed: no sad '0 not usable' (docs/VOICE.md 4.10)."""
     if not sum(counts.values()):
         return "No reports yet"
-    return (f"{counts['usable']} usable, {counts['usable_with_workarounds']} with workarounds, "
-            f"{counts['not_usable']} not usable")
+    parts = [f"{counts[key]} {words}" for key, words in
+             (("usable", "usable"), ("usable_with_workarounds", "usable with workarounds"), ("not_usable", "not usable"))
+             if counts.get(key)]
+    return ", ".join(parts)
 
 
 def note_parts(note: str) -> tuple[str, list[str]]:
@@ -471,6 +474,10 @@ def _tool_page(request: Request, tool: dict, *, values: dict | None = None, erro
         values, starting_from = _starting_values(user, mine, edit_id)
     own_versions = sorted({r["tool_version"] for r in mine})
     title = f"How {tool['name']} works with screen readers"
+    # ?edit=<id> of the member's own report: the page is about changing it, so its title and h1 say so.
+    editing = bool(starting_from and edit_id and starting_from["id"] == edit_id)
+    if editing:
+        title = f"Change your report on {tool['name']} version {starting_from['tool_version']}"
     if errors:
         title = error_title(title, errors)
     elif isinstance(done, dict) and done.get("slug") == tool["slug"] and done.get("text"):
@@ -482,7 +489,8 @@ def _tool_page(request: Request, tool: dict, *, values: dict | None = None, erro
                   reports_about=REPORTS_ABOUT, research_about=RESEARCH_ABOUT,
                   checks=CHECKS, choices={k: choices_for(k) for k in CHECK_KEYS}, overall_options=OVERALL,
                   values=values, errors=errors or {}, summary_errors=summary_errors(errors or {}),
-                  own_versions=own_versions, starting_from=starting_from, status_code=status_code)
+                  own_versions=own_versions, starting_from=starting_from, editing=editing,
+                  status_code=status_code)
 
 
 def _own_report(tool: dict, report_id: int, user: dict):
@@ -571,19 +579,21 @@ async def add_report(request: Request, slug: str, user: dict = Depends(require_u
             if existing:
                 conn.execute(f"UPDATE ai_tool_reports SET {', '.join(c + ' = ?' for c in columns)}, created_at = ? WHERE id = ?",
                              tuple(values[c] for c in columns) + (db.now(), existing))
-                report_id = existing
                 text = f"Your report on {tool['name']} version {values['tool_version']} is updated"
             else:
-                cur = conn.execute(
+                conn.execute(
                     f"INSERT INTO ai_tool_reports (tool_id, user_id, {', '.join(columns)}, created_at)"
                     f" VALUES (?, ?, {', '.join('?' for _ in columns)}, ?)",
                     (tool["id"], user["id"]) + tuple(values[c] for c in columns) + (db.now(),))
-                report_id = cur.lastrowid
                 text = f"Your report on {tool['name']} version {values['tool_version']} is published"
     if too_many:
         return _tool_page(request, tool, values=values, errors=too_many, status_code=400)
     _done(request, tool["slug"], text)
-    return redirect(f"/ai-tools/{tool['slug']}#report-{report_id}")
+    # No #fragment: the browser would scroll to it after enhance.js put focus on this notice, so the notice
+    # would be off screen and focus would drop to the page body.
+    flash(request, f"{text}. It is under Member reports, with the reports on version {values['tool_version']}.",
+          "success")
+    return redirect(f"/ai-tools/{tool['slug']}")
 
 
 @router.post("/{slug}/reports/{report_id}/delete")

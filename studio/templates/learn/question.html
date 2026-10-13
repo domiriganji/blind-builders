@@ -21,8 +21,11 @@
 {{ post_button('/help/q/' ~ question.id ~ '/reopen', 'Mark as not answered yet') }}
 {% endif %}
 {% endif %}
-<h2 id="answers">Answers ({{ answers|length }})</h2>
+{# The status under the h1 already says whether there are answers, so an empty list is not said again, and the
+   count in the heading is of member answers only, never a sad "(0)" (docs/VOICE.md 4.10 and 4.13). #}
 {% if answers %}
+{% set member_count = answers|rejectattr('is_ai')|list|length %}
+<h2 id="answers">Answers{% if member_count %} ({{ member_count }}){% endif %}</h2>
 <ol class="item-list">
 {% for a in answers %}
   <li id="answer-{{ a.id }}">
@@ -51,8 +54,6 @@
   </li>
 {% endfor %}
 </ol>
-{% else %}
-<p>No answers yet.</p>
 {% endif %}
 <h2>Answer this question</h2>
 {% if user %}

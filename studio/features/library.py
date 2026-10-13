@@ -7,9 +7,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from .. import db
 from ..web import checked_form, current_user, date_words, error_title, flash, redirect, render, require_user
-from .find import (CATEGORY_PAIRS, KEEP, OUTCOMES, PUBLIC_SECRET_MESSAGE, SIGHT_LABEL, SIGHT_ONSETS, can_change,
-                   clean, find_by_url, insert_member_tool, long_message, looks_secret, pop_done, report_defaults,
-                   report_summaries, reports_for, saved_at, set_done, too_long, tool_or_404, validate_tool)
+from .find import (CATEGORY_PAIRS, KEEP, NO_REPORTS, OUTCOMES, PUBLIC_SECRET_MESSAGE, SIGHT_LABEL, SIGHT_ONSETS, already_listed,
+                   can_change, clean, find_by_url, insert_member_tool, long_message, looks_secret, pop_done,
+                   report_defaults, report_summaries, reports_for, saved_at, set_done, too_long, tool_or_404,
+                   validate_tool)
 
 router = APIRouter(prefix="/library")
 NAV = {"label": "Tool library", "url": "/library",
@@ -82,7 +83,7 @@ def index(request: Request, show: str = "all"):
     tools = [r for r in rows if show == "all" or r["needs_upkeep"]]
     title = NAV["label"] if show == "all" else "Tool library: tools that need help after an update"
     return render(request, "library/index.html", title=title, tools=tools, show=show, filters=FILTERS,
-                  counts=counts, summaries=report_summaries([t["id"] for t in tools]))
+                  counts=counts, summaries=report_summaries([t["id"] for t in tools]), no_reports=NO_REPORTS)
 
 
 @router.get("/add")
@@ -100,11 +101,12 @@ async def add_tool(request: Request, user: dict = Depends(require_user)):
         if existing:
             if existing["made_by_blind"]:
                 set_done(request, "library", existing["id"], f"Already in the Tool library: {existing['name']}")
-                flash(request, "It has this web address, so it was not added again.", "info")
+                flash(request, already_listed(existing, values.get("name", ""), "the Tool library"), "info")
                 return redirect(f"/library/tool/{existing['id']}")
             set_done(request, "find", existing["id"], f"Already in the directory: {existing['name']}")
-            flash(request, "It has this web address, but nobody has recorded that a blind or low-vision person "
-                           "made it, so it is not in the Tool library.", "info")
+            flash(request, f"{existing['name']} is already in the directory at this web address, but nobody has "
+                           "recorded that a blind or low-vision person made it, so it is not in the Tool library. "
+                           "This is its page.", "info")
             return redirect(f"/find/tool/{existing['id']}")
     if errors:
         return render(request, "library/add.html", title=error_title(ADD_TITLE, errors),
@@ -233,6 +235,7 @@ async def volunteer(request: Request, tool_id: int, user: dict = Depends(require
                      (tool_id, user["id"], values["skills"], db.now()))
     if existed:
         set_done(request, "library", tool_id, f"How you can help is updated: {tool['name']}")
+        flash(request, "Thank you. Other members now see what you wrote.", "success")
     else:
         set_done(request, "library", tool_id, f"You are on the helper list: {tool['name']}")
         flash(request, "Thank you for helping.", "success")
@@ -247,6 +250,8 @@ async def stop_volunteering(request: Request, tool_id: int, user: dict = Depends
         cur = conn.execute("DELETE FROM upkeep_volunteers WHERE tool_id = ? AND user_id = ?", (tool_id, user["id"]))
     if cur.rowcount:
         set_done(request, "library", tool_id, f"You are off the helper list: {tool['name']}")
+        flash(request, f"You are off the helper list for {tool['name']}. What you wrote about how you can help "
+                       "is removed. You can add yourself again at any time.", "success")
     else:
         set_done(request, "library", tool_id, f"You were not on the helper list: {tool['name']}")
         flash(request, "Nothing changed.", "info")

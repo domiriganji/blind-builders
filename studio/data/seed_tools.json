@@ -32,7 +32,7 @@
  {
   "name": "Gemini CLI screen reader setting",
   "url": "https://github.com/google-gemini/gemini-cli/blob/main/docs/reference/configuration.md",
-  "description": "Google's coding agent for the terminal has a screen reader setting that shows plain text; a reported screen reader cursor bug was closed without a fix in May 2026, and since June 18, 2026 it no longer answers free, Google AI Pro or Ultra accounts (paid API keys still work).",
+  "description": "Google's coding agent for the terminal has a screen reader setting that shows plain text; a reported screen reader cursor bug was closed without a fix in May 2026, and it stopped answering free, Google AI Pro and Ultra accounts on 18 June 2026 (paid API keys still work).",
   "category": "AI coding",
   "made_by_blind": false,
   "maintainer": "Google",
@@ -742,7 +742,7 @@
  {
   "name": "Blind Vibe Coding directory",
   "url": "https://github.com/jamalmazrui/BlindVibeCoding",
-  "description": "A link-checked list of tools, guides and communities for building software with AI without sight, with notes on the evidence for each.",
+  "description": "A link-checked list of tools, guides and communities for building software with AI using a screen reader, braille display or magnifier, with notes on the evidence for each.",
   "category": "Other",
   "made_by_blind": true,
   "maintainer": "Jamal Mazrui",

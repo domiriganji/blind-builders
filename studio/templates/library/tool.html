@@ -3,7 +3,9 @@
 {% block content %}
 <h1>{{ title }}</h1>
 {{ error_summary(errors or problem_errors or volunteer_errors) }}
-<p><strong>Status:</strong> {% if upkeep.open %}needs help after an update. {{ upkeep.open|length }} open {{ 'problem' if upkeep.open|length == 1 else 'problems' }}{% else %}no open problems reported{% endif %}. {% if upkeep.volunteers %}{{ upkeep.volunteers|length }} {{ 'member is' if upkeep.volunteers|length == 1 else 'members are' }} helping keep it working.{% else %}No volunteers yet.{% endif %}</p>
+{#- Problems and helpers are each said once, in their own section (docs/VOICE.md 4.13). Only a tool that
+    needs help says so under the h1 too, because that is what a member most needs to know first. -#}
+{% if upkeep.open %}<p><strong>Needs help after an update:</strong> {{ upkeep.open|length }} open {{ 'problem' if upkeep.open|length == 1 else 'problems' }}.</p>{% endif %}
 <nav aria-label="On this page">
   <p>What you can do here:</p>
   <ul>
@@ -15,7 +17,7 @@
 {% set back = 'library' %}
 {% include "find/_facts.html" %}
 
-<h2 id="problems-title">Open problems ({{ upkeep.open|length }})</h2>
+<h2 id="problems-title">Open problems{% if upkeep.open %} ({{ upkeep.open|length }}){% endif %}</h2>
 {% if upkeep.open %}
 <ul class="item-list">
 {% for p in upkeep.open %}
@@ -45,7 +47,7 @@
 <p><a href="/login?next={{ request.url.path|urlencode }}">Sign in to report a problem</a>.</p>
 {% endif %}
 
-<h2 id="volunteers-title">Members helping keep it working ({{ upkeep.volunteers|length }})</h2>
+<h2 id="volunteers-title">Members helping keep it working{% if upkeep.volunteers %} ({{ upkeep.volunteers|length }}){% endif %}</h2>
 {% if upkeep.volunteers %}
 <ul>
 {% for v in upkeep.volunteers %}<li>{{ v.pseudonym }}: {{ v.skills }}</li>{% endfor %}

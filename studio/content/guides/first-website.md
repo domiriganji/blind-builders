@@ -66,7 +66,11 @@ The preview runs separately from this site, so a mistake in your website cannot 
 
 ## Step 5: understand the checks
 
-The site checks the HTML of each page automatically. These checks look for:
+The site checks each version in two ways. The result page shows both.
+
+### Checks on the code
+
+The site reads the HTML of each page. These checks look for:
 
 - a language set on the page, and a page title;
 - exactly one main heading, and headings that do not skip levels;
@@ -77,7 +81,22 @@ The site checks the HTML of each page automatically. These checks look for:
 - header cells on data tables, no sound that plays by itself;
 - a page light enough for slow phones.
 
-These checks read the code. They do not run a screen reader or look at the screen. They do not check how a real screen reader reads the page, in speech or in braille, whether the page looks right to sighted visitors, colour contrast, zooming to 400 percent on a phone, or whether buttons do what their names say. That is why peer checks exist.
+### Checks in a browser
+
+The site also opens each page in a browser, on a phone and on a computer, and checks how it looks on screen. On the result page this is under "How it looks on screen". These checks look for:
+
+- nothing that makes the page scroll sideways;
+- text that stands out clearly from what is behind it, so it is easy to read;
+- no text that is cut off, and no text on top of other text;
+- buttons, links and form fields big enough to tap on a phone;
+- text big enough to read on a phone;
+- every picture loading.
+
+An AI also looks at pictures of the pages and says what it notices. That is its opinion, and the result page labels it as one.
+
+### What no check covers
+
+The checks do not run a screen reader. They do not check how a real screen reader reads the page, in speech or in braille, zooming to 400 percent on a phone, or whether buttons do what their names say. That is why peer checks exist.
 
 Taylor Arndt, a blind developer who tests apps made with AI, keeps finding the same problems: buttons announced only as "button", pages with no headings, and focus that never moves after an action ([Taylor Arndt](https://taylorarndt.substack.com/p/everybody-is-vibe-coding-here-is)). Check for these in your preview.
 

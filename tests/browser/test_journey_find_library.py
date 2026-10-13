@@ -253,7 +253,9 @@ def test_add_a_tool_by_hand(live, browser):
     page.get_by_label("What it does").fill("Copy.")
     page.get_by_role("button", name="Add the tool").click()
     expect_h1(page, "Already in the directory: Talking Scale")
-    expect(page.get_by_role("status").filter(has_text="it was not added again")).to_be_visible()
+    expect(page.get_by_role("status").filter(
+        has_text="Talking Scale is already in the directory at this web address, so Copy was not added again."
+    )).to_be_visible()
     pages.assert_clean()
 
 
@@ -270,7 +272,8 @@ def test_library_add_report_resolve_and_volunteer(live, browser):
     sign_up(page, base, "library@example.com", "Library Member")
     page.goto(base + "/library")
     pages.check("library")
-    page.get_by_role("link", name=re.compile(r"^Need help after an update \(\d+\)$")).click()
+    # No sad "(0)" when no tool needs help (docs/VOICE.md 4.10).
+    page.get_by_role("link", name=re.compile(r"^Need help after an update( \(\d+\))?$")).click()
     assert page.get_by_role("navigation", name="Show tools").get_by_role("link", name=re.compile("Need help")) \
         .get_attribute("aria-current") == "page"
     pages.check("library upkeep filter")
@@ -334,6 +337,10 @@ def test_library_add_report_resolve_and_volunteer(live, browser):
     expect_h1(page, "How you can help is updated: Talking Timer")
     page.get_by_role("button", name="Take me off the list").click()
     expect_h1(page, "You are off the helper list: Talking Timer")
+    # The notice says what happened and gets focus, as after every other library action.
+    expect(page.locator("main .messages")).to_be_focused()
+    expect(page.get_by_role("status").filter(has_text="What you wrote about how you can help is removed.")
+           ).to_be_visible()
     pages.check("library after leaving the list")
 
     # A report from the library page comes back to the library page.
